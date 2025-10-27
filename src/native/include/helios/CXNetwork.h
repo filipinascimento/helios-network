@@ -32,6 +32,22 @@ extern "C" {
 #define CXDefaultNeighborStorage CXNeighborListType
 #endif
 
+#ifndef CXNETWORK_VERSION_MAJOR
+#define CXNETWORK_VERSION_MAJOR 0
+#endif
+
+#ifndef CXNETWORK_VERSION_MINOR
+#define CXNETWORK_VERSION_MINOR 2
+#endif
+
+#ifndef CXNETWORK_VERSION_PATCH
+#define CXNETWORK_VERSION_PATCH 0
+#endif
+
+#ifndef CXNETWORK_VERSION_STRING
+#define CXNETWORK_VERSION_STRING "0.2.0"
+#endif
+
 /**
  * Enumerates the supported attribute payload types. Values should match the
  * constants surfaced to the JavaScript bindings so the two layers stay in sync.
@@ -109,6 +125,10 @@ typedef struct {
 
 typedef CXSelector* CXNodeSelectorRef;
 typedef CXSelector* CXEdgeSelectorRef;
+
+// Metadata
+/** Returns the semantic version string for the compiled library (e.g. "1.2.3"). */
+CX_EXTERN const char* CXNetworkVersionString(void);
 
 // Network lifecycle
 /** Allocates a new network with default capacities. */

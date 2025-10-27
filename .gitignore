@@ -160,7 +160,7 @@ Temporary Items
 node_modules
 compiled
 /docs/api
-package-lock.json
+/package-lock.json
 
 # Meson build directory
 /builddir

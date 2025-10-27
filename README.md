@@ -24,6 +24,7 @@ The project is designed to run inside the browser (via ES modules) and under Nod
 10. [JavaScript API Documentation](#javascript-api-documentation)
 11. [Generating Docs](#generating-docs)
 12. [Contributing](#contributing)
+13. [Packaging](#packaging)
 
 ---
 
@@ -228,6 +229,7 @@ Follow the instructions in each subdirectory README to build artefacts and run t
 The public headers under `src/native/include/helios/` define the C API, intended for native use or alternate language bindings. Highlights:
 
 - **`CXNetwork.h`** – Core network struct and lifecycle functions (`CXNewNetwork`, `CXNetworkAddNodes`, attribute management).
+- **Version helpers** – `CXNetworkVersionString()` (native) and the `CXNETWORK_VERSION_*` macros expose the semantic version baked into the library so native consumers can assert compatibility.
 - **`CXNeighborStorage.h`** – Abstractions for node adjacency storage (list vs. map) with iterators.
 - **`CXIndexManager.h`** – Index recycling pool used internally for node/edge allocation.
 - **`CXDictionary.h`, `CXSet.h`, `CXCommons.h`** – Support utilities (hash tables, sets, inline helpers) used across the codebase.
@@ -268,14 +270,11 @@ Both doc commands are documented in the respective config files. You can add npm
 
 ## Contributing
 
-1. Fork & clone the repo.
-2. `npm install` and `npm run build:wasm` to set up.
-3. Follow the coding style of existing C/JS sources. Prefer short inline comments; rely on JSDoc/Doxygen for public APIs.
-4. Run `npm test` before submitting changes.
-5. Open a pull request describing your changes and testing.
-
-Bug reports and feature requests are welcome via GitHub issues!
+See `docs/CONTRIBUTING.md` for the full development and release guide, including testing expectations, version bump workflow, and publishing steps for npm, vcpkg, and Conan. Bug reports and feature requests are welcome via GitHub issues!
 
 ---
 
 © 2024–2025 Helios Network contributors. Licensed under MIT.
+## Packaging
+
+Native packaging overlays for vcpkg and Conan live under `packaging/`, backed by the root `CMakeLists.txt`. See `docs/packaging.md` for build commands, overlay usage, and guidance on upstreaming new ports/recipes.

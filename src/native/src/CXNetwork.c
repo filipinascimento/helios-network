@@ -3,6 +3,11 @@
 // Internal helpers -----------------------------------------------------------
 
 static const CXIndex CXInvalidIndexValue = CXIndexMAX;
+static const char kCXNetworkVersionString[] = CXNETWORK_VERSION_STRING;
+
+const char* CXNetworkVersionString(void) {
+	return kCXNetworkVersionString;
+}
 
 static CXAttributeRef CXAttributeCreate(CXAttributeType type, CXSize dimension, CXSize capacity);
 static void CXAttributeDestroy(CXAttributeRef attribute);

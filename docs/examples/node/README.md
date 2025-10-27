@@ -10,10 +10,11 @@ This script demonstrates how to use the Helios Network ES module directly inside
 
 ## Running
 
-Execute the script from the project root:
+Execute the scripts from the project root:
 
 ```bash
 node docs/examples/node/run.mjs
+node docs/examples/node/attributes.mjs
 ```
 
-The script logs each operation to stdout while it creates nodes, edges, and attributes, mirroring what a typical analytics workload might do.
+Each script logs its operations to stdout: `run.mjs` focuses on basic mutations, while `attributes.mjs` exercises every attribute scope and type (including multi-dimensional and JavaScript-backed payloads).

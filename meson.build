@@ -18,6 +18,7 @@ include_dirs = include_directories('src/native/include/helios')
 
 exported_functions = [
   '_malloc','_free','_calloc',
+  '_CXNetworkVersionString',
   '_CXNewNetwork','_CXNewNetworkWithCapacity','_CXFreeNetwork',
   '_CXNetworkAddNodes','_CXNetworkRemoveNodes','_CXNetworkAddEdges','_CXNetworkRemoveEdges',
   '_CXNetworkNodeCount','_CXNetworkEdgeCount','_CXNetworkNodeCapacity','_CXNetworkEdgeCapacity',
