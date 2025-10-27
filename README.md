@@ -15,13 +15,15 @@ The project is designed to run inside the browser (via ES modules) and under Nod
 1. [Project Structure](#project-structure)
 2. [Prerequisites](#prerequisites)
 3. [Setup & Installation](#setup--installation)
-4. [Building](#building)
-5. [Testing](#testing)
-6. [JavaScript Usage](#javascript-usage)
-7. [C API Documentation](#c-api-documentation)
-8. [JavaScript API Documentation](#javascript-api-documentation)
-9. [Generating Docs](#generating-docs)
-10. [Contributing](#contributing)
+4. [Editor Integration](#editor-integration)
+5. [Building](#building)
+6. [Testing](#testing)
+7. [JavaScript Usage](#javascript-usage)
+8. [Examples](#examples)
+9. [C API Documentation](#c-api-documentation)
+10. [JavaScript API Documentation](#javascript-api-documentation)
+11. [Generating Docs](#generating-docs)
+12. [Contributing](#contributing)
 
 ---
 
@@ -76,6 +78,14 @@ ln -s ~/Library/Python/3.9/bin/ninja node_modules/.bin/ninja
 ```
 
 > The symlinks are only required if Meson/Ninja aren’t globally on your PATH.
+
+---
+
+## Editor Integration
+
+- Set the `EMSDK` environment variable to your local Emscripten SDK root (for example `export EMSDK=$HOME/emsdk`) so VS Code can resolve toolchain headers without per-machine absolute paths.
+- Run `npm run build:wasm` after cloning to generate `builddir/compile_commands.json`. The C/C++ extension consumes this file to mirror the exact compiler flags used by `emcc`, which unlocks accurate diagnostics and go-to-definition for the native sources.
+- The checked-in `.vscode` settings now point IntelliSense at `src/native/include` and the Meson build directory. Once the compile commands file exists, header navigation and symbol lookup should work across both the C and JavaScript layers.
 
 ---
 
@@ -196,6 +206,17 @@ net.dispose();
 - `setNetworkStringAttribute`/`getNetworkStringAttribute` and JavaScript-managed attributes (`AttributeType.Javascript`) provide convenience accessors.
 
 Full JSDoc comments inside `src/js/HeliosNetwork.js` describe signatures and behaviours. You can generate HTML docs as shown below.
+
+---
+
+## Examples
+
+Ready-to-run samples live in [`docs/examples`](docs/examples/README.md):
+
+- **Browser** – static HTML/ES module demo that writes results into the page (`docs/examples/browser`).
+- **Node.js** – executable script that logs a short workflow to stdout (`docs/examples/node`).
+
+Follow the instructions in each subdirectory README to build artefacts and run the samples.
 
 ---
 
