@@ -208,8 +208,6 @@ The public headers under `src/native/include/helios/` define the C API, intended
 - **`CXIndexManager.h`** – Index recycling pool used internally for node/edge allocation.
 - **`CXDictionary.h`, `CXSet.h`, `CXCommons.h`** – Support utilities (hash tables, sets, inline helpers) used across the codebase.
 
-For formal documentation we recommend [Doxygen](https://www.doxygen.nl/) or [Sphinx+Breathe](https://breathe.readthedocs.io/) for C. A minimal Doxygen config (see `docs/doxygen.conf`) is included to demonstrate how to extract API references from the headers. 
-
 > **Strings in native code**: string attributes are stored as pointers to null-terminated UTF-8 buffers in the underlying linear memory. When you set a string via JS, the pointer is written into the attribute buffer, so C consumers can access the text directly via `char *`.
 
 ---
