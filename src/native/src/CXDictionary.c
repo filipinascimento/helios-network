@@ -8,6 +8,14 @@
 
 #include "CXDictionary.h"
 
+/*
+ * Implementation notes:
+ * The routines below mirror the declarations in CXDictionary.h. Documentation
+ * for each public symbol is provided in the header; the comments here focus on
+ * highlighting allocation or lifecycle nuances for each concrete dictionary
+ * flavour.
+ */
+
 
 CXStringDictionaryRef CXNewStringDictionary(){
 	return calloc(1, sizeof(CXStringDictionary));
@@ -474,5 +482,4 @@ void CXGenericDictionaryDestroy(CXGenericDictionaryRef dictionary){
 	CXGenericDictionaryClear(dictionary);
 	free(dictionary);
 }
-
 

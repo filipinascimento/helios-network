@@ -8,6 +8,12 @@
 
 #include "CXSet.h"
 
+/*
+ * Implementation follows the API described in CXSet.h. Each function mirrors
+ * the expected behaviour documented in the header; comments here highlight the
+ * key allocation choices for each concrete key type.
+ */
+
 
 
 CXStringSetRef CXNewStringSet(){
@@ -724,5 +730,4 @@ CXBool CXEdgeSetIsSupersetOf(const CXEdgeSetRef superSet, const CXEdgeSetRef sub
 	}
 	return isSuperset;
 }
-
 

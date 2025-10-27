@@ -1,19 +1,23 @@
 {
   "source": {
-    "include": ["src/js/HeliosNetwork.js"],
+    "include": ["src/js", "src/helios-network.js"],
     "includePattern": ".js$",
-    "exclude": ["node_modules"]
+    "exclude": ["node_modules", "dist", "build"]
   },
-  "plugins": [],
+  "plugins": [
+    "node_modules/jsdoc-typeof-plugin",
+    "node_modules/better-docs/category"
+  ],
   "opts": {
-    "destination": "./docs/js",
+    "template": "./node_modules/better-docs",
     "encoding": "utf8",
+    "destination": "./docs/api",
     "recurse": true,
-    "template": "default"
+    "verbose": true
   },
   "templates": {
-    "default": {
-      "includeDate": false
+    "better-docs": {
+      "name": "Helios Network API"
     }
   }
 }

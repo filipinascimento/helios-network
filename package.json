@@ -24,7 +24,9 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.52.0",
+    "better-docs": "^2.7.3",
     "jsdoc": "^4.0.5",
+    "jsdoc-typeof-plugin": "^1.0.0",
     "playwright": "^1.52.0",
     "start-server-and-test": "^2.0.12",
     "vite": "^6.3.5",

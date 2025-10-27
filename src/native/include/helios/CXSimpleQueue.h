@@ -16,6 +16,7 @@ typedef struct CXQueueNode {
 	struct CXQueueNode* next;
 } CXQueueNode;
 
+/** Simple FIFO queue with a recyclable node pool for low-GC execution. */
 typedef struct CXQueue {
 	CXQueueNode* head;
 	CXQueueNode* tail;
@@ -33,14 +34,20 @@ typedef struct CXQueue {
 	
 } CXQueue;
 
+/** Appends an item to the tail of the queue. */
 void CXQueuePush (CXQueue* queue, CXInteger item);
 
+/** Removes and returns the head item. Undefined when called on an empty queue. */
 CXInteger CXQueuePop (CXQueue* queue);
 
+/** Peeks at the head element without removing it. */
 CXInteger CXQueuePeek (CXQueue* queue);
 
+/** Constructs a queue instance with function pointers configured. */
 CXQueue CXQueueCreate ();
+/** Attempts to dequeue into `value`, returning CXFalse when the queue is empty. */
 CXBool CXQueueDequeue (CXQueue* queue, CXInteger *value);
+/** Releases all allocated nodes and resets the queue. */
 void CXQueueDestroy (CXQueue* queue);
 
 

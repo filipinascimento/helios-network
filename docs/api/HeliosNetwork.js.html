@@ -1,4 +1,95 @@
-import createHeliosModule from '../../compiled/CXNetwork.mjs';
+
+
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title> HeliosNetwork.js</title>
+
+  <script src="https://cdn.jsdelivr.net/gh/google/code-prettify@master/loader/run_prettify.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="./build/entry.js"></script>
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
+  <!--[if lt IE 9]>
+    <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+  <![endif]-->
+  <link href="https://fonts.googleapis.com/css?family=Roboto:100,400,700|Inconsolata,700" rel="stylesheet">
+  <link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.6.3/css/all.css" integrity="sha384-UHRtZLI+pbxtHCWp1t77Bi1L4ZtiqrqD80Kn4Z8NTSRyMA2Fd33n5dQ8lWUE00s/" crossorigin="anonymous">
+  <link type="text/css" rel="stylesheet" href="https://jmblog.github.io/color-themes-for-google-code-prettify/themes/tomorrow-night.min.css">
+  <link type="text/css" rel="stylesheet" href="styles/app.min.css">
+  <link type="text/css" rel="stylesheet" href="styles/iframe.css">
+  <link type="text/css" rel="stylesheet" href="">
+  <script async defer src="https://buttons.github.io/buttons.js"></script>
+
+  
+</head>
+
+
+
+<body class="layout small-header">
+    <div id="stickyNavbarOverlay"></div>
+    
+
+<div class="top-nav">
+    <div class="inner">
+        <a id="hamburger" role="button" class="navbar-burger" aria-label="menu" aria-expanded="false">
+            <span aria-hidden="true"></span>
+            <span aria-hidden="true"></span>
+            <span aria-hidden="true"></span>
+        </a>
+        <div class="logo">
+            
+             
+                <a href="index.html">
+                    <h1 class="navbar-item">Helios Network API</h1>
+                </a>
+            
+        </div>
+        <div class="menu">
+            
+            <div class="navigation">
+                <a
+                    href="index.html"
+                    class="link"
+                >
+                    Documentation
+                </a>
+                
+                
+                
+            </div>
+        </div>
+    </div>
+</div>
+    <div id="main">
+        <div
+            class="sidebar "
+            id="sidebarNav"
+        >
+            
+            <nav>
+                
+                    <h2><a href="index.html">Documentation</a></h2><div class="category"><h3>Classes</h3><ul><li><a href="EdgeSelector.html">EdgeSelector</a></li><li><a href="HeliosNetwork.html">HeliosNetwork</a></li><li><a href="NodeSelector.html">NodeSelector</a></li></ul><h3>Global</h3><ul><li><a href="global.html#AttributeType">AttributeType</a></li><li><a href="global.html#COMPLEX_ATTRIBUTE_TYPES">COMPLEX_ATTRIBUTE_TYPES</a></li><li><a href="global.html#POINTER_ATTRIBUTE_TYPES">POINTER_ATTRIBUTE_TYPES</a></li><li><a href="global.html#TYPE_ELEMENT_SIZE">TYPE_ELEMENT_SIZE</a></li><li><a href="global.html#TypedArrayForType">TypedArrayForType</a></li><li><a href="global.html#getModule">getModule</a></li><li><a href="global.html#modulePromise">modulePromise</a></li></ul></div>
+                
+            </nav>
+        </div>
+        <div class="core" id="main-content-wrapper">
+            <div class="content">
+                <header class="page-title">
+                    <p>Source</p>
+                    <h1>HeliosNetwork.js</h1>
+                </header>
+                
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>import createHeliosModule from '../../compiled/CXNetwork.mjs';
 
 /**
  * Enumeration of attribute types supported by the WASM network core.
@@ -20,16 +111,16 @@ const AttributeType = Object.freeze({
 
 /**
  * Cached WASM module promise.
- * @type {Promise<object>|null}
+ * @type {Promise&lt;object>|null}
  */
 let modulePromise = null;
 
 /**
  * Lazily instantiates the Helios WASM module and reuses the instance.
  *
- * @param {Record<string, unknown>} [options] - Optional configuration forwarded
+ * @param {Record&lt;string, unknown>} [options] - Optional configuration forwarded
  *   to the Emscripten loader (for example `locateFile`).
- * @returns {Promise<object>} Resolves with the initialized WASM module.
+ * @returns {Promise&lt;object>} Resolves with the initialized WASM module.
  */
 async function getModule(options = {}) {
 	if (!modulePromise) {
@@ -46,19 +137,19 @@ async function getModule(options = {}) {
 
 /**
  * Attribute types that require storing handles to JavaScript-managed values.
- * @const {Set<number>}
+ * @const {Set&lt;number>}
  */
 const COMPLEX_ATTRIBUTE_TYPES = new Set([AttributeType.Data, AttributeType.Javascript]);
 /**
  * Attribute types that store pointers within the WASM heap.
- * @const {Set<number>}
+ * @const {Set&lt;number>}
  */
 const POINTER_ATTRIBUTE_TYPES = new Set([AttributeType.String, AttributeType.Data, AttributeType.Javascript]);
 
 /**
  * Map of attribute type -> typed array constructor used by the WASM heap views.
  * Complex and pointer-based attribute types are handled separately.
- * @const {Record<number, Function>}
+ * @const {Record&lt;number, Function>}
  */
 const TypedArrayForType = {
 	[AttributeType.Boolean]: Uint8Array,
@@ -71,7 +162,7 @@ const TypedArrayForType = {
 
 /**
  * Size in bytes of each attribute type element.
- * @const {Record<number, number>}
+ * @const {Record&lt;number, number>}
  */
 const TYPE_ELEMENT_SIZE = {
 	[AttributeType.Boolean]: 1,
@@ -166,7 +257,7 @@ class Selector {
 	 * Releases the native selector.
 	 */
 	dispose() {
-		if (this.ptr && this._destroyFn) {
+		if (this.ptr &amp;&amp; this._destroyFn) {
 			this._destroyFn(this.ptr);
 			this.ptr = 0;
 		}
@@ -219,7 +310,7 @@ class NodeSelector extends Selector {
 	 * Fills the selector with the given node indices.
 	 *
 	 * @param {HeliosNetwork} network - Network that owns the indices.
-	 * @param {Iterable<number>|Uint32Array} indices - Node indices to select.
+	 * @param {Iterable&lt;number>|Uint32Array} indices - Node indices to select.
 	 * @returns {NodeSelector} This selector for chaining.
 	 * @throws {Error} When memory allocation fails.
 	 */
@@ -283,7 +374,7 @@ class EdgeSelector extends Selector {
 	 * Fills the selector with the given edge indices.
 	 *
 	 * @param {HeliosNetwork} network - Network that owns the indices.
-	 * @param {Iterable<number>|Uint32Array} indices - Edge indices to select.
+	 * @param {Iterable&lt;number>|Uint32Array} indices - Edge indices to select.
 	 * @returns {EdgeSelector} This selector for chaining.
 	 * @throws {Error} When memory allocation fails.
 	 */
@@ -314,7 +405,7 @@ export class HeliosNetwork {
 	 * @param {number} [options.initialNodes=0] - Nodes to pre-allocate and populate.
 	 * @param {number} [options.initialEdges=0] - Edge capacity to pre-allocate.
 	 * @param {object} [options.module] - Pre-initialized WASM module to reuse.
-	 * @returns {Promise<HeliosNetwork>} Ready-to-use network.
+	 * @returns {Promise&lt;HeliosNetwork>} Ready-to-use network.
 	 */
 	static async create(options = {}) {
 		const {
@@ -358,7 +449,7 @@ export class HeliosNetwork {
 	 * Safe to call multiple times.
 	 */
 	dispose() {
-		if (!this._disposed && this.ptr) {
+		if (!this._disposed &amp;&amp; this.ptr) {
 			this._releaseStringAttributes(this._nodeAttributes);
 			this._releaseStringAttributes(this._edgeAttributes);
 			this._releaseStringAttributes(this._networkAttributes);
@@ -466,7 +557,7 @@ export class HeliosNetwork {
 	/**
 	 * Removes nodes from the network and clears related attributes.
 	 *
-	 * @param {Iterable<number>|Uint32Array} indices - Node indices slated for removal.
+	 * @param {Iterable&lt;number>|Uint32Array} indices - Node indices slated for removal.
 	 */
 	removeNodes(indices) {
 		this._ensureActive();
@@ -510,10 +601,10 @@ export class HeliosNetwork {
 	 * Supported input shapes:
 	 *   - `Uint32Array` / typed array with flattened `[from0, to0, from1, to1, ...]`
 	 *   - `number[]` flattened pairs (same layout as above)
-	 *   - `Array<[number, number]>`
-	 *   - `Array<{ from: number, to: number }>`
+	 *   - `Array&lt;[number, number]>`
+	 *   - `Array&lt;{ from: number, to: number }>`
 	 *
-	 * @param {Uint32Array|number[]|Array.<Array.<number>>|Array.<{from:number,to:number}>} edgeList - Collection describing edges to add.
+	 * @param {Uint32Array|number[]|Array.&lt;Array.&lt;number>>|Array.&lt;{from:number,to:number}>} edgeList - Collection describing edges to add.
 	 * @returns {Uint32Array} Copy of the newly created edge indices.
 	 * @throws {Error} When the input shape is invalid or memory allocation fails.
 	 */
@@ -525,7 +616,7 @@ export class HeliosNetwork {
 		let array;
 		if (edgeList instanceof Uint32Array) {
 			array = edgeList;
-		} else if (ArrayBuffer.isView(edgeList) && edgeList.BYTES_PER_ELEMENT) {
+		} else if (ArrayBuffer.isView(edgeList) &amp;&amp; edgeList.BYTES_PER_ELEMENT) {
 			array = new Uint32Array(edgeList);
 		} else if (Array.isArray(edgeList)) {
 			if (edgeList.length === 0) {
@@ -536,7 +627,7 @@ export class HeliosNetwork {
 				array = new Uint32Array(edgeList.length * 2);
 				let offset = 0;
 				for (const pair of edgeList) {
-					if (!Array.isArray(pair) || pair.length < 2) {
+					if (!Array.isArray(pair) || pair.length &lt; 2) {
 						throw new Error('Edge tuple must contain [from, to]');
 					}
 					array[offset++] = pair[0];
@@ -584,7 +675,7 @@ export class HeliosNetwork {
 	/**
 	 * Removes edges from the network and clears related attributes.
 	 *
-	 * @param {Iterable<number>|Uint32Array} indices - Edge indices slated for removal.
+	 * @param {Iterable&lt;number>|Uint32Array} indices - Edge indices slated for removal.
 	 */
 	removeEdges(indices) {
 		this._ensureActive();
@@ -981,7 +1072,7 @@ export class HeliosNetwork {
 	/**
 	 * @private
 	 * @param {'node'|'edge'|'network'} scope - Attribute scope.
-	 * @returns {Map<string, object>} Metadata registry matching the scope.
+	 * @returns {Map&lt;string, object>} Metadata registry matching the scope.
 	 */
 	_attributeMap(scope) {
 		switch (scope) {
@@ -996,7 +1087,7 @@ export class HeliosNetwork {
 	 * Frees any WASM strings owned by attributes in the provided map.
 	 * @private
 	 *
-	 * @param {Map<string, object>} metaMap - Attribute metadata map.
+	 * @param {Map&lt;string, object>} metaMap - Attribute metadata map.
 	 */
 	_releaseStringAttributes(metaMap) {
 		for (const meta of metaMap.values()) {
@@ -1069,7 +1160,7 @@ export class HeliosNetwork {
 	/**
 	 * Creates a node selector optionally seeded with indices.
 	 *
-	 * @param {Iterable<number>|Uint32Array} [indices] - Indices to preload into the selector.
+	 * @param {Iterable&lt;number>|Uint32Array} [indices] - Indices to preload into the selector.
 	 * @returns {NodeSelector} Prepared selector.
 	 */
 	createNodeSelector(indices) {
@@ -1085,7 +1176,7 @@ export class HeliosNetwork {
 	/**
 	 * Creates an edge selector optionally seeded with indices.
 	 *
-	 * @param {Iterable<number>|Uint32Array} [indices] - Indices to preload into the selector.
+	 * @param {Iterable&lt;number>|Uint32Array} [indices] - Indices to preload into the selector.
 	 * @returns {EdgeSelector} Prepared selector.
 	 */
 	createEdgeSelector(indices) {
@@ -1101,3 +1192,33 @@ export class HeliosNetwork {
 
 export { AttributeType, NodeSelector, EdgeSelector, getModule as getHeliosModule };
 export default HeliosNetwork;
+</code></pre>
+        </article>
+    </section>
+
+
+
+
+            </div>
+            
+            <footer class="footer">
+                <div class="content has-text-centered">
+                    <p>Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a></p>
+                    <p class="sidebar-created-by">
+                        <a href="https://github.com/SoftwareBrothers/better-docs" target="_blank">BetterDocs theme</a> provided with <i class="fas fa-heart"></i> by
+                        <a href="http://softwarebrothers.co" target="_blank">SoftwareBrothers - JavaScript Development Agency</a>
+                    </p>
+                </div>
+            </footer>
+            
+        </div>
+        <div id="side-nav" class="side-nav">
+        </div>
+    </div>
+<script src="scripts/app.min.js"></script>
+<script>PR.prettyPrint();</script>
+<script src="scripts/linenumber.js"> </script>
+
+
+</body>
+</html>

@@ -1,11 +1,13 @@
 #include "CXNeighborStorage.h"
 
+/** Removes bookkeeping for a single edge from the map-backed container. */
 static CXBool CXNeighborMapRemoveEdgeInternal(CXNeighborMap *map, CXIndex edge);
 
 // -----------------------------------------------------------------------------
 // Neighbor list
 // -----------------------------------------------------------------------------
 
+/** Implementation of the list-based neighbour initialiser. */
 CXBool CXNeighborListInit(CXNeighborList *list, CXSize initialCapacity) {
 	if (!list) {
 		return CXFalse;
@@ -27,6 +29,7 @@ CXBool CXNeighborListInit(CXNeighborList *list, CXSize initialCapacity) {
 	return CXTrue;
 }
 
+/** Releases memory held by the list-backed storage. */
 void CXNeighborListFree(CXNeighborList *list) {
 	if (!list) {
 		return;
@@ -43,6 +46,7 @@ void CXNeighborListFree(CXNeighborList *list) {
 	list->capacity = 0;
 }
 
+/** Grows the list-backed storage to at least `requiredCapacity`. */
 CXBool CXNeighborListEnsureCapacity(CXNeighborList *list, CXSize requiredCapacity) {
 	if (!list) {
 		return CXFalse;
@@ -80,6 +84,7 @@ CXBool CXNeighborListEnsureCapacity(CXNeighborList *list, CXSize requiredCapacit
 	return CXTrue;
 }
 
+/** Adds a neighbour pair to the list-backed storage. */
 CXBool CXNeighborListAdd(CXNeighborList *list, CXIndex node, CXIndex edge) {
 	if (!CXNeighborListEnsureCapacity(list, list->count + 1)) {
 		return CXFalse;
@@ -90,6 +95,7 @@ CXBool CXNeighborListAdd(CXNeighborList *list, CXIndex node, CXIndex edge) {
 	return CXTrue;
 }
 
+/** Removes every edge present in the supplied set. */
 CXBool CXNeighborListRemoveEdgesFromSet(CXNeighborList *list, CXUIntegerSetRef edgeSet) {
 	if (!list || !edgeSet) {
 		return CXFalse;
@@ -107,6 +113,7 @@ CXBool CXNeighborListRemoveEdgesFromSet(CXNeighborList *list, CXUIntegerSetRef e
 	return CXTrue;
 }
 
+/** Removes any edges that appear in the provided array. */
 CXBool CXNeighborListRemoveEdgesFromArray(CXNeighborList *list, const CXIndex *edgeArray, CXSize edgeCount) {
 	if (!list || !edgeArray) {
 		return CXFalse;
@@ -131,6 +138,7 @@ CXBool CXNeighborListRemoveEdgesFromArray(CXNeighborList *list, const CXIndex *e
 	return CXTrue;
 }
 
+/** Copies neighbour node ids into the caller-provided buffer. */
 CXSize CXNeighborListGetNodes(const CXNeighborList *list, CXIndex *outNodes, CXSize maxCount) {
 	if (!list) {
 		return 0;
@@ -143,6 +151,7 @@ CXSize CXNeighborListGetNodes(const CXNeighborList *list, CXIndex *outNodes, CXS
 	return copyCount;
 }
 
+/** Copies neighbour edge ids into the caller-provided buffer. */
 CXSize CXNeighborListGetEdges(const CXNeighborList *list, CXIndex *outEdges, CXSize maxCount) {
 	if (!list) {
 		return 0;
@@ -159,6 +168,7 @@ CXSize CXNeighborListGetEdges(const CXNeighborList *list, CXIndex *outEdges, CXS
 // Neighbor map
 // -----------------------------------------------------------------------------
 
+/** Initializes hash tables used by the map-backed representation. */
 CXBool CXNeighborMapInit(CXNeighborMap *map) {
 	if (!map) {
 		return CXFalse;
@@ -179,6 +189,7 @@ CXBool CXNeighborMapInit(CXNeighborMap *map) {
 	return CXTrue;
 }
 
+/** Releases hash table resources associated with the map-backed storage. */
 void CXNeighborMapFree(CXNeighborMap *map) {
 	if (!map) {
 		return;
@@ -195,6 +206,7 @@ void CXNeighborMapFree(CXNeighborMap *map) {
 	}
 }
 
+/** Tracks how many edges reference the supplied neighbour node. */
 static CXBool CXNeighborMapIncrementMultiplicity(CXNeighborMap *map, CXIndex node) {
 	CXUIntegerDictionaryRef dict = map->nodeToMultiplicity;
 	CXUInteger *countPtr = (CXUInteger *)CXUIntegerDictionaryEntryForKey(dict, (CXUInteger)node);
@@ -211,6 +223,7 @@ static CXBool CXNeighborMapIncrementMultiplicity(CXNeighborMap *map, CXIndex nod
 	return CXTrue;
 }
 
+/** Decrements the multiplicity counter, removing the entry when it hits zero. */
 static void CXNeighborMapDecrementMultiplicity(CXNeighborMap *map, CXIndex node) {
 	CXUIntegerDictionaryRef dict = map->nodeToMultiplicity;
 	CXUInteger *countPtr = (CXUInteger *)CXUIntegerDictionaryEntryForKey(dict, (CXUInteger)node);
@@ -224,6 +237,7 @@ static void CXNeighborMapDecrementMultiplicity(CXNeighborMap *map, CXIndex node)
 	}
 }
 
+/** Helper that strips the provided edge from the map and updates counts. */
 static CXBool CXNeighborMapRemoveEdgeInternal(CXNeighborMap *map, CXIndex edge) {
 	if (!map || !map->edgeToNode) {
 		return CXFalse;
@@ -238,6 +252,7 @@ static CXBool CXNeighborMapRemoveEdgeInternal(CXNeighborMap *map, CXIndex edge) 
 	return CXTrue;
 }
 
+/** Inserts or updates the mapping for `edge`, pointing it at `node`. */
 CXBool CXNeighborMapAdd(CXNeighborMap *map, CXIndex node, CXIndex edge) {
 	if (!map) {
 		return CXFalse;
@@ -259,6 +274,7 @@ CXBool CXNeighborMapAdd(CXNeighborMap *map, CXIndex node, CXIndex edge) {
 	return CXTrue;
 }
 
+/** Removes any edges referenced by the supplied set. */
 CXBool CXNeighborMapRemoveEdgesFromSet(CXNeighborMap *map, CXUIntegerSetRef edgeSet) {
 	if (!map || !edgeSet) {
 		return CXFalse;
@@ -269,6 +285,7 @@ CXBool CXNeighborMapRemoveEdgesFromSet(CXNeighborMap *map, CXUIntegerSetRef edge
 	return CXTrue;
 }
 
+/** Removes any edges referenced by the supplied array. */
 CXBool CXNeighborMapRemoveEdgesFromArray(CXNeighborMap *map, const CXIndex *edgeArray, CXSize edgeCount) {
 	if (!map || !edgeArray) {
 		return CXFalse;
@@ -279,6 +296,7 @@ CXBool CXNeighborMapRemoveEdgesFromArray(CXNeighborMap *map, const CXIndex *edge
 	return CXTrue;
 }
 
+/** Returns how many edges are currently tracked in the map. */
 CXSize CXNeighborMapCount(const CXNeighborMap *map) {
 	if (!map || !map->edgeToNode) {
 		return 0;
@@ -286,6 +304,7 @@ CXSize CXNeighborMapCount(const CXNeighborMap *map) {
 	return CXUIntegerDictionaryCount(map->edgeToNode);
 }
 
+/** Copies neighbour nodes into `outNodes`, returning how many were written. */
 CXSize CXNeighborMapGetNodes(const CXNeighborMap *map, CXIndex *outNodes, CXSize maxCount) {
 	if (!map || !map->edgeToNode) {
 		return 0;
@@ -305,6 +324,7 @@ CXSize CXNeighborMapGetNodes(const CXNeighborMap *map, CXIndex *outNodes, CXSize
 	return copied;
 }
 
+/** Copies edge ids into `outEdges`, returning how many were written. */
 CXSize CXNeighborMapGetEdges(const CXNeighborMap *map, CXIndex *outEdges, CXSize maxCount) {
 	if (!map || !map->edgeToNode) {
 		return 0;
@@ -327,6 +347,7 @@ CXSize CXNeighborMapGetEdges(const CXNeighborMap *map, CXIndex *outEdges, CXSize
 // Container helpers
 // -----------------------------------------------------------------------------
 
+/** Initializes the container with either list or map storage. */
 CXBool CXNeighborContainerInit(CXNeighborContainer *container, CXNeighborStorageType storageType, CXSize initialCapacity) {
 	if (!container) {
 		return CXFalse;
@@ -338,6 +359,7 @@ CXBool CXNeighborContainerInit(CXNeighborContainer *container, CXNeighborStorage
 	return CXNeighborMapInit(&container->storage.map);
 }
 
+/** Releases internal storage for the container. */
 void CXNeighborContainerFree(CXNeighborContainer *container) {
 	if (!container) {
 		return;
@@ -349,6 +371,7 @@ void CXNeighborContainerFree(CXNeighborContainer *container) {
 	}
 }
 
+/** Adds an edge reference to the container. */
 CXBool CXNeighborContainerAdd(CXNeighborContainer *container, CXIndex node, CXIndex edge) {
 	if (!container) {
 		return CXFalse;
@@ -359,6 +382,7 @@ CXBool CXNeighborContainerAdd(CXNeighborContainer *container, CXIndex node, CXIn
 	return CXNeighborMapAdd(&container->storage.map, node, edge);
 }
 
+/** Removes edges referenced by the supplied set. */
 CXBool CXNeighborContainerRemoveEdgesFromSet(CXNeighborContainer *container, CXUIntegerSetRef edgeSet) {
 	if (!container) {
 		return CXFalse;
@@ -369,6 +393,7 @@ CXBool CXNeighborContainerRemoveEdgesFromSet(CXNeighborContainer *container, CXU
 	return CXNeighborMapRemoveEdgesFromSet(&container->storage.map, edgeSet);
 }
 
+/** Removes edges referenced by the supplied array. */
 CXBool CXNeighborContainerRemoveEdgesFromArray(CXNeighborContainer *container, const CXIndex *edgeArray, CXSize edgeCount) {
 	if (!container) {
 		return CXFalse;
@@ -379,6 +404,7 @@ CXBool CXNeighborContainerRemoveEdgesFromArray(CXNeighborContainer *container, c
 	return CXNeighborMapRemoveEdgesFromArray(&container->storage.map, edgeArray, edgeCount);
 }
 
+/** Returns how many neighbours are stored in the container. */
 CXSize CXNeighborContainerCount(const CXNeighborContainer *container) {
 	if (!container) {
 		return 0;
@@ -389,6 +415,7 @@ CXSize CXNeighborContainerCount(const CXNeighborContainer *container) {
 	return CXNeighborMapCount(&container->storage.map);
 }
 
+/** Copies neighbour node ids, delegating to the active storage backend. */
 CXSize CXNeighborContainerGetNodes(const CXNeighborContainer *container, CXIndex *outNodes, CXSize maxCount) {
 	if (!container) {
 		return 0;
@@ -399,6 +426,7 @@ CXSize CXNeighborContainerGetNodes(const CXNeighborContainer *container, CXIndex
 	return CXNeighborMapGetNodes(&container->storage.map, outNodes, maxCount);
 }
 
+/** Copies edge ids, delegating to the active storage backend. */
 CXSize CXNeighborContainerGetEdges(const CXNeighborContainer *container, CXIndex *outEdges, CXSize maxCount) {
 	if (!container) {
 		return 0;
@@ -413,6 +441,7 @@ CXSize CXNeighborContainerGetEdges(const CXNeighborContainer *container, CXIndex
 // Iteration
 // -----------------------------------------------------------------------------
 
+/** Prepares the iterator for traversal of the supplied container. */
 void CXNeighborIteratorInit(CXNeighborIterator *iterator, CXNeighborContainer *container) {
 	if (!iterator) {
 		return;
@@ -430,6 +459,7 @@ void CXNeighborIteratorInit(CXNeighborIterator *iterator, CXNeighborContainer *c
 	}
 }
 
+/** Advances the iterator, exposing the next neighbour when available. */
 CXBool CXNeighborIteratorNext(CXNeighborIterator *iterator) {
 	if (!iterator || !iterator->container) {
 		return CXFalse;

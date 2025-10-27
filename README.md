@@ -214,13 +214,13 @@ The public headers under `src/native/include/helios/` define the C API, intended
 
 ## JavaScript API Documentation
 
-JSDoc comments have been added to `src/js/HeliosNetwork.js`. To generate HTML output:
+The JavaScript bindings (`src/js/HeliosNetwork.js` and the package entry point) now include exhaustive JSDoc comments detailing every public class, method, parameter, and return value alongside error conditions. HTML documentation is generated with the [`better-docs`](https://github.com/SoftwareBrothers/better-docs) template and the `jsdoc-typeof-plugin` for improved type inference.
 
 ```bash
-npx jsdoc -c docs/jsdoc.json
+npm run docs:js
 ```
 
-This will emit documentation under `docs/js` (configurable in `jsdoc.json`). The repo uses the standard templating by default; you can integrate [better-docs](https://github.com/SoftwareBrothers/better-docs) or custom templates by updating the config.
+The output is written to `docs/api/index.html`. Customize the layout or scope by editing `docs/jsdoc.json`.
 
 ---
 
@@ -228,9 +228,9 @@ This will emit documentation under `docs/js` (configurable in `jsdoc.json`). The
 
 ### JSDoc (JavaScript)
 
-1. Ensure `jsdoc` is installed (`npm install --save-dev jsdoc`).
-2. Run `npx jsdoc -c docs/jsdoc.json`.
-3. Open `docs/js/index.html` in your browser.
+1. Install dependencies (`npm install`) – this repo already includes `jsdoc`, `better-docs`, and supporting plugins.
+2. Run `npm run docs:js`.
+3. Open `docs/api/index.html` in your browser.
 
 ### Doxygen (C)
 

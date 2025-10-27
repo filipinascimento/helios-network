@@ -128,6 +128,7 @@ static void CXAttributeDestroy(CXAttributeRef attribute) {
 	free(attribute);
 }
 
+/** Ensures an attribute buffer has room for the requested number of entries. */
 static CXBool CXAttributeEnsureCapacity(CXAttributeRef attribute, CXSize requiredCapacity) {
 	if (!attribute) {
 		return CXFalse;
@@ -157,6 +158,7 @@ static CXBool CXAttributeEnsureCapacity(CXAttributeRef attribute, CXSize require
 	return CXTrue;
 }
 
+/** Zeroes the attribute payload for a single logical index. */
 static void CXAttributeClearSlot(CXAttributeRef attribute, CXIndex index) {
 	if (!attribute || !attribute->data || index >= attribute->capacity) {
 		return;
@@ -168,6 +170,7 @@ static void CXAttributeClearSlot(CXAttributeRef attribute, CXIndex index) {
 // Dictionary helper
 // -----------------------------------------------------------------------------
 
+/** Helper that destroys every attribute stored in the provided dictionary. */
 static void CXDestroyAttributeDictionary(CXStringDictionaryRef dictionary) {
 	if (!dictionary) {
 		return;
@@ -185,6 +188,7 @@ static void CXDestroyAttributeDictionary(CXStringDictionaryRef dictionary) {
 // Network allocation and capacity
 // -----------------------------------------------------------------------------
 
+/** Initializes a node record with empty neighbour containers. */
 static void CXNodeRecordInit(CXNodeRecord *record) {
 	if (!record) {
 		return;
@@ -194,6 +198,7 @@ static void CXNodeRecordInit(CXNodeRecord *record) {
 	CXNeighborContainerInit(&record->inNeighbors, CXDefaultNeighborStorage, 0);
 }
 
+/** Grows node-centric buffers until the requested capacity is satisfied. */
 static CXBool CXNetworkEnsureNodeCapacity(CXNetworkRef network, CXSize required) {
 	if (!network) {
 		return CXFalse;
@@ -255,6 +260,7 @@ static CXBool CXNetworkEnsureNodeCapacity(CXNetworkRef network, CXSize required)
 	return CXTrue;
 }
 
+/** Grows edge-centric buffers until the requested capacity is satisfied. */
 static CXBool CXNetworkEnsureEdgeCapacity(CXNetworkRef network, CXSize required) {
 	if (!network) {
 		return CXFalse;
@@ -317,6 +323,7 @@ static CXBool CXNetworkEnsureEdgeCapacity(CXNetworkRef network, CXSize required)
 // Network lifecycle
 // -----------------------------------------------------------------------------
 
+/** Allocates and initializes a network with explicit node/edge capacities. */
 CXNetworkRef CXNewNetworkWithCapacity(CXBool isDirected, CXSize initialNodeCapacity, CXSize initialEdgeCapacity) {
 	CXNetworkRef network = calloc(1, sizeof(CXNetwork));
 	if (!network) {
@@ -340,10 +347,12 @@ CXNetworkRef CXNewNetworkWithCapacity(CXBool isDirected, CXSize initialNodeCapac
 	return network;
 }
 
+/** Convenience wrapper that builds a network using default capacities. */
 CXNetworkRef CXNewNetwork(CXBool isDirected) {
 	return CXNewNetworkWithCapacity(isDirected, CXNetwork_INITIAL_NODE_CAPACITY, CXNetwork_INITIAL_EDGE_CAPACITY);
 }
 
+/** Releases all resources owned by the network instance. */
 void CXFreeNetwork(CXNetworkRef network) {
 	if (!network) {
 		return;
@@ -395,18 +404,22 @@ void CXFreeNetwork(CXNetworkRef network) {
 // Capacity queries
 // -----------------------------------------------------------------------------
 
+/** Returns the number of active nodes in the network. */
 CXSize CXNetworkNodeCount(CXNetworkRef network) {
 	return network ? network->nodeCount : 0;
 }
 
+/** Returns the number of active edges in the network. */
 CXSize CXNetworkEdgeCount(CXNetworkRef network) {
 	return network ? network->edgeCount : 0;
 }
 
+/** Returns the allocated node capacity. */
 CXSize CXNetworkNodeCapacity(CXNetworkRef network) {
 	return network ? network->nodeCapacity : 0;
 }
 
+/** Returns the allocated edge capacity. */
 CXSize CXNetworkEdgeCapacity(CXNetworkRef network) {
 	return network ? network->edgeCapacity : 0;
 }
@@ -415,6 +428,7 @@ CXSize CXNetworkEdgeCapacity(CXNetworkRef network) {
 // Node management
 // -----------------------------------------------------------------------------
 
+/** Clears neighbour state for the given node so it can be reused. */
 static void CXNetworkResetNodeRecord(CXNetworkRef network, CXIndex node) {
 	CXNodeRecord *record = &network->nodes[node];
 	CXNeighborContainerFree(&record->outNeighbors);
@@ -423,6 +437,7 @@ static void CXNetworkResetNodeRecord(CXNetworkRef network, CXIndex node) {
 	CXNeighborContainerInit(&record->inNeighbors, CXDefaultNeighborStorage, 0);
 }
 
+/** Adds `count` nodes to the network, optionally returning their indices. */
 CXBool CXNetworkAddNodes(CXNetworkRef network, CXSize count, CXIndex *outIndices) {
 	if (!network || count == 0) {
 		return CXFalse;
@@ -459,6 +474,7 @@ CXBool CXNetworkAddNodes(CXNetworkRef network, CXSize count, CXIndex *outIndices
 	return CXTrue;
 }
 
+/** Collects edges from a neighbour container into a heap-allocated buffer. */
 static void CXCollectEdgesFromContainer(CXNeighborContainer *container, CXIndex **buffer, CXSize *count) {
 	CXSize edgeCount = CXNeighborContainerCount(container);
 	if (edgeCount == 0) {
@@ -477,6 +493,7 @@ static void CXCollectEdgesFromContainer(CXNeighborContainer *container, CXIndex 
 	*count = edgeCount;
 }
 
+/** Removes the referenced nodes alongside their incident edges. */
 CXBool CXNetworkRemoveNodes(CXNetworkRef network, const CXIndex *indices, CXSize count) {
 	if (!network || !indices || count == 0) {
 		return CXFalse;
@@ -519,6 +536,7 @@ CXBool CXNetworkRemoveNodes(CXNetworkRef network, const CXIndex *indices, CXSize
 	return CXTrue;
 }
 
+/** Returns whether the provided node index currently maps to an active node. */
 CXBool CXNetworkIsNodeActive(CXNetworkRef network, CXIndex node) {
 	if (!network || node >= network->nodeCapacity) {
 		return CXFalse;
@@ -526,6 +544,7 @@ CXBool CXNetworkIsNodeActive(CXNetworkRef network, CXIndex node) {
 	return network->nodeActive[node];
 }
 
+/** Exposes the raw node-activity bitmap for zero-copy access. */
 const CXBool* CXNetworkNodeActivityBuffer(CXNetworkRef network) {
 	return network ? network->nodeActive : NULL;
 }
@@ -534,6 +553,7 @@ const CXBool* CXNetworkNodeActivityBuffer(CXNetworkRef network) {
 // Edge management
 // -----------------------------------------------------------------------------
 
+/** Clears edge endpoints so the slot can be reused. */
 static void CXNetworkResetEdgeRecord(CXNetworkRef network, CXIndex edge) {
 	if (!network || edge >= network->edgeCapacity) {
 		return;
@@ -541,6 +561,7 @@ static void CXNetworkResetEdgeRecord(CXNetworkRef network, CXIndex edge) {
 	memset(&network->edges[edge], 0, sizeof(CXEdge));
 }
 
+/** Removes the specific edge from the provided neighbour container. */
 static void CXNeighborContainerRemoveSingleEdge(CXNeighborContainer *container, CXIndex edge) {
 	if (!container) {
 		return;
@@ -552,6 +573,7 @@ static void CXNeighborContainerRemoveSingleEdge(CXNeighborContainer *container, 
 	}
 }
 
+/** Disconnects an edge from its endpoints and optionally recycles its index. */
 static void CXNetworkDetachEdge(CXNetworkRef network, CXIndex edge, CXBool recycleIndex) {
 	if (!network || edge >= network->edgeCapacity || !network->edgeActive[edge]) {
 		return;
@@ -576,6 +598,7 @@ static void CXNetworkDetachEdge(CXNetworkRef network, CXIndex edge, CXBool recyc
 	}
 }
 
+/** Adds new edges to the network, validating endpoints and returning indices. */
 CXBool CXNetworkAddEdges(CXNetworkRef network, const CXEdge *edges, CXSize count, CXIndex *outIndices) {
 	if (!network || !edges || count == 0) {
 		return CXFalse;
@@ -626,6 +649,7 @@ CXBool CXNetworkAddEdges(CXNetworkRef network, const CXEdge *edges, CXSize count
 	return CXTrue;
 }
 
+/** Removes the referenced edges from the network. */
 CXBool CXNetworkRemoveEdges(CXNetworkRef network, const CXIndex *indices, CXSize count) {
 	if (!network || !indices || count == 0) {
 		return CXFalse;
@@ -636,6 +660,7 @@ CXBool CXNetworkRemoveEdges(CXNetworkRef network, const CXIndex *indices, CXSize
 	return CXTrue;
 }
 
+/** Returns whether the supplied edge index corresponds to an active edge. */
 CXBool CXNetworkIsEdgeActive(CXNetworkRef network, CXIndex edge) {
 	if (!network || edge >= network->edgeCapacity) {
 		return CXFalse;
@@ -643,10 +668,12 @@ CXBool CXNetworkIsEdgeActive(CXNetworkRef network, CXIndex edge) {
 	return network->edgeActive[edge];
 }
 
+/** Exposes the raw edge-activity bitmap for zero-copy access. */
 const CXBool* CXNetworkEdgeActivityBuffer(CXNetworkRef network) {
 	return network ? network->edgeActive : NULL;
 }
 
+/** Returns a pointer to the contiguous edge buffer `[from,to,...]`. */
 CXEdge* CXNetworkEdgesBuffer(CXNetworkRef network) {
 	return network ? network->edges : NULL;
 }
@@ -655,6 +682,7 @@ CXEdge* CXNetworkEdgesBuffer(CXNetworkRef network) {
 // Adjacency access
 // -----------------------------------------------------------------------------
 
+/** Returns the outbound neighbour container for the given node. */
 CXNeighborContainer* CXNetworkOutNeighbors(CXNetworkRef network, CXIndex node) {
 	if (!network || node >= network->nodeCapacity) {
 		return NULL;
@@ -662,6 +690,7 @@ CXNeighborContainer* CXNetworkOutNeighbors(CXNetworkRef network, CXIndex node) {
 	return &network->nodes[node].outNeighbors;
 }
 
+/** Returns the inbound neighbour container for the given node. */
 CXNeighborContainer* CXNetworkInNeighbors(CXNetworkRef network, CXIndex node) {
 	if (!network || node >= network->nodeCapacity) {
 		return NULL;
@@ -673,6 +702,7 @@ CXNeighborContainer* CXNetworkInNeighbors(CXNetworkRef network, CXIndex node) {
 // Attribute API
 // -----------------------------------------------------------------------------
 
+/** Looks up an attribute within the provided dictionary helper. */
 static CXAttributeRef CXNetworkGetAttribute(CXStringDictionaryRef dictionary, const CXString name) {
 	if (!dictionary || !name) {
 		return NULL;
@@ -680,6 +710,7 @@ static CXAttributeRef CXNetworkGetAttribute(CXStringDictionaryRef dictionary, co
 	return (CXAttributeRef)CXStringDictionaryEntryForKey(dictionary, name);
 }
 
+/** Registers a node attribute with the provided configuration. */
 CXBool CXNetworkDefineNodeAttribute(CXNetworkRef network, const CXString name, CXAttributeType type, CXSize dimension) {
 	if (!network || !name) {
 		return CXFalse;
@@ -695,6 +726,7 @@ CXBool CXNetworkDefineNodeAttribute(CXNetworkRef network, const CXString name, C
 	return CXTrue;
 }
 
+/** Registers an edge attribute with the provided configuration. */
 CXBool CXNetworkDefineEdgeAttribute(CXNetworkRef network, const CXString name, CXAttributeType type, CXSize dimension) {
 	if (!network || !name) {
 		return CXFalse;
@@ -710,6 +742,7 @@ CXBool CXNetworkDefineEdgeAttribute(CXNetworkRef network, const CXString name, C
 	return CXTrue;
 }
 
+/** Registers a network-level attribute with the provided configuration. */
 CXBool CXNetworkDefineNetworkAttribute(CXNetworkRef network, const CXString name, CXAttributeType type, CXSize dimension) {
 	if (!network || !name) {
 		return CXFalse;
@@ -725,33 +758,40 @@ CXBool CXNetworkDefineNetworkAttribute(CXNetworkRef network, const CXString name
 	return CXTrue;
 }
 
+/** Retrieves the node attribute descriptor for the supplied name. */
 CXAttributeRef CXNetworkGetNodeAttribute(CXNetworkRef network, const CXString name) {
 	return network ? CXNetworkGetAttribute(network->nodeAttributes, name) : NULL;
 }
 
+/** Retrieves the edge attribute descriptor for the supplied name. */
 CXAttributeRef CXNetworkGetEdgeAttribute(CXNetworkRef network, const CXString name) {
 	return network ? CXNetworkGetAttribute(network->edgeAttributes, name) : NULL;
 }
 
+/** Retrieves the network-level attribute descriptor for the supplied name. */
 CXAttributeRef CXNetworkGetNetworkAttribute(CXNetworkRef network, const CXString name) {
 	return network ? CXNetworkGetAttribute(network->networkAttributes, name) : NULL;
 }
 
+/** Returns a pointer to the raw node attribute buffer, or NULL when missing. */
 void* CXNetworkGetNodeAttributeBuffer(CXNetworkRef network, const CXString name) {
 	CXAttributeRef attr = CXNetworkGetNodeAttribute(network, name);
 	return attr ? attr->data : NULL;
 }
 
+/** Returns a pointer to the raw edge attribute buffer, or NULL when missing. */
 void* CXNetworkGetEdgeAttributeBuffer(CXNetworkRef network, const CXString name) {
 	CXAttributeRef attr = CXNetworkGetEdgeAttribute(network, name);
 	return attr ? attr->data : NULL;
 }
 
+/** Returns a pointer to the raw network attribute buffer, or NULL when missing. */
 void* CXNetworkGetNetworkAttributeBuffer(CXNetworkRef network, const CXString name) {
 	CXAttributeRef attr = CXNetworkGetNetworkAttribute(network, name);
 	return attr ? attr->data : NULL;
 }
 
+/** Returns the byte stride for entries in the attribute buffer. */
 CXSize CXAttributeStride(CXAttributeRef attribute) {
 	return attribute ? attribute->stride : 0;
 }
@@ -760,6 +800,7 @@ CXSize CXAttributeStride(CXAttributeRef attribute) {
 // Selector utilities
 // -----------------------------------------------------------------------------
 
+/** Allocates a selector and optionally reserves storage for indices. */
 static CXSelector* CXSelectorCreateInternal(CXSize initialCapacity) {
 	CXSelector *selector = calloc(1, sizeof(CXSelector));
 	if (!selector) {
@@ -776,6 +817,7 @@ static CXSelector* CXSelectorCreateInternal(CXSize initialCapacity) {
 	return selector;
 }
 
+/** Releases the selector and its backing storage. */
 static void CXSelectorDestroyInternal(CXSelector *selector) {
 	if (!selector) {
 		return;
@@ -786,6 +828,7 @@ static void CXSelectorDestroyInternal(CXSelector *selector) {
 	free(selector);
 }
 
+/** Ensures the selector can store at least `capacity` indices. */
 static CXBool CXSelectorEnsureCapacity(CXSelector *selector, CXSize capacity) {
 	if (!selector) {
 		return CXFalse;
@@ -810,6 +853,7 @@ static CXBool CXSelectorEnsureCapacity(CXSelector *selector, CXSize capacity) {
 	return CXTrue;
 }
 
+/** Populates the selector with every active index reported by `activity`. */
 static CXBool CXSelectorFillAll(CXSelector *selector, const CXBool *activity, CXSize capacity) {
 	if (!selector || !activity) {
 		return CXFalse;
@@ -832,6 +876,7 @@ static CXBool CXSelectorFillAll(CXSelector *selector, const CXBool *activity, CX
 	return CXTrue;
 }
 
+/** Copies the provided indices into the selector, resizing as needed. */
 static CXBool CXSelectorFillFromArrayInternal(CXSelector *selector, const CXIndex *indices, CXSize count) {
 	if (!selector || !indices) {
 		return CXFalse;
@@ -844,14 +889,17 @@ static CXBool CXSelectorFillFromArrayInternal(CXSelector *selector, const CXInde
 	return CXTrue;
 }
 
+/** Allocates a node selector with optional preallocated capacity. */
 CXNodeSelectorRef CXNodeSelectorCreate(CXSize initialCapacity) {
 	return CXSelectorCreateInternal(initialCapacity);
 }
 
+/** Releases the selector and its backing storage. */
 void CXNodeSelectorDestroy(CXNodeSelectorRef selector) {
 	CXSelectorDestroyInternal(selector);
 }
 
+/** Populates the selector with all active node indices. */
 CXBool CXNodeSelectorFillAll(CXNodeSelectorRef selector, CXNetworkRef network) {
 	if (!network || !selector) {
 		return CXFalse;
@@ -859,26 +907,32 @@ CXBool CXNodeSelectorFillAll(CXNodeSelectorRef selector, CXNetworkRef network) {
 	return CXSelectorFillAll(selector, network->nodeActive, network->nodeCapacity);
 }
 
+/** Copies the provided list of indices into the selector. */
 CXBool CXNodeSelectorFillFromArray(CXNodeSelectorRef selector, const CXIndex *indices, CXSize count) {
 	return CXSelectorFillFromArrayInternal(selector, indices, count);
 }
 
+/** Returns a pointer to the contiguous array of node indices. */
 CXIndex* CXNodeSelectorData(CXNodeSelectorRef selector) {
 	return selector ? selector->indices : NULL;
 }
 
+/** Returns how many entries are currently stored in the selector. */
 CXSize CXNodeSelectorCount(CXNodeSelectorRef selector) {
 	return selector ? selector->count : 0;
 }
 
+/** Allocates an edge selector with optional preallocated capacity. */
 CXEdgeSelectorRef CXEdgeSelectorCreate(CXSize initialCapacity) {
 	return CXSelectorCreateInternal(initialCapacity);
 }
 
+/** Releases the selector and its backing storage. */
 void CXEdgeSelectorDestroy(CXEdgeSelectorRef selector) {
 	CXSelectorDestroyInternal(selector);
 }
 
+/** Populates the selector with all active edge indices. */
 CXBool CXEdgeSelectorFillAll(CXEdgeSelectorRef selector, CXNetworkRef network) {
 	if (!network || !selector) {
 		return CXFalse;
@@ -886,14 +940,17 @@ CXBool CXEdgeSelectorFillAll(CXEdgeSelectorRef selector, CXNetworkRef network) {
 	return CXSelectorFillAll(selector, network->edgeActive, network->edgeCapacity);
 }
 
+/** Copies the provided list of edge indices into the selector. */
 CXBool CXEdgeSelectorFillFromArray(CXEdgeSelectorRef selector, const CXIndex *indices, CXSize count) {
 	return CXSelectorFillFromArrayInternal(selector, indices, count);
 }
 
+/** Returns a pointer to the contiguous array of edge indices. */
 CXIndex* CXEdgeSelectorData(CXEdgeSelectorRef selector) {
 	return selector ? selector->indices : NULL;
 }
 
+/** Returns how many entries are currently stored in the selector. */
 CXSize CXEdgeSelectorCount(CXEdgeSelectorRef selector) {
 	return selector ? selector->count : 0;
 }

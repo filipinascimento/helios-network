@@ -110,6 +110,7 @@
 
 #if CX_BENCHMARK_FUNCTIONS
 #include <mach/mach_time.h>
+/** Converts Mach absolute time stamps to seconds. */
 CX_INLINE double CXTimeSubtract( uint64_t endTime, uint64_t startTime ){
     uint64_t difference = endTime - startTime;
     static double conversion = 0.0;
@@ -127,10 +128,15 @@ CX_INLINE double CXTimeSubtract( uint64_t endTime, uint64_t startTime ){
     return conversion * (double) difference;
 }
 
+/** Declares scratch variables used by the benchmarking helpers. */
 #define CX_BenchmarkPrepare(prefix) static uint64_t _CX_Benchmark_##prefix##_start; static double _CX_Benchmark_##prefix##_elapsed
+/** Captures the start timestamp for a benchmark section. */
 #define CX_BenchmarkStart(prefix)   _CX_Benchmark_##prefix##_start = mach_absolute_time()
+/** Captures the stop timestamp and stores the elapsed seconds. */
 #define CX_BenchmarkStop(prefix)    _CX_Benchmark_##prefix##_elapsed = CXTimeSubtract(mach_absolute_time(),_CX_Benchmark_##prefix##_start)
+/** Logs the elapsed time using CXLog. */
 #define CX_BenchmarkPrint(prefix)   CXLog("Function finished in %g s.",_CX_Benchmark_##prefix##_elapsed)
+/** Accessor macro returning the elapsed time in seconds. */
 #define CX_BenchmarkTime(prefix)    _CX_Benchmark_##prefix##_elapsed
 
 #else
@@ -156,7 +162,15 @@ typedef unsigned char CXBool;
 
 /* ATOMIC OPERATIONS */
 
-
+/**
+ * Platform-specific atomic primitives. Each branch provides implementations for
+ * the same set of helpers:
+ *   - `CXAtomicCompareAndSwap*Barrier`: Performs compare-and-swap with acquire/
+ *     release semantics on 32-bit, 64-bit, or pointer-sized values.
+ *   - `CXAtomicIncrement*`: Atomically increments the target integer and
+ *     returns the new value.
+ *   - `CXMemoryBarrier`: Issues a full memory fence.
+ */
 #if __WIN32__
 #include "Windows.h"
 CX_INLINE CXBool CXAtomicCompareAndSwap32Barrier(int32_t oldValue, int32_t newValue, volatile int32_t *theValue) {
@@ -1100,6 +1114,3 @@ typedef struct{
 
 
 #endif
-
-
-

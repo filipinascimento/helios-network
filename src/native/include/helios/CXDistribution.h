@@ -21,11 +21,20 @@ typedef struct{
 } CXDistribution;
 
 
+/**
+ * Builds a discrete distribution helper from parallel arrays of probabilities
+ * and optional payload values. Probabilities are expected to sum to ~1.0.
+ */
 CXDistribution* CXCreateDistribution(const CXFloat* probabilities, const CXFloat* data, CXSize count);
+/** Releases buffers allocated for the distribution. */
 void CXDestroyDistribution(CXDistribution* distribution);
 
 
 
+/**
+ * Resolves a probability `choice` in the range [0.0,1.0) to an index in the
+ * distribution. Values outside the range are clamped to the nearest boundary.
+ */
 CX_INLINE CXInteger CXDistributionIndexForChoice(CXDistribution* distribution,double choice){
 	if(CXUnlikely(choice>=1.0)){
 		return distribution->count-1;
@@ -46,6 +55,7 @@ CX_INLINE CXInteger CXDistributionIndexForChoice(CXDistribution* distribution,do
 }
 
 
+/** Resolves a probability `choice` into the payload value, if provided. */
 CX_INLINE CXFloat CXDistributionValueForChoice(CXDistribution* distribution,double choice){
 	CXInteger index = CXDistributionIndexForChoice(distribution,choice);
 	if(distribution->data){
@@ -55,10 +65,12 @@ CX_INLINE CXFloat CXDistributionValueForChoice(CXDistribution* distribution,doub
 	}
 }
 
+/** Picks a random index using the distribution's probability table. */
 CX_INLINE CXInteger CXDistributionRandomIndex(CXDistribution* distribution){
 	return CXDistributionIndexForChoice(distribution, CXRandomFloat());
 }
 
+/** Picks a random payload value using the distribution's probability table. */
 CX_INLINE CXFloat CXDistributionRandomValue(CXDistribution* distribution){
 	return CXDistributionValueForChoice(distribution, CXRandomFloat());
 }

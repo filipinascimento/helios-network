@@ -9,6 +9,7 @@
 #include "CXSimpleQueue.h"
 
 
+/** Returns an available node, reusing entries from the pool when possible. */
 CX_INLINE CXQueueNode* getNodeFromPool(CXQueue* queue){
 	if(queue->nodesPoolCount>0){
 		queue->nodesPoolCount--;
@@ -18,6 +19,7 @@ CX_INLINE CXQueueNode* getNodeFromPool(CXQueue* queue){
 	}
 }
 
+/** Returns a node to the pool, growing the pool array when necessary. */
 CX_INLINE void putNodeInPool(CXQueue* queue,CXQueueNode* node){
 	queue->nodesPoolCount++;
 	if(CXUnlikely(queue->nodesPoolCapacity < queue->nodesPoolCount)){
@@ -29,6 +31,7 @@ CX_INLINE void putNodeInPool(CXQueue* queue,CXQueueNode* node){
 
 
 
+/** Enqueues an item at the tail of the queue. */
 void CXQueuePush (CXQueue* queue, CXInteger item) {
 	// Create a new node
 	CXQueueNode* n = getNodeFromPool(queue);
@@ -44,6 +47,7 @@ void CXQueuePush (CXQueue* queue, CXInteger item) {
 	queue->size++;
 }
 
+/** Removes and returns the head item. Caller must ensure the queue is non-empty. */
 CXInteger CXQueuePop (CXQueue* queue) {
     // get the first item
 	CXQueueNode* head = queue->head;
@@ -58,6 +62,7 @@ CXInteger CXQueuePop (CXQueue* queue) {
 
 
 
+/** Attempts to dequeue into `value`, using the node pool for reuse. */
 CXBool CXQueueDequeue (CXQueue* queue,CXInteger *value) {
     // get the first item
 	if (queue->size>0) {
@@ -76,12 +81,14 @@ CXBool CXQueueDequeue (CXQueue* queue,CXInteger *value) {
 }
 
 
+/** Returns the head item without removing it. */
 CXInteger CXQueuePeek (CXQueue* queue) {
 	CXQueueNode* head = queue->head;
 	return head->item;
 }
 
 
+/** Constructs a queue with pre-wired function pointers and node pool. */
 CXQueue CXQueueCreate () {
 	CXQueue queue;
 	queue.size = 0;
@@ -96,6 +103,7 @@ CXQueue CXQueueCreate () {
 	return queue;
 }
 
+/** Empties the queue and releases all pooled nodes. */
 void CXQueueDestroy (CXQueue* queue) {
 	CXInteger value;
 	while(CXQueueDequeue(queue,&value)){};

@@ -1,5 +1,6 @@
 #include "CXIndexManager.h"
 
+/** Ensures the recycled-index list can hold at least `desiredCapacity` items. */
 static CXBool CXIndexManagerEnsureCapacity(CXIndexManagerRef manager, CXSize desiredCapacity) {
 	if (desiredCapacity <= manager->freeCapacity) {
 		return CXTrue;
@@ -25,6 +26,7 @@ static CXBool CXIndexManagerEnsureCapacity(CXIndexManagerRef manager, CXSize des
 	return CXTrue;
 }
 
+/** Initializes the index manager with optional preallocated capacity. */
 void CXInitIndexManager(CXIndexManagerRef manager, CXSize initialCapacity, CXSize maxCapacity) {
 	if (!manager) {
 		return;
@@ -40,6 +42,7 @@ void CXInitIndexManager(CXIndexManagerRef manager, CXSize initialCapacity, CXSiz
 	}
 }
 
+/** Allocates and initializes a heap-backed index manager. */
 CXIndexManagerRef CXNewIndexManager(CXSize initialCapacity, CXSize maxCapacity) {
 	CXIndexManagerRef manager = calloc(1, sizeof(CXIndexManager));
 	if (!manager) {
@@ -49,6 +52,7 @@ CXIndexManagerRef CXNewIndexManager(CXSize initialCapacity, CXSize maxCapacity) 
 	return manager;
 }
 
+/** Clears state so the manager behaves like freshly initialized. */
 void CXIndexManagerReset(CXIndexManagerRef manager) {
 	if (!manager) {
 		return;
@@ -57,6 +61,7 @@ void CXIndexManagerReset(CXIndexManagerRef manager) {
 	manager->nextIndex = 0;
 }
 
+/** Returns an index to the recycled pool if it falls within range. */
 void CXIndexManagerAddIndex(CXIndexManagerRef manager, CXIndex index) {
 	if (!manager) {
 		return;
@@ -70,6 +75,7 @@ void CXIndexManagerAddIndex(CXIndexManagerRef manager, CXIndex index) {
 	manager->freeList[manager->freeCount++] = index;
 }
 
+/** Retrieves the next available index, either recycled or freshly issued. */
 CXIndex CXIndexManagerGetIndex(CXIndexManagerRef manager) {
 	if (!manager) {
 		return CXIndexMAX;
@@ -83,6 +89,7 @@ CXIndex CXIndexManagerGetIndex(CXIndexManagerRef manager) {
 	return CXIndexMAX;
 }
 
+/** Adjusts the manager to reflect a new maximum index capacity. */
 CXBool CXResizeIndexManager(CXIndexManagerRef manager, CXSize newMaxCapacity) {
 	if (!manager) {
 		return CXFalse;
@@ -112,6 +119,7 @@ CXBool CXResizeIndexManager(CXIndexManagerRef manager, CXSize newMaxCapacity) {
 	return CXTrue;
 }
 
+/** Releases storage owned by the manager but does not free the struct. */
 void CXFreeIndexManager(CXIndexManagerRef manager) {
 	if (!manager) {
 		return;

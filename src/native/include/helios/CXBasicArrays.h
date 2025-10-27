@@ -11,6 +11,7 @@
 
 #include "CXCommons.h"
 
+/** Plain-old-data container representing a dynamically sized float array. */
 typedef struct{
 	CXFloat* data;
 	CXSize count;
@@ -19,6 +20,7 @@ typedef struct{
 
 typedef CXFloatArray CXFloatStack;
 
+/** Dynamic array of doubles with manual capacity tracking. */
 typedef struct{
 	CXDouble* data;
 	CXSize count;
@@ -27,6 +29,7 @@ typedef struct{
 
 typedef CXDoubleArray CXDoubleStack;
 
+/** Dynamic array of signed integers with manual capacity tracking. */
 typedef struct{
 	CXInteger* data;
 	CXSize count;
@@ -35,12 +38,14 @@ typedef struct{
 
 typedef CXIntegerArray CXIntegerStack;
 
+/** Specialized array used for OpenGL short values. */
 typedef struct{
 	CXInteger* data;
 	CXSize count;
 	CXSize _capacity;
 } CXGLShortArray;
 
+/** Dynamic array of unsigned integers with manual capacity tracking. */
 typedef struct{
 	CXUInteger* data;
 	CXSize count;
@@ -49,6 +54,7 @@ typedef struct{
 
 
 
+/** Dynamic array of pointers storing opaque payloads. */
 typedef struct{
 	void** data;
 	CXSize count;
@@ -60,6 +66,7 @@ typedef CXUIntegerArray CXUIntegerStack;
 typedef CXGenericArray CXGenericStack;
 
 
+/** Initializes the float array with the requested capacity (zeroed). */
 CX_INLINE CXFloatArray* CXFloatArrayInitWithCapacity(CXSize capacity, CXFloatArray* theArray){
 	theArray->count=0;
 	theArray->_capacity=capacity;
@@ -71,12 +78,14 @@ CX_INLINE CXFloatArray* CXFloatArrayInitWithCapacity(CXSize capacity, CXFloatArr
 	return theArray;
 }
 
+/** Releases the memory owned by the float array without freeing the struct. */
 CX_INLINE void CXFloatArrayDestroy(CXFloatArray* theArray){
 	if(theArray->data!=NULL){
 		free(theArray->data);
 	}
 }
 
+/** Grows or shrinks the backing storage to exactly `newCapacity`. */
 CX_INLINE void CXFloatArrayReallocToCapacity(CXSize newCapacity, CXFloatArray* theArray){
 	if(theArray->data!=NULL){
 		theArray->data = realloc(theArray->data,newCapacity*sizeof(CXFloat));
@@ -88,6 +97,7 @@ CX_INLINE void CXFloatArrayReallocToCapacity(CXSize newCapacity, CXFloatArray* t
 		theArray->count = theArray->_capacity;
 }
 
+/** Appends an element to the end of the float array. */
 CX_INLINE void CXFloatArrayAdd(CXFloat value, CXFloatArray* theArray){
 	if(theArray->_capacity < theArray->count+1){
 		CXFloatArrayReallocToCapacity(CXCapacityGrow(theArray->count+1), theArray);
@@ -96,6 +106,7 @@ CX_INLINE void CXFloatArrayAdd(CXFloat value, CXFloatArray* theArray){
 	theArray->count++;
 }
 
+/** Resizes the logical count, expanding or shrinking the buffer as needed. */
 CX_INLINE void CXFloatArraySetCount(CXUInteger count, CXFloatArray* theArray){
 	if(theArray->_capacity < count){
 		CXFloatArrayReallocToCapacity(CXCapacityGrow(count), theArray);
@@ -105,12 +116,14 @@ CX_INLINE void CXFloatArraySetCount(CXUInteger count, CXFloatArray* theArray){
 	theArray->count = count;
 }
 
+/** Creates a float stack with an initial capacity of one element. */
 CX_INLINE CXFloatStack CXFloatStackMake(){
 	CXFloatStack floatStack;
 	CXFloatArrayInitWithCapacity(1, &floatStack);
 	return floatStack;
 }
 
+/** Pops and returns the last pushed value. Returns 0 when empty. */
 CX_INLINE CXFloat CXFloatStackPop(CXFloatStack* floatStack){
 	if (floatStack->count>0){
 		floatStack->count--;
@@ -120,10 +133,12 @@ CX_INLINE CXFloat CXFloatStackPop(CXFloatStack* floatStack){
 	}
 }
 
+/** Pushes a value onto the stack, growing storage as needed. */
 CX_INLINE void CXFloatStackPush(CXFloat value, CXFloatStack* floatStack){
 	CXFloatArrayAdd(value, floatStack);
 }
 
+/** Returns the value on the top of the stack without removing it. */
 CX_INLINE CXFloat CXFloatStackTop(CXFloatStack* floatStack){
 	if (floatStack->count>0){
 		return floatStack->data[floatStack->count-1];
@@ -132,6 +147,7 @@ CX_INLINE CXFloat CXFloatStackTop(CXFloatStack* floatStack){
 	}
 }
 
+/** Returns CXTrue when the stack contains no elements. */
 CX_INLINE CXBool CXFloatStackIsEmpty(CXFloatStack* stack){
 	if(stack->count>0){
 		return CXFalse;
@@ -140,6 +156,7 @@ CX_INLINE CXBool CXFloatStackIsEmpty(CXFloatStack* stack){
 	}
 }
 
+/** Creates a deep copy of the provided float array. */
 CX_INLINE CXFloatArray CXFloatArrayCopy(CXFloatArray* theArray){
 	CXFloatArray newArray;
 	CXFloatArrayInitWithCapacity(theArray->count, &newArray);
@@ -149,6 +166,7 @@ CX_INLINE CXFloatArray CXFloatArrayCopy(CXFloatArray* theArray){
 }
 
 
+/** Initializes the double array with the requested capacity (zeroed). */
 CX_INLINE CXDoubleArray* CXDoubleArrayInitWithCapacity(CXSize capacity, CXDoubleArray* theArray){
 	theArray->count=0;
 	theArray->_capacity=capacity;
@@ -160,12 +178,14 @@ CX_INLINE CXDoubleArray* CXDoubleArrayInitWithCapacity(CXSize capacity, CXDouble
 	return theArray;
 }
 
+/** Releases the memory owned by the double array without freeing the struct. */
 CX_INLINE void CXDoubleArrayDestroy(CXDoubleArray* theArray){
 	if(theArray->data!=NULL){
 		free(theArray->data);
 	}
 }
 
+/** Adjusts the backing storage to exactly `newCapacity`. */
 CX_INLINE void CXDoubleArrayReallocToCapacity(CXSize newCapacity, CXDoubleArray* theArray){
 	if(theArray->data!=NULL){
 		theArray->data = realloc(theArray->data,newCapacity*sizeof(CXDouble));
@@ -177,6 +197,7 @@ CX_INLINE void CXDoubleArrayReallocToCapacity(CXSize newCapacity, CXDoubleArray*
 		theArray->count = theArray->_capacity;
 }
 
+/** Appends a value to the end of the double array. */
 CX_INLINE void CXDoubleArrayAdd(CXDouble value, CXDoubleArray* theArray){
 	if(theArray->_capacity < theArray->count+1){
 		CXDoubleArrayReallocToCapacity(CXCapacityGrow(theArray->count+1), theArray);
@@ -185,6 +206,7 @@ CX_INLINE void CXDoubleArrayAdd(CXDouble value, CXDoubleArray* theArray){
 	theArray->count++;
 }
 
+/** Resizes the logical count, expanding or shrinking the buffer as needed. */
 CX_INLINE void CXDoubleArraySetCount(CXUInteger count, CXDoubleArray* theArray){
 	if(theArray->_capacity < count){
 		CXDoubleArrayReallocToCapacity(CXCapacityGrow(count), theArray);
@@ -194,12 +216,14 @@ CX_INLINE void CXDoubleArraySetCount(CXUInteger count, CXDoubleArray* theArray){
 	theArray->count = count;
 }
 
+/** Creates a double stack with an initial capacity of one element. */
 CX_INLINE CXDoubleStack CXDoubleStackMake(){
 	CXDoubleStack floatStack;
 	CXDoubleArrayInitWithCapacity(1, &floatStack);
 	return floatStack;
 }
 
+/** Pops and returns the last pushed double. Returns 0.0 when empty. */
 CX_INLINE CXDouble CXDoubleStackPop(CXDoubleStack* floatStack){
 	if (floatStack->count>0){
 		floatStack->count--;
@@ -209,10 +233,12 @@ CX_INLINE CXDouble CXDoubleStackPop(CXDoubleStack* floatStack){
 	}
 }
 
+/** Pushes a double onto the stack, growing storage as needed. */
 CX_INLINE void CXDoubleStackPush(CXDouble value, CXDoubleStack* floatStack){
 	CXDoubleArrayAdd(value, floatStack);
 }
 
+/** Returns the double at the top of the stack without removing it. */
 CX_INLINE CXDouble CXDoubleStackTop(CXDoubleStack* floatStack){
 	if (floatStack->count>0){
 		return floatStack->data[floatStack->count-1];
@@ -221,6 +247,7 @@ CX_INLINE CXDouble CXDoubleStackTop(CXDoubleStack* floatStack){
 	}
 }
 
+/** Returns CXTrue when the double stack contains no elements. */
 CX_INLINE CXBool CXDoubleStackIsEmpty(CXDoubleStack* stack){
 	if(stack->count>0){
 		return CXFalse;
@@ -229,6 +256,8 @@ CX_INLINE CXBool CXDoubleStackIsEmpty(CXDoubleStack* stack){
 	}
 }
 
+/** Creates a deep copy of the provided double array. */
+/** Creates a deep copy of the provided double array. */
 CX_INLINE CXDoubleArray CXDoubleArrayCopy(CXDoubleArray* theArray){
 	CXDoubleArray newArray;
 	CXDoubleArrayInitWithCapacity(theArray->count, &newArray);
@@ -239,6 +268,7 @@ CX_INLINE CXDoubleArray CXDoubleArrayCopy(CXDoubleArray* theArray){
 
 
 
+/** Initializes the integer array with the requested capacity (zeroed). */
 CX_INLINE CXIntegerArray* CXIntegerArrayInitWithCapacity(CXUInteger capacity, CXIntegerArray* theArray){
 	theArray->count=0;
 	theArray->_capacity=capacity;
@@ -250,12 +280,14 @@ CX_INLINE CXIntegerArray* CXIntegerArrayInitWithCapacity(CXUInteger capacity, CX
 	return theArray;
 }
 
+/** Releases the memory owned by the integer array without freeing the struct. */
 CX_INLINE void CXIntegerArrayDestroy(CXIntegerArray* theArray){
 	if(theArray->data!=NULL){
 		free(theArray->data);
 	}
 }
 
+/** Adjusts the backing storage for the integer array. */
 CX_INLINE void CXIntegerArrayReallocToCapacity(CXUInteger newCapacity, CXIntegerArray* theArray){
 	if(theArray->_capacity==newCapacity){
 		return;
@@ -269,6 +301,7 @@ CX_INLINE void CXIntegerArrayReallocToCapacity(CXUInteger newCapacity, CXInteger
 	if(theArray->_capacity<theArray->count) theArray->count = theArray->_capacity;
 }
 
+/** Resizes the logical item count, keeping the buffer balanced. */
 CX_INLINE void CXIntegerArraySetCount(CXUInteger count, CXIntegerArray* theArray){
 	if(theArray->_capacity < count){
 		CXIntegerArrayReallocToCapacity(CXCapacityGrow(count), theArray);
@@ -279,6 +312,7 @@ CX_INLINE void CXIntegerArraySetCount(CXUInteger count, CXIntegerArray* theArray
 }
 
 
+/** Appends a value to the end of the integer array. */
 CX_INLINE void CXIntegerArrayAdd(CXInteger value, CXIntegerArray* theArray){
 	if(theArray->_capacity < theArray->count+1){
 		CXIntegerArrayReallocToCapacity(CXCapacityGrow(theArray->count+1), theArray);
@@ -287,12 +321,14 @@ CX_INLINE void CXIntegerArrayAdd(CXInteger value, CXIntegerArray* theArray){
 	theArray->count++;
 }
 
+/** Creates an integer stack with an initial capacity of one element. */
 CX_INLINE CXIntegerStack CXIntegerStackMake(){
 	CXIntegerStack stack;
 	CXIntegerArrayInitWithCapacity(1, &stack);
 	return stack;
 }
 
+/** Pops and returns the last pushed integer. Returns 0 when empty. */
 CX_INLINE CXInteger CXIntegerStackPop(CXIntegerStack* stack){
 	if(stack->count>0){
 		stack->count--;
@@ -302,10 +338,12 @@ CX_INLINE CXInteger CXIntegerStackPop(CXIntegerStack* stack){
 	}
 }
 
+/** Pushes an integer onto the stack, growing storage as needed. */
 CX_INLINE void CXIntegerStackPush(CXInteger value, CXIntegerStack* stack){
 	CXIntegerArrayAdd(value, stack);
 }
 
+/** Returns the integer at the top of the stack without removing it. */
 CX_INLINE CXInteger CXIntegerStackTop(CXIntegerStack* stack){
 	if(stack->count>0){
 		return stack->data[stack->count-1];
@@ -314,6 +352,7 @@ CX_INLINE CXInteger CXIntegerStackTop(CXIntegerStack* stack){
 	}
 }
 
+/** Returns CXTrue when the integer stack contains no elements. */
 CX_INLINE CXBool CXIntegerStackIsEmpty(CXIntegerStack* stack){
 	if(stack->count>0){
 		return CXFalse;
@@ -322,6 +361,7 @@ CX_INLINE CXBool CXIntegerStackIsEmpty(CXIntegerStack* stack){
 	}
 }
 
+/** Creates a deep copy of the provided integer array. */
 CX_INLINE CXIntegerArray CXIntegerArrayCopy(CXIntegerArray* theArray){
 	CXIntegerArray newArray;
 	CXIntegerArrayInitWithCapacity(theArray->count, &newArray);
@@ -332,6 +372,7 @@ CX_INLINE CXIntegerArray CXIntegerArrayCopy(CXIntegerArray* theArray){
 
 
 
+/** Initializes the unsigned integer array with the requested capacity. */
 CX_INLINE CXUIntegerArray* CXUIntegerArrayInitWithCapacity(CXUInteger capacity, CXUIntegerArray* theArray){
 	theArray->count=0;
 	theArray->_capacity=capacity;
@@ -343,12 +384,14 @@ CX_INLINE CXUIntegerArray* CXUIntegerArrayInitWithCapacity(CXUInteger capacity, 
 	return theArray;
 }
 
+/** Releases the memory owned by the unsigned integer array. */
 CX_INLINE void CXUIntegerArrayDestroy(CXUIntegerArray* theArray){
 	if(theArray->data!=NULL){
 		free(theArray->data);
 	}
 }
 
+/** Adjusts the backing storage for the unsigned integer array. */
 CX_INLINE void CXUIntegerArrayReallocToCapacity(CXUInteger newCapacity, CXUIntegerArray* theArray){
 	if(theArray->data!=NULL){
 		theArray->data = realloc(theArray->data,newCapacity*sizeof(CXUInteger));
@@ -359,6 +402,7 @@ CX_INLINE void CXUIntegerArrayReallocToCapacity(CXUInteger newCapacity, CXUInteg
 	if(theArray->_capacity<theArray->count) theArray->count = theArray->_capacity;
 }
 
+/** Appends a value to the end of the unsigned integer array. */
 CX_INLINE void CXUIntegerArrayAdd(CXUInteger value, CXUIntegerArray* theArray){
 	if(theArray->_capacity < theArray->count+1){
 		CXUIntegerArrayReallocToCapacity(CXCapacityGrow(theArray->count+1), theArray);
@@ -368,6 +412,7 @@ CX_INLINE void CXUIntegerArrayAdd(CXUInteger value, CXUIntegerArray* theArray){
 }
 
 
+/** Resizes the logical count for the unsigned integer array. */
 CX_INLINE void CXUIntegerArraySetCount(CXSize count, CXUIntegerArray* theArray){
 	if(theArray->_capacity < count){
 		CXUIntegerArrayReallocToCapacity(CXCapacityGrow(count), theArray);
@@ -377,12 +422,14 @@ CX_INLINE void CXUIntegerArraySetCount(CXSize count, CXUIntegerArray* theArray){
 	theArray->count = count;
 }
 
+/** Creates an unsigned integer stack with an initial capacity of one element. */
 CX_INLINE CXUIntegerStack CXUIntegerStackMake(){
 	CXUIntegerStack stack;
 	CXUIntegerArrayInitWithCapacity(1, &stack);
 	return stack;
 }
 
+/** Pops and returns the last pushed unsigned integer. Returns 0 when empty. */
 CX_INLINE CXUInteger CXUIntegerStackPop(CXUIntegerStack* stack){
 	if(stack->count>0){
 		stack->count--;
@@ -392,10 +439,12 @@ CX_INLINE CXUInteger CXUIntegerStackPop(CXUIntegerStack* stack){
 	}
 }
 
+/** Pushes an unsigned integer onto the stack, growing storage as needed. */
 CX_INLINE void CXUIntegerStackPush(CXUInteger value, CXUIntegerStack* stack){
 	CXUIntegerArrayAdd(value, stack);
 }
 
+/** Returns the unsigned integer at the top of the stack without removing it. */
 CX_INLINE CXUInteger CXUIntegerStackTop(CXUIntegerStack* stack){
 	if(stack->count>0){
 		return stack->data[stack->count-1];
@@ -404,6 +453,7 @@ CX_INLINE CXUInteger CXUIntegerStackTop(CXUIntegerStack* stack){
 	}
 }
 
+/** Returns CXTrue when the unsigned integer stack contains no elements. */
 CX_INLINE CXBool CXUIntegerStackIsEmpty(CXUIntegerStack* stack){
 	if(stack->count>0){
 		return CXFalse;
@@ -412,6 +462,7 @@ CX_INLINE CXBool CXUIntegerStackIsEmpty(CXUIntegerStack* stack){
 	}
 }
 
+/** Creates a deep copy of the provided unsigned integer array. */
 CX_INLINE CXUIntegerArray CXUIntegerArrayCopy(CXUIntegerArray* theArray){
 	CXUIntegerArray newArray;
 	CXUIntegerArrayInitWithCapacity(theArray->count, &newArray);
@@ -421,6 +472,7 @@ CX_INLINE CXUIntegerArray CXUIntegerArrayCopy(CXUIntegerArray* theArray){
 }
 
 
+/** Initializes the generic pointer array with the requested capacity. */
 CX_INLINE CXGenericArray* CXGenericArrayInitWithCapacity(CXUInteger capacity, CXGenericArray* theArray){
 	theArray->count=0;
 	theArray->_capacity=capacity;
@@ -432,6 +484,7 @@ CX_INLINE CXGenericArray* CXGenericArrayInitWithCapacity(CXUInteger capacity, CX
 	return theArray;
 }
 
+/** Releases the memory owned by the generic array without freeing elements. */
 CX_INLINE void CXGenericArrayDestroy(CXGenericArray* theArray){
 	if(theArray->data!=NULL){
 		free(theArray->data);
@@ -440,6 +493,7 @@ CX_INLINE void CXGenericArrayDestroy(CXGenericArray* theArray){
 
 
 
+/** Adjusts the backing storage for the generic array. */
 CX_INLINE void CXGenericArrayReallocToCapacity(CXUInteger newCapacity, CXGenericArray* theArray){
 	if(theArray->data!=NULL){
 		theArray->data = realloc(theArray->data,newCapacity*sizeof(void*));
@@ -450,6 +504,7 @@ CX_INLINE void CXGenericArrayReallocToCapacity(CXUInteger newCapacity, CXGeneric
 	if(theArray->_capacity<theArray->count) theArray->count = theArray->_capacity;
 }
 
+/** Appends a pointer value to the generic array. */
 CX_INLINE void CXGenericArrayAdd(void* value, CXGenericArray* theArray){
 	if(theArray->_capacity < theArray->count+1){
 		CXGenericArrayReallocToCapacity(CXCapacityGrow(theArray->count+1), theArray);
@@ -458,6 +513,7 @@ CX_INLINE void CXGenericArrayAdd(void* value, CXGenericArray* theArray){
 	theArray->count++;
 }
 
+/** Resizes the logical count for the generic array. */
 CX_INLINE void CXGenericArraySetCount(CXUInteger count, CXGenericArray* theArray){
 	if(theArray->_capacity < count){
 		CXGenericArrayReallocToCapacity(CXCapacityGrow(count), theArray);
@@ -467,12 +523,14 @@ CX_INLINE void CXGenericArraySetCount(CXUInteger count, CXGenericArray* theArray
 	theArray->count = count;
 }
 
+/** Creates a generic pointer stack with an initial capacity of one element. */
 CX_INLINE CXGenericStack CXGenericStackMake(){
 	CXGenericStack stack;
 	CXGenericArrayInitWithCapacity(1, &stack);
 	return stack;
 }
 
+/** Pops and returns the last pushed pointer. Returns NULL when empty. */
 CX_INLINE void* CXGenericStackPop(CXGenericStack* stack){
 	if(stack->count>0){
 		stack->count--;
@@ -482,10 +540,12 @@ CX_INLINE void* CXGenericStackPop(CXGenericStack* stack){
 	}
 }
 
+/** Pushes a pointer onto the stack, growing storage as needed. */
 CX_INLINE void CXGenericStackPush(void* value, CXGenericStack* stack){
 	CXGenericArrayAdd(value, stack);
 }
 
+/** Returns the pointer at the top of the stack without removing it. */
 CX_INLINE void* CXGenericStackTop(CXGenericStack* stack){
 	if(stack->count>0){
 		return stack->data[stack->count-1];
@@ -494,6 +554,7 @@ CX_INLINE void* CXGenericStackTop(CXGenericStack* stack){
 	}
 }
 
+/** Returns CXTrue when the generic stack contains no elements. */
 CX_INLINE CXBool CXGenericStackIsEmpty(CXGenericStack* stack){
 	if(stack->count>0){
 		return CXFalse;
@@ -503,6 +564,7 @@ CX_INLINE CXBool CXGenericStackIsEmpty(CXGenericStack* stack){
 }
 
 
+/** Creates a shallow copy of the provided generic array. */
 CX_INLINE CXGenericArray CXGenericArrayCopy(CXGenericArray* theArray){
 	CXGenericArray newArray;
 	CXGenericArrayInitWithCapacity(theArray->count, &newArray);
@@ -511,10 +573,7 @@ CX_INLINE CXGenericArray CXGenericArrayCopy(CXGenericArray* theArray){
 	return newArray;
 }
 
-
-
-
-
+/** Sorts a float array in ascending order while reordering the parallel index array. */
 CX_INLINE CXBool CXQuickSortFloatArrayWithIndices(CXFloatArray floatArray, CXUIntegerArray indicesArray){
 	CXUInteger MAX_LEVELS=floatArray.count;
 	if(floatArray.count!=indicesArray.count){
@@ -568,8 +627,7 @@ CX_INLINE CXBool CXQuickSortFloatArrayWithIndices(CXFloatArray floatArray, CXUIn
 	return CXTrue;
 }
 
-
-
+/** Sorts an index array while permuting a parallel float array accordingly. */
 CX_INLINE CXBool CXQuickSortIndicesArrayWithFloat(CXIntegerArray indicesArray,CXFloatArray floatArray){
 	CXInteger MAX_LEVELS=indicesArray.count;
 	if(indicesArray.count!=floatArray.count){
@@ -622,8 +680,7 @@ CX_INLINE CXBool CXQuickSortIndicesArrayWithFloat(CXIntegerArray indicesArray,CX
 	free(end);
 	return CXTrue;
 }
-
-
+/** Sorts a double array in ascending order while reordering the parallel index array. */
 CX_INLINE CXBool CXQuickSortDoubleArrayWithIndices(CXDoubleArray doubleArray, CXUIntegerArray indicesArray){
 	CXUInteger MAX_LEVELS=doubleArray.count;
 	if(doubleArray.count!=indicesArray.count){
@@ -677,8 +734,7 @@ CX_INLINE CXBool CXQuickSortDoubleArrayWithIndices(CXDoubleArray doubleArray, CX
 	return CXTrue;
 }
 
-
-
+/** Sorts an index array while permuting a parallel double array accordingly. */
 CX_INLINE CXBool CXQuickSortIndicesArrayWithDouble(CXIntegerArray indicesArray,CXDoubleArray doubleArray){
 	CXInteger MAX_LEVELS=indicesArray.count;
 	if(indicesArray.count!=doubleArray.count){
@@ -731,8 +787,7 @@ CX_INLINE CXBool CXQuickSortIndicesArrayWithDouble(CXIntegerArray indicesArray,C
 	free(end);
 	return CXTrue;
 }
-
-
+/** Sorts an integer array in ascending order using an iterative quicksort. */
 CX_INLINE CXBool CXQuickSortIndicesArray(CXIntegerArray indicesArray){
 	CXUInteger MAX_LEVELS=indicesArray.count;
 	CXInteger  piv, i=0, L, R ;
@@ -777,8 +832,7 @@ CX_INLINE CXBool CXQuickSortIndicesArray(CXIntegerArray indicesArray){
 	free(end);
 	return CXTrue;
 }
-
-
+/** Sorts an unsigned integer array in ascending order using an iterative quicksort. */
 CX_INLINE CXBool CXQuickSortUIntegerArray(CXUIntegerArray indicesArray){
 	CXUInteger MAX_LEVELS=indicesArray.count;
 	CXUInteger  piv;
@@ -836,6 +890,7 @@ typedef CXInteger CXComparisonResult;
 #define CX_ARRAY_COMPARE_FUNCTION(leftValue, rightValue) (((leftValue)>(rightValue))?CXOrderedDescending:(((leftValue)<(rightValue))?CXOrderedAscending:CXOrderedSame))
 #endif
 
+/** Internal helper that partitions the array segment around `pivot`. */
 CX_INLINE CXUInteger CXIntegerArrayPartition(CXIntegerArray* theArray, CXUInteger f, CXUInteger l, CXInteger pivot, CXComparisonResult comparisonResult){
 	CXUInteger i = f-1, j = l+1;
 	CXInteger* arrayData = theArray->data;
@@ -858,6 +913,7 @@ CX_INLINE CXUInteger CXIntegerArrayPartition(CXIntegerArray* theArray, CXUIntege
 	}
 }
 
+/** Recursive quicksort implementation used when index sorting is insufficient. */
 CX_INLINE void CXIntegerArrayQuickSortImplementation(CXIntegerArray* theArray, CXUInteger f, CXUInteger l, CXComparisonResult comparisonResult){
 	while(f < l){
 		CXUInteger m = CXIntegerArrayPartition(theArray, f, l, theArray->data[f],comparisonResult);
@@ -867,6 +923,8 @@ CX_INLINE void CXIntegerArrayQuickSortImplementation(CXIntegerArray* theArray, C
 }
 
 
+/** Simple insertion sort used for small partitions to improve cache locality. */
+/** In-place insertion sort that honours the provided comparison direction. */
 CX_INLINE void CXIntegerArrayInsertSortImplementation(CXIntegerArray* theArray, CXComparisonResult comparisonResult){
 	if(theArray->count==0)
 		return;
@@ -883,6 +941,7 @@ CX_INLINE void CXIntegerArrayInsertSortImplementation(CXIntegerArray* theArray, 
 	}
 }
 
+/** Variant of insertion sort that orders values in descending order. */
 CX_INLINE void CXIntegerArrayInsertSortImplementation2(CXIntegerArray* theArray){
     //  Local Declaration
     CXInteger temp, current, walker;
@@ -905,6 +964,7 @@ CX_INLINE void CXIntegerArrayInsertSortImplementation2(CXIntegerArray* theArray)
     return;
 }
 
+/** Quicksort implementation that leverages median-of-three pivot selection. */
 CX_STATIC_INLINE void CXIntegerArrayQuickSort3Implementation(CXIntegerArray* theArray, CXUInteger f, CXUInteger l, CXComparisonResult comparisonResult){
 	if(theArray->count==0)
 		return;
@@ -940,6 +1000,7 @@ CX_STATIC_INLINE void CXIntegerArrayQuickSort3Implementation(CXIntegerArray* the
 }
 
 
+/** Public entry point that sorts the integer array in ascending order. */
 CX_INLINE void CXIntegerArrayQuickSort3(CXIntegerArray* theArray){
 	if(theArray->count==0)
 		return;
@@ -957,6 +1018,7 @@ CX_INLINE void CXIntegerArrayQuickSort3(CXIntegerArray* theArray){
 
 
 
+/** Internal helper that partitions a float array segment around `pivot`. */
 CX_INLINE CXUInteger CXFloatArrayPartition(CXFloatArray* theArray, CXUInteger f, CXUInteger l, CXFloat pivot, CXComparisonResult comparisonResult){
 	CXUInteger i = f-1, j = l+1;
 	CXFloat* arrayData = theArray->data;
@@ -979,6 +1041,7 @@ CX_INLINE CXUInteger CXFloatArrayPartition(CXFloatArray* theArray, CXUInteger f,
 	}
 }
 
+/** Recursive quicksort implementation used for float arrays. */
 CX_INLINE void CXFloatArrayQuickSortImplementation(CXFloatArray* theArray, CXUInteger f, CXUInteger l, CXComparisonResult comparisonResult){
 	while(f < l){
 		CXUInteger m = CXFloatArrayPartition(theArray, f, l, theArray->data[f],comparisonResult);
@@ -988,6 +1051,7 @@ CX_INLINE void CXFloatArrayQuickSortImplementation(CXFloatArray* theArray, CXUIn
 }
 
 
+/** In-place insertion sort for float arrays that honours the comparison flag. */
 CX_INLINE void CXFloatArrayInsertSortImplementation(CXFloatArray* theArray, CXComparisonResult comparisonResult){
 	if(theArray->count==0)
 		return;
@@ -1004,6 +1068,7 @@ CX_INLINE void CXFloatArrayInsertSortImplementation(CXFloatArray* theArray, CXCo
 	}
 }
 
+/** Variant of insertion sort that orders float values in descending order. */
 CX_INLINE void CXFloatArrayInsertSortImplementation2(CXFloatArray* theArray){
 	//  Local Declaration
 	CXFloat temp;
@@ -1027,6 +1092,7 @@ CX_INLINE void CXFloatArrayInsertSortImplementation2(CXFloatArray* theArray){
 	return;
 }
 
+/** Quicksort implementation for float arrays leveraging median-of-three pivoting. */
 CX_STATIC_INLINE void CXFloatArrayQuickSort3Implementation(CXFloatArray* theArray, CXUInteger f, CXUInteger l, CXComparisonResult comparisonResult){
 	if(theArray->count==0)
 		return;
@@ -1062,6 +1128,7 @@ CX_STATIC_INLINE void CXFloatArrayQuickSort3Implementation(CXFloatArray* theArra
 }
 
 
+/** Public entry point that sorts the float array in the requested order. */
 CX_INLINE void CXFloatArrayQuickSort3(CXFloatArray* theArray, CXComparisonResult order){
 	if(theArray->count==0)
 		return;
@@ -1079,6 +1146,7 @@ CX_INLINE void CXFloatArrayQuickSort3(CXFloatArray* theArray, CXComparisonResult
 
 
 
+/** Internal helper that partitions a double array segment around `pivot`. */
 CX_INLINE CXUInteger CXDoubleArrayPartition(CXDoubleArray* theArray, CXUInteger f, CXUInteger l, CXDouble pivot, CXComparisonResult comparisonResult){
 	CXUInteger i = f-1, j = l+1;
 	CXDouble* arrayData = theArray->data;
@@ -1101,6 +1169,7 @@ CX_INLINE CXUInteger CXDoubleArrayPartition(CXDoubleArray* theArray, CXUInteger 
 	}
 }
 
+/** Recursive quicksort implementation used for double arrays. */
 CX_INLINE void CXDoubleArrayQuickSortImplementation(CXDoubleArray* theArray, CXUInteger f, CXUInteger l, CXComparisonResult comparisonResult){
 	while(f < l){
 		CXUInteger m = CXDoubleArrayPartition(theArray, f, l, theArray->data[f],comparisonResult);
@@ -1110,6 +1179,7 @@ CX_INLINE void CXDoubleArrayQuickSortImplementation(CXDoubleArray* theArray, CXU
 }
 
 
+/** In-place insertion sort for double arrays that honours the comparison flag. */
 CX_INLINE void CXDoubleArrayInsertSortImplementation(CXDoubleArray* theArray, CXComparisonResult comparisonResult){
 	if(theArray->count==0)
 		return;
@@ -1126,6 +1196,7 @@ CX_INLINE void CXDoubleArrayInsertSortImplementation(CXDoubleArray* theArray, CX
 	}
 }
 
+/** Variant of insertion sort that orders double values in descending order. */
 CX_INLINE void CXDoubleArrayInsertSortImplementation2(CXDoubleArray* theArray){
 	//  Local Declaration
 	CXDouble temp;
@@ -1149,6 +1220,7 @@ CX_INLINE void CXDoubleArrayInsertSortImplementation2(CXDoubleArray* theArray){
 	return;
 }
 
+/** Quicksort implementation for double arrays leveraging median-of-three pivoting. */
 CX_STATIC_INLINE void CXDoubleArrayQuickSort3Implementation(CXDoubleArray* theArray, CXUInteger f, CXUInteger l, CXComparisonResult comparisonResult){
 	if(theArray->count==0)
 		return;
@@ -1184,6 +1256,7 @@ CX_STATIC_INLINE void CXDoubleArrayQuickSort3Implementation(CXDoubleArray* theAr
 }
 
 
+/** Public entry point that sorts the double array in the requested order. */
 CX_INLINE void CXDoubleArrayQuickSort3(CXDoubleArray* theArray, CXComparisonResult order){
 	if(theArray->count==0)
 		return;

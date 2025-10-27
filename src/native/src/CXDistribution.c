@@ -9,6 +9,7 @@
 #include "CXDistribution.h"
 
 
+/** Builds a sampling helper from the provided probability table. */
 CXDistribution* CXCreateDistribution(const CXFloat* probabilities, const CXFloat* data, CXSize count){
 	CXIndex i;
 	CXDistribution* distribution = calloc(1, sizeof(CXDistribution));
@@ -66,6 +67,7 @@ CXDistribution* CXCreateDistribution(const CXFloat* probabilities, const CXFloat
 }
 
 
+/** Releases memory owned by the distribution helper. */
 void CXDestroyDistribution(CXDistribution* distribution){
 	distribution->count=0;
 	free(distribution->cumulative);
@@ -102,4 +104,3 @@ void CXDestroyDistribution(CXDistribution* distribution){
 // 		printf("%g\t%10g\n", m/(double)(distrib->count-1), freqs[m]/(double)reps);
 // 	}
 // }
-

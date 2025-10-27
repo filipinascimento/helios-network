@@ -14,6 +14,7 @@
 #include "CXCommons.h"
 
 
+/** Entry used by a string set (uthash-backed). */
 typedef struct {
 	char* element;
 	UT_hash_handle hh;
@@ -24,19 +25,33 @@ typedef CXStringSet* CXStringSetRef;
 
 #define CXStringSetFOR(setEntry,set) for(CXStringSetEntry* setEntry=*set; setEntry != NULL; setEntry=setEntry->hh.next)
 
+/** Allocates a new empty string set. */
 CXStringSetRef CXNewStringSet();
+/** Returns CXTrue when `key` is present in the set. */
 CXBool CXStringSetHas(const CXStringSetRef set, const CXString key);
+/** Inserts `element` into the set. */
 void CXStringSetAdd(CXStringSetRef set, const CXString element);
+/** Removes `element` if it exists in the set. */
 void CXStringSetRemove(CXStringSetRef set, const CXString element);
+/** Deletes all items from the set without freeing the set itself. */
 void CXStringSetClear(CXStringSetRef set);
+/** Destroys the set and frees all associated resources. */
 void CXStringSetDestroy(CXStringSetRef set);
+/** Returns a newly allocated set representing the union of both inputs. */
 CXStringSetRef CXNewStringSetFromUnion(const CXStringSetRef firtSet, const CXStringSetRef secondSet);
+/** Mutates `destinationSet` by adding all elements from `unionSet`. */
 void CXStringSetUnion(CXStringSetRef destinationSet, const CXStringSetRef unionSet);
+/** Returns a set containing elements present in both inputs. */
 CXStringSetRef CXNewStringSetFromIntersection(const CXStringSetRef firtSet, const CXStringSetRef secondSet);
+/** Returns a set with elements in `firtSet` that are absent in `secondSet`. */
 CXStringSetRef CXNewStringSetFromDifference(const CXStringSetRef firtSet, const CXStringSetRef secondSet);
+/** Returns a set with elements present in exactly one input set. */
 CXStringSetRef CXNewStringSetFromSymmetricDifference(const CXStringSetRef firtSet, const CXStringSetRef secondSet);
+/** Clones the provided set. */
 CXStringSetRef CXNewStringSetFromSet(const CXStringSetRef aSet);
+/** Tests whether `subSet` is entirely contained in `superSet`. */
 CXBool CXStringSetIsSubsetOf(const CXStringSetRef subSet, const CXStringSetRef superSet);
+/** Tests whether `superSet` contains every element of `subSet`. */
 CXBool CXStringSetIsSupersetOf(const CXStringSetRef superSet, const CXStringSetRef subSet);
 
 CX_INLINE CXSize CXStringSetCount(CXStringSetRef aSet){
@@ -47,6 +62,7 @@ CX_INLINE CXSize CXStringSetCount(CXStringSetRef aSet){
 
 
 
+/** Entry used by a signed integer set. */
 typedef struct {
 	CXInteger element;
 	UT_hash_handle hh;
@@ -79,6 +95,7 @@ CX_INLINE CXSize CXIntegerSetCount(CXIntegerSetRef aSet){
 
 
 
+/** Entry used by an unsigned integer set. */
 typedef struct {
 	CXUInteger element;
 	UT_hash_handle hh;
@@ -113,6 +130,7 @@ CX_INLINE CXSize CXUIntegerSetCount(CXUIntegerSetRef aSet){
 
 
 
+/** Entry used by an edge set keyed by edge id. */
 typedef struct {
 	CXEdge element;
 	UT_hash_handle hh;
@@ -144,6 +162,7 @@ CX_INLINE CXSize CXEdgeSetCount(CXEdgeSetRef aSet){
 
 
 
+/** Entry used by the generic (binary) set representation. */
 typedef struct {
 	void* element;
 	CXSize elementSize;
