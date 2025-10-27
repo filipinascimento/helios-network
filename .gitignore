@@ -159,9 +159,11 @@ Temporary Items
 .vscode
 node_modules
 compiled
+/docs/api
+package-lock.json
 
 # Meson build directory
-builddir/
+/builddir
 
 # Playwright artifacts
 test-results/
