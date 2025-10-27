@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Helios Network Browser Test</title>
+</head>
+<body>
+  <h1>Helios Network Browser Test</h1>
+  <pre id="output"></pre>
+  <script type="module">
+    import HeliosNetwork from '../src/helios-network.js';
+
+    async function runTest() {
+      try {
+        const net = await HeliosNetwork.create({ directed: true, initialNodes: 1 });
+        const nodes = net.addNodes(4);
+        const edges = net.addEdges([
+          { from: nodes[0], to: nodes[1] },
+          { from: nodes[1], to: nodes[2] },
+          { from: nodes[2], to: nodes[3] },
+        ]);
+        net.dispose();
+        document.getElementById('output').textContent =
+          `Network created. Added ${nodes.length} nodes and ${edges.length} edges.`;
+      } catch (e) {
+        document.getElementById('output').textContent = 'Error: ' + e;
+      }
+    }
+    runTest();
+  </script>
+</body>
+</html>

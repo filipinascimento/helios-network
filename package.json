@@ -1,0 +1,48 @@
+{
+  "name": "helios-network",
+  "version": "0.2.0",
+  "description": "Helios network representation written using wasm",
+  "author": {
+    "name": "Filipi N. Silva",
+    "url": "https://filipinascimento.github.io"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git@github.com:filipinascimento/helios-network.git"
+  },
+  "license": "MIT",
+  "scripts": {
+    "build": "ROLLUP_SKIP_NATIVE=true FORMAT=esm vite build && ROLLUP_SKIP_NATIVE=true FORMAT=umd vite build --emptyOutDir false",
+    "build:wasm": "PATH=$PWD/node_modules/.bin:$PATH meson setup builddir --cross-file emscripten-cross.txt || true && PATH=$PWD/node_modules/.bin:$PATH meson compile -C builddir",
+    "dev": "vite",
+    "test": "vitest --run --exclude tests/browser.spec.js",
+    "docs:js": "jsdoc -c docs/jsdoc.json",
+    "test:browser": "vite",
+    "test:browser:ci": "start-server-and-test dev http://localhost:5173 'playwright test'",
+    "prepublishOnly": "npm run build",
+    "sync-version": "node sync-version.cjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.52.0",
+    "jsdoc": "^4.0.5",
+    "playwright": "^1.52.0",
+    "start-server-and-test": "^2.0.12",
+    "vite": "^6.3.5",
+    "vite-plugin-static-copy": "^3.0.0",
+    "vitest": "^3.1.3"
+  },
+  "type": "module",
+  "jsdelivr": "./dist//helios-network.js",
+  "unpkg": "./dist//helios-network.js",
+  "files": [
+    "dist"
+  ],
+  "main": "./dist/helios-network.umd.cjs",
+  "module": "./dist//helios-network.js",
+  "exports": {
+    ".": {
+      "import": "./dist//helios-network.js",
+      "require": "./dist//helios-network.umd.cjs"
+    }
+  }
+}

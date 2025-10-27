@@ -1,0 +1,19 @@
+{
+  "source": {
+    "include": ["src/js/HeliosNetwork.js"],
+    "includePattern": ".js$",
+    "exclude": ["node_modules"]
+  },
+  "plugins": [],
+  "opts": {
+    "destination": "./docs/js",
+    "encoding": "utf8",
+    "recurse": true,
+    "template": "default"
+  },
+  "templates": {
+    "default": {
+      "includeDate": false
+    }
+  }
+}
