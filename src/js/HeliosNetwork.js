@@ -19,10 +19,15 @@ const AttributeType = Object.freeze({
 });
 
 /**
- * Cached WASM module promise.
+ * Cached WASM module promise and resolved instance.
  * @type {Promise<object>|null}
  */
 let modulePromise = null;
+/**
+ * Resolved Helios WASM module instance once initialization completes.
+ * @type {object|null}
+ */
+let moduleInstance = null;
 
 /**
  * Lazily instantiates the Helios WASM module and reuses the instance.
@@ -38,6 +43,7 @@ async function getModule(options = {}) {
 			if (instance.ready) {
 				await instance.ready;
 			}
+			moduleInstance = instance;
 			return instance;
 		})();
 	}
@@ -324,15 +330,38 @@ export class HeliosNetwork {
 			module: providedModule,
 		} = options;
 		const module = providedModule || await getModule();
-		const networkPtr = module._CXNewNetworkWithCapacity(directed ? 1 : 0, initialNodes, initialEdges);
-		if (!networkPtr) {
-			throw new Error('Failed to allocate Helios network');
+		moduleInstance = module;
+		return HeliosNetwork._createWithModule(module, directed, initialNodes, initialEdges);
+	}
+
+	/**
+	 * Synchronously constructs a network instance using an already-initialized module.
+	 *
+	 * Either provide the `module` option explicitly or ensure that the module
+	 * was previously initialized through `await HeliosNetwork.create(...)` or
+	 * `await getHeliosModule(...)`.
+	 *
+	 * @param {object} [options]
+	 * @param {boolean} [options.directed=false] - Whether the graph enforces edge direction.
+	 * @param {number} [options.initialNodes=0] - Nodes to pre-allocate and populate.
+	 * @param {number} [options.initialEdges=0] - Edge capacity to pre-allocate.
+	 * @param {object} [options.module] - Pre-initialized WASM module to reuse.
+	 * @returns {HeliosNetwork} Ready-to-use network.
+	 * @throws {Error} When the module has not been initialized yet.
+	 */
+	static createSync(options = {}) {
+		const {
+			directed = false,
+			initialNodes = 0,
+			initialEdges = 0,
+			module: providedModule,
+		} = options;
+		const module = providedModule || moduleInstance;
+		if (!module) {
+			throw new Error('Helios WASM module is not initialized. Await HeliosNetwork.create() or getHeliosModule() first, or pass the module explicitly.');
 		}
-		const instance = new HeliosNetwork(module, networkPtr, directed);
-		if (initialNodes > 0) {
-			instance.addNodes(initialNodes);
-		}
-		return instance;
+		moduleInstance = module;
+		return HeliosNetwork._createWithModule(module, directed, initialNodes, initialEdges);
 	}
 
 	/**
@@ -1096,6 +1125,22 @@ export class HeliosNetwork {
 			selector.fillAll(this);
 		}
 		return selector;
+	}
+
+	/**
+	 * Internal helper that creates a network backed by the provided module.
+	 * @private
+	 */
+	static _createWithModule(module, directed, initialNodes, initialEdges) {
+		const networkPtr = module._CXNewNetworkWithCapacity(directed ? 1 : 0, initialNodes, initialEdges);
+		if (!networkPtr) {
+			throw new Error('Failed to allocate Helios network');
+		}
+		const instance = new HeliosNetwork(module, networkPtr, directed);
+		if (initialNodes > 0) {
+			instance.addNodes(initialNodes);
+		}
+		return instance;
 	}
 }
 

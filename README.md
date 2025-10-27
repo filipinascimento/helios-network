@@ -191,9 +191,12 @@ selector.dispose();
 net.dispose();
 ```
 
+Once the WebAssembly module has been initialised (for example by awaiting `HeliosNetwork.create()` or `getHeliosModule()` once), additional networks can be created synchronously through `HeliosNetwork.createSync()` if you prefer to stay in synchronous code.
+
 ### Key Classes & Functions
 
 - `HeliosNetwork.create(options)` → Promise resolving to a network instance.
+- `HeliosNetwork.createSync(options)` → Synchronous factory that reuses an already loaded WASM module.
 - `HeliosNetwork.addNodes(count)` / `addEdges(list)` → return typed-array copies of new indices.
 - Attribute helpers (`define*Attribute`, `get*AttributeBuffer`, `set*StringAttribute`, etc.).
 - Selectors (`createNodeSelector`, `createEdgeSelector`) and the `Selector` helper API.
