@@ -45,12 +45,6 @@ jobs:
           if [ -d docs ]; then
             cp -R docs site/docs
           fi
-          if [ -d jsdoc ]; then
-            cp -R jsdoc site/jsdoc
-          fi
-          if [ -d jsdocs ]; then
-            cp -R jsdocs site/jsdocs
-          fi
           if [ -d docs/c/html ]; then
             mkdir -p site/docs/c
             cp -R docs/c/html site/doxygen
