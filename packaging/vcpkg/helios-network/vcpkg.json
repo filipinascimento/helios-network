@@ -1,6 +1,6 @@
 {
   "name": "helios-network",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "Helios Network native graph core extracted as a C library.",
   "license": "MIT",
   "supports": "!uwp",
