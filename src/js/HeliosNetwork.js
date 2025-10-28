@@ -129,7 +129,8 @@ function setToUint32Array(values) {
  * @param {'node'|'edge'} scope - Attribute scope to read.
  * @param {string} name - Attribute identifier.
  * @param {Uint32Array} indices - Selection indices.
- * @param {{raw?:boolean}} [options] - Projection options.
+ * @param {Object} [options] - Projection options.
+ * @param {boolean} [options.raw=false] - When true, returns the raw typed buffer.
  * @returns {Array|TypedArray} Resolved attribute payload.
  */
 function projectAttributeValues(network, scope, name, indices, options = {}) {
@@ -445,12 +446,12 @@ class NodeSelector extends Selector {
 	hasAttribute(name) {
 		return Boolean(this.network?._nodeAttributes?.has(name));
 	}
-
 	/**
 	 * Resolves attribute values for the selected nodes.
 	 *
 	 * @param {string} name - Attribute identifier.
-	 * @param {{raw?:boolean}} [options] - Projection options.
+	 * @param {Object} [options] - Projection options.
+	 * @param {boolean} [options.raw=false] - When true, returns the raw typed buffer.
 	 * @returns {Array|TypedArray} Attribute values aligned with the selector indices.
 	 */
 	attribute(name, options = {}) {
@@ -509,8 +510,11 @@ class NodeSelector extends Selector {
 	/**
 	 * Computes neighbour sets for the selected nodes.
 	 *
-	 * @param {{mode?:'out'|'in'|'both'|'all',includeEdges?:boolean,asSelector?:boolean}} [options] - Query options.
-	 * @returns {Uint32Array|{nodes:Uint32Array|NodeSelector,edges?:Uint32Array|EdgeSelector}} Neighbor information.
+	 * @param {Object} [options] - Query options.
+	 * @param {'out'|'in'|'both'|'all'} [options.mode='out'] - Determines which neighbors to include.
+	 * @param {boolean} [options.includeEdges=false] - When true, also collects traversed edges.
+	 * @param {boolean} [options.asSelector=false] - When true, returns selector proxies.
+	 * @returns {(Uint32Array|{nodes:(Uint32Array|NodeSelector), edges:(Uint32Array|EdgeSelector)})} Neighbor information.
 	 */
 	neighbors(options = {}) {
 		const {
@@ -564,7 +568,8 @@ class NodeSelector extends Selector {
 	/**
 	 * Derives degree values for the selected nodes.
 	 *
-	 * @param {{mode?:'out'|'in'|'both'|'all'}} [options] - Degree configuration.
+	 * @param {Object} [options] - Degree configuration.
+	 * @param {'out'|'in'|'both'|'all'} [options.mode='out'] - Determines which edge directions to count.
 	 * @returns {number[]} Degree values aligned with the selector order.
 	 */
 	degree(options = {}) {
@@ -587,7 +592,9 @@ class NodeSelector extends Selector {
 	/**
 	 * Retrieves incident edges for the selected nodes.
 	 *
-	 * @param {{mode?:'out'|'in'|'both'|'all',asSelector?:boolean}} [options] - Incident edge options.
+	 * @param {Object} [options] - Incident edge options.
+	 * @param {'out'|'in'|'both'|'all'} [options.mode='out'] - Determines which edges to collect.
+	 * @param {boolean} [options.asSelector=false] - When true, returns a selector proxy.
 	 * @returns {Uint32Array|EdgeSelector} Edge indices or selector proxy.
 	 */
 	incidentEdges(options = {}) {
@@ -712,7 +719,8 @@ class EdgeSelector extends Selector {
 	 * Resolves attribute values for the selected edges.
 	 *
 	 * @param {string} name - Attribute identifier.
-	 * @param {{raw?:boolean}} [options] - Projection options.
+	 * @param {Object} [options] - Projection options.
+	 * @param {boolean} [options.raw=false] - When true, returns the raw typed buffer.
 	 * @returns {Array|TypedArray} Attribute values aligned with the selector indices.
 	 */
 	attribute(name, options = {}) {
@@ -771,7 +779,9 @@ class EdgeSelector extends Selector {
 	/**
 	 * Retrieves the source node for each selected edge.
 	 *
-	 * @param {{asSelector?:boolean,unique?:boolean}} [options] - Projection options.
+	 * @param {Object} [options] - Projection options.
+	 * @param {boolean} [options.asSelector=false] - When true, returns a selector proxy.
+	 * @param {boolean} [options.unique=false] - When true, collapses duplicates.
 	 * @returns {Uint32Array|NodeSelector} Source node indices or selector proxy.
 	 */
 	sources(options = {}) {
@@ -782,7 +792,9 @@ class EdgeSelector extends Selector {
 	/**
 	 * Retrieves the target node for each selected edge.
 	 *
-	 * @param {{asSelector?:boolean,unique?:boolean}} [options] - Projection options.
+	 * @param {Object} [options] - Projection options.
+	 * @param {boolean} [options.asSelector=false] - When true, returns a selector proxy.
+	 * @param {boolean} [options.unique=false] - When true, collapses duplicates.
 	 * @returns {Uint32Array|NodeSelector} Target node indices or selector proxy.
 	 */
 	targets(options = {}) {
@@ -793,7 +805,7 @@ class EdgeSelector extends Selector {
 	/**
 	 * Returns the [source, target] pairs for the selection.
 	 *
-	 * @returns {Array<[number, number]>} Edge endpoint tuples.
+	 * @returns {Array<Array<number>>} Edge endpoint tuples.
 	 */
 	endpoints() {
 		const pairs = [];
@@ -808,7 +820,8 @@ class EdgeSelector extends Selector {
 	/**
 	 * Collects all nodes touched by the selected edges.
 	 *
-	 * @param {{asSelector?:boolean}} [options] - Projection options.
+	 * @param {Object} [options] - Projection options.
+	 * @param {boolean} [options.asSelector=false] - When true, returns a selector proxy.
 	 * @returns {Uint32Array|NodeSelector} Node indices or selector proxy.
 	 */
 	nodes(options = {}) {
@@ -829,7 +842,9 @@ class EdgeSelector extends Selector {
 	 * @private
 	 *
 	 * @param {0|1} offset - 0 for source, 1 for target.
-	 * @param {{asSelector?:boolean,unique?:boolean}} options - Projection options.
+	 * @param {Object} options - Projection options.
+	 * @param {boolean} options.asSelector - Whether to return a selector proxy.
+	 * @param {boolean} options.unique - Whether to deduplicate node indices.
 	 * @returns {Uint32Array|NodeSelector} Projected nodes.
 	 */
 	_projectEndpoint(offset, options) {

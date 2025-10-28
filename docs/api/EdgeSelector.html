@@ -70,7 +70,7 @@
             
             <nav>
                 
-                    <h2><a href="index.html">Documentation</a></h2><div class="category"><h3>Classes</h3><ul><li><a href="EdgeSelector.html">EdgeSelector</a></li><li><a href="HeliosNetwork.html">HeliosNetwork</a></li><li><a href="NodeSelector.html">NodeSelector</a></li></ul><h3>Global</h3><ul><li><a href="global.html#AttributeType">AttributeType</a></li><li><a href="global.html#COMPLEX_ATTRIBUTE_TYPES">COMPLEX_ATTRIBUTE_TYPES</a></li><li><a href="global.html#POINTER_ATTRIBUTE_TYPES">POINTER_ATTRIBUTE_TYPES</a></li><li><a href="global.html#TYPE_ELEMENT_SIZE">TYPE_ELEMENT_SIZE</a></li><li><a href="global.html#TypedArrayForType">TypedArrayForType</a></li><li><a href="global.html#getModule">getModule</a></li><li><a href="global.html#modulePromise">modulePromise</a></li></ul></div>
+                    <h2><a href="index.html">Documentation</a></h2><div class="category"><h3>Classes</h3><ul><li><a href="EdgeSelector.html">EdgeSelector</a></li><li><a href="HeliosNetwork.html">HeliosNetwork</a></li><li><a href="NodeSelector.html">NodeSelector</a></li></ul><h3>Global</h3><ul><li><a href="global.html#AttributeType">AttributeType</a></li><li><a href="global.html#COMPLEX_ATTRIBUTE_TYPES">COMPLEX_ATTRIBUTE_TYPES</a></li><li><a href="global.html#POINTER_ATTRIBUTE_TYPES">POINTER_ATTRIBUTE_TYPES</a></li><li><a href="global.html#TYPE_ELEMENT_SIZE">TYPE_ELEMENT_SIZE</a></li><li><a href="global.html#TypedArrayForType">TypedArrayForType</a></li><li><a href="global.html#getModule">getModule</a></li><li><a href="global.html#moduleInstance">moduleInstance</a></li><li><a href="global.html#modulePromise">modulePromise</a></li><li><a href="global.html#projectAttributeValues">projectAttributeValues</a></li><li><a href="global.html#setToUint32Array">setToUint32Array</a></li></ul></div>
                 
             </nav>
         </div>
@@ -247,7 +247,7 @@
         <p class="tag-source">
             <a href="HeliosNetwork.js.html" class="button">View Source</a>
             <span>
-                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line243">line 243</a>
+                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line627">line 627</a>
             </span>
         </p>
     
@@ -299,6 +299,523 @@
         <div class='vertical-section'>
             <h1>Methods</h1>
             <div class="members">
+            
+                <div class="member">
+
+
+    
+    <h4 class="name" id="_asProxy">
+        <a class="href-link" href="#_asProxy">#</a>
+        
+        <span class="code-name">
+            
+                _asProxy<span class="signature">()</span><span class="type-signature"> &rarr; {<a href="EdgeSelector.html">EdgeSelector</a>}</span>
+            
+        </span>
+    </h4>
+    
+
+    
+    
+    <div class="description">
+        Provides a proxy that exposes attributes through property access.
+    </div>
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+<dl class="details">
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+    
+
+    
+
+    
+
+    
+        <p class="tag-source">
+            <a href="HeliosNetwork.js.html" class="button">View Source</a>
+            <span>
+                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line738">line 738</a>
+            </span>
+        </p>
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    <div class='columns method-parameter'>
+        <div class="column is-2"><label>Returns:</label></div>
+        <div class="column is-10">
+            
+                    
+
+<div class="columns">
+    
+    <div class='param-desc column is-7'>Proxy-backed selector.</div>
+    
+    
+    <div class='column is-5 has-text-left'>
+        <label>Type: </label>
+        
+<code class="param-type"><a href="EdgeSelector.html">EdgeSelector</a></code>
+
+
+    </div>
+    
+</div>
+
+                
+        </div>
+    </div>
+
+
+
+
+</div>
+            
+                <div class="member">
+
+
+    
+    <h4 class="name" id="attribute">
+        <a class="href-link" href="#attribute">#</a>
+        
+        <span class="code-name">
+            
+                attribute<span class="signature">(name, options<span class="signature-attributes">opt</span>)</span><span class="type-signature"> &rarr; {Array|TypedArray}</span>
+            
+        </span>
+    </h4>
+    
+
+    
+    
+    <div class="description">
+        Resolves attribute values for the selected edges.
+    </div>
+    
+
+
+
+
+
+
+
+
+
+    <h5>Parameters:</h5>
+    
+<div class="table-container">
+    <table class="params table">
+        <thead>
+        <tr>
+            
+            <th>Name</th>
+            
+
+            <th>Type</th>
+
+            
+            <th>Attributes</th>
+            
+
+            
+            <th>Default</th>
+            
+
+            <th class="last">Description</th>
+        </tr>
+        </thead>
+
+        <tbody>
+        
+
+            
+<tr class="deep-level-0">
+  
+      <td class="name"><code>name</code></td>
+  
+
+  <td class="type">
+  
+      
+<code class="param-type">string</code>
+
+
+  
+  </td>
+
+  
+      <td class="attributes">
+      
+
+      
+
+      
+      </td>
+  
+
+  
+      <td class="default">
+      
+      </td>
+  
+
+  <td class="description last">Attribute identifier.</td>
+</tr>
+
+
+        
+
+            
+<tr class="deep-level-0">
+  
+      <td class="name"><code>options</code></td>
+  
+
+  <td class="type">
+  
+      
+<code class="param-type">Object</code>
+
+
+  
+  </td>
+
+  
+      <td class="attributes">
+      
+          &lt;optional><br>
+      
+
+      
+
+      
+      </td>
+  
+
+  
+      <td class="default">
+      
+      </td>
+  
+
+  <td class="description last">Projection options.</td>
+</tr>
+
+  
+  
+    
+<tr class="deep-level-1">
+  
+      <td class="name"><code>raw</code></td>
+  
+
+  <td class="type">
+  
+      
+<code class="param-type">boolean</code>
+
+
+  
+  </td>
+
+  
+      <td class="attributes">
+      
+          &lt;optional><br>
+      
+
+      
+
+      
+      </td>
+  
+
+  
+      <td class="default">
+      
+          false
+      
+      </td>
+  
+
+  <td class="description last">When true, returns the raw typed buffer.</td>
+</tr>
+
+  
+
+
+        
+        </tbody>
+    </table>
+</div>
+
+
+
+
+
+<dl class="details">
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+    
+
+    
+
+    
+
+    
+        <p class="tag-source">
+            <a href="HeliosNetwork.js.html" class="button">View Source</a>
+            <span>
+                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line726">line 726</a>
+            </span>
+        </p>
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    <div class='columns method-parameter'>
+        <div class="column is-2"><label>Returns:</label></div>
+        <div class="column is-10">
+            
+                    
+
+<div class="columns">
+    
+    <div class='param-desc column is-7'>Attribute values aligned with the selector indices.</div>
+    
+    
+    <div class='column is-5 has-text-left'>
+        <label>Type: </label>
+        
+<code class="param-type">Array</code>
+|
+
+<code class="param-type">TypedArray</code>
+
+
+    </div>
+    
+</div>
+
+                
+        </div>
+    </div>
+
+
+
+
+</div>
+            
+                <div class="member">
+
+
+    
+    <h4 class="name" id="endpoints">
+        <a class="href-link" href="#endpoints">#</a>
+        
+        <span class="code-name">
+            
+                endpoints<span class="signature">()</span><span class="type-signature"> &rarr; {Array.&lt;Array.&lt;number>>}</span>
+            
+        </span>
+    </h4>
+    
+
+    
+    
+    <div class="description">
+        Returns the [source, target] pairs for the selection.
+    </div>
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+<dl class="details">
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+    
+
+    
+
+    
+
+    
+        <p class="tag-source">
+            <a href="HeliosNetwork.js.html" class="button">View Source</a>
+            <span>
+                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line810">line 810</a>
+            </span>
+        </p>
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    <div class='columns method-parameter'>
+        <div class="column is-2"><label>Returns:</label></div>
+        <div class="column is-10">
+            
+                    
+
+<div class="columns">
+    
+    <div class='param-desc column is-7'>Edge endpoint tuples.</div>
+    
+    
+    <div class='column is-5 has-text-left'>
+        <label>Type: </label>
+        
+<code class="param-type">Array.&lt;Array.&lt;number>></code>
+
+
+    </div>
+    
+</div>
+
+                
+        </div>
+    </div>
+
+
+
+
+</div>
             
                 <div class="member">
 
@@ -420,7 +937,7 @@
         <p class="tag-source">
             <a href="HeliosNetwork.js.html" class="button">View Source</a>
             <span>
-                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line277">line 277</a>
+                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line677">line 677</a>
             </span>
         </p>
     
@@ -621,7 +1138,7 @@
         <p class="tag-source">
             <a href="HeliosNetwork.js.html" class="button">View Source</a>
             <span>
-                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line290">line 290</a>
+                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line690">line 690</a>
             </span>
         </p>
     
@@ -699,6 +1216,910 @@
 
 
     
+    <h4 class="name" id="hasAttribute">
+        <a class="href-link" href="#hasAttribute">#</a>
+        
+        <span class="code-name">
+            
+                hasAttribute<span class="signature">()</span><span class="type-signature"> &rarr; {boolean}</span>
+            
+        </span>
+    </h4>
+    
+
+    
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+<dl class="details">
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+    
+
+    
+
+    
+
+    
+        <p class="tag-source">
+            <a href="HeliosNetwork.js.html" class="button">View Source</a>
+            <span>
+                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line714">line 714</a>
+            </span>
+        </p>
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    <div class='columns method-parameter'>
+        <div class="column is-2"><label>Returns:</label></div>
+        <div class="column is-10">
+            
+                    
+
+<div class="columns">
+    
+    <div class='param-desc column is-7'>Whether the specified attribute is registered for edges.</div>
+    
+    
+    <div class='column is-5 has-text-left'>
+        <label>Type: </label>
+        
+<code class="param-type">boolean</code>
+
+
+    </div>
+    
+</div>
+
+                
+        </div>
+    </div>
+
+
+
+
+</div>
+            
+                <div class="member">
+
+
+    
+    <h4 class="name" id="nodes">
+        <a class="href-link" href="#nodes">#</a>
+        
+        <span class="code-name">
+            
+                nodes<span class="signature">(options<span class="signature-attributes">opt</span>)</span><span class="type-signature"> &rarr; {Uint32Array|<a href="NodeSelector.html">NodeSelector</a>}</span>
+            
+        </span>
+    </h4>
+    
+
+    
+    
+    <div class="description">
+        Collects all nodes touched by the selected edges.
+    </div>
+    
+
+
+
+
+
+
+
+
+
+    <h5>Parameters:</h5>
+    
+<div class="table-container">
+    <table class="params table">
+        <thead>
+        <tr>
+            
+            <th>Name</th>
+            
+
+            <th>Type</th>
+
+            
+            <th>Attributes</th>
+            
+
+            
+            <th>Default</th>
+            
+
+            <th class="last">Description</th>
+        </tr>
+        </thead>
+
+        <tbody>
+        
+
+            
+<tr class="deep-level-0">
+  
+      <td class="name"><code>options</code></td>
+  
+
+  <td class="type">
+  
+      
+<code class="param-type">Object</code>
+
+
+  
+  </td>
+
+  
+      <td class="attributes">
+      
+          &lt;optional><br>
+      
+
+      
+
+      
+      </td>
+  
+
+  
+      <td class="default">
+      
+      </td>
+  
+
+  <td class="description last">Projection options.</td>
+</tr>
+
+  
+  
+    
+<tr class="deep-level-1">
+  
+      <td class="name"><code>asSelector</code></td>
+  
+
+  <td class="type">
+  
+      
+<code class="param-type">boolean</code>
+
+
+  
+  </td>
+
+  
+      <td class="attributes">
+      
+          &lt;optional><br>
+      
+
+      
+
+      
+      </td>
+  
+
+  
+      <td class="default">
+      
+          false
+      
+      </td>
+  
+
+  <td class="description last">When true, returns a selector proxy.</td>
+</tr>
+
+  
+
+
+        
+        </tbody>
+    </table>
+</div>
+
+
+
+
+
+<dl class="details">
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+    
+
+    
+
+    
+
+    
+        <p class="tag-source">
+            <a href="HeliosNetwork.js.html" class="button">View Source</a>
+            <span>
+                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line827">line 827</a>
+            </span>
+        </p>
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    <div class='columns method-parameter'>
+        <div class="column is-2"><label>Returns:</label></div>
+        <div class="column is-10">
+            
+                    
+
+<div class="columns">
+    
+    <div class='param-desc column is-7'>Node indices or selector proxy.</div>
+    
+    
+    <div class='column is-5 has-text-left'>
+        <label>Type: </label>
+        
+<code class="param-type">Uint32Array</code>
+|
+
+<code class="param-type"><a href="NodeSelector.html">NodeSelector</a></code>
+
+
+    </div>
+    
+</div>
+
+                
+        </div>
+    </div>
+
+
+
+
+</div>
+            
+                <div class="member">
+
+
+    
+    <h4 class="name" id="sources">
+        <a class="href-link" href="#sources">#</a>
+        
+        <span class="code-name">
+            
+                sources<span class="signature">(options<span class="signature-attributes">opt</span>)</span><span class="type-signature"> &rarr; {Uint32Array|<a href="NodeSelector.html">NodeSelector</a>}</span>
+            
+        </span>
+    </h4>
+    
+
+    
+    
+    <div class="description">
+        Retrieves the source node for each selected edge.
+    </div>
+    
+
+
+
+
+
+
+
+
+
+    <h5>Parameters:</h5>
+    
+<div class="table-container">
+    <table class="params table">
+        <thead>
+        <tr>
+            
+            <th>Name</th>
+            
+
+            <th>Type</th>
+
+            
+            <th>Attributes</th>
+            
+
+            
+            <th>Default</th>
+            
+
+            <th class="last">Description</th>
+        </tr>
+        </thead>
+
+        <tbody>
+        
+
+            
+<tr class="deep-level-0">
+  
+      <td class="name"><code>options</code></td>
+  
+
+  <td class="type">
+  
+      
+<code class="param-type">Object</code>
+
+
+  
+  </td>
+
+  
+      <td class="attributes">
+      
+          &lt;optional><br>
+      
+
+      
+
+      
+      </td>
+  
+
+  
+      <td class="default">
+      
+      </td>
+  
+
+  <td class="description last">Projection options.</td>
+</tr>
+
+  
+  
+    
+<tr class="deep-level-1">
+  
+      <td class="name"><code>asSelector</code></td>
+  
+
+  <td class="type">
+  
+      
+<code class="param-type">boolean</code>
+
+
+  
+  </td>
+
+  
+      <td class="attributes">
+      
+          &lt;optional><br>
+      
+
+      
+
+      
+      </td>
+  
+
+  
+      <td class="default">
+      
+          false
+      
+      </td>
+  
+
+  <td class="description last">When true, returns a selector proxy.</td>
+</tr>
+
+  
+    
+<tr class="deep-level-1">
+  
+      <td class="name"><code>unique</code></td>
+  
+
+  <td class="type">
+  
+      
+<code class="param-type">boolean</code>
+
+
+  
+  </td>
+
+  
+      <td class="attributes">
+      
+          &lt;optional><br>
+      
+
+      
+
+      
+      </td>
+  
+
+  
+      <td class="default">
+      
+          false
+      
+      </td>
+  
+
+  <td class="description last">When true, collapses duplicates.</td>
+</tr>
+
+  
+
+
+        
+        </tbody>
+    </table>
+</div>
+
+
+
+
+
+<dl class="details">
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+    
+
+    
+
+    
+
+    
+        <p class="tag-source">
+            <a href="HeliosNetwork.js.html" class="button">View Source</a>
+            <span>
+                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line787">line 787</a>
+            </span>
+        </p>
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    <div class='columns method-parameter'>
+        <div class="column is-2"><label>Returns:</label></div>
+        <div class="column is-10">
+            
+                    
+
+<div class="columns">
+    
+    <div class='param-desc column is-7'>Source node indices or selector proxy.</div>
+    
+    
+    <div class='column is-5 has-text-left'>
+        <label>Type: </label>
+        
+<code class="param-type">Uint32Array</code>
+|
+
+<code class="param-type"><a href="NodeSelector.html">NodeSelector</a></code>
+
+
+    </div>
+    
+</div>
+
+                
+        </div>
+    </div>
+
+
+
+
+</div>
+            
+                <div class="member">
+
+
+    
+    <h4 class="name" id="targets">
+        <a class="href-link" href="#targets">#</a>
+        
+        <span class="code-name">
+            
+                targets<span class="signature">(options<span class="signature-attributes">opt</span>)</span><span class="type-signature"> &rarr; {Uint32Array|<a href="NodeSelector.html">NodeSelector</a>}</span>
+            
+        </span>
+    </h4>
+    
+
+    
+    
+    <div class="description">
+        Retrieves the target node for each selected edge.
+    </div>
+    
+
+
+
+
+
+
+
+
+
+    <h5>Parameters:</h5>
+    
+<div class="table-container">
+    <table class="params table">
+        <thead>
+        <tr>
+            
+            <th>Name</th>
+            
+
+            <th>Type</th>
+
+            
+            <th>Attributes</th>
+            
+
+            
+            <th>Default</th>
+            
+
+            <th class="last">Description</th>
+        </tr>
+        </thead>
+
+        <tbody>
+        
+
+            
+<tr class="deep-level-0">
+  
+      <td class="name"><code>options</code></td>
+  
+
+  <td class="type">
+  
+      
+<code class="param-type">Object</code>
+
+
+  
+  </td>
+
+  
+      <td class="attributes">
+      
+          &lt;optional><br>
+      
+
+      
+
+      
+      </td>
+  
+
+  
+      <td class="default">
+      
+      </td>
+  
+
+  <td class="description last">Projection options.</td>
+</tr>
+
+  
+  
+    
+<tr class="deep-level-1">
+  
+      <td class="name"><code>asSelector</code></td>
+  
+
+  <td class="type">
+  
+      
+<code class="param-type">boolean</code>
+
+
+  
+  </td>
+
+  
+      <td class="attributes">
+      
+          &lt;optional><br>
+      
+
+      
+
+      
+      </td>
+  
+
+  
+      <td class="default">
+      
+          false
+      
+      </td>
+  
+
+  <td class="description last">When true, returns a selector proxy.</td>
+</tr>
+
+  
+    
+<tr class="deep-level-1">
+  
+      <td class="name"><code>unique</code></td>
+  
+
+  <td class="type">
+  
+      
+<code class="param-type">boolean</code>
+
+
+  
+  </td>
+
+  
+      <td class="attributes">
+      
+          &lt;optional><br>
+      
+
+      
+
+      
+      </td>
+  
+
+  
+      <td class="default">
+      
+          false
+      
+      </td>
+  
+
+  <td class="description last">When true, collapses duplicates.</td>
+</tr>
+
+  
+
+
+        
+        </tbody>
+    </table>
+</div>
+
+
+
+
+
+<dl class="details">
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+    
+
+    
+
+    
+
+    
+        <p class="tag-source">
+            <a href="HeliosNetwork.js.html" class="button">View Source</a>
+            <span>
+                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line800">line 800</a>
+            </span>
+        </p>
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    <div class='columns method-parameter'>
+        <div class="column is-2"><label>Returns:</label></div>
+        <div class="column is-10">
+            
+                    
+
+<div class="columns">
+    
+    <div class='param-desc column is-7'>Target node indices or selector proxy.</div>
+    
+    
+    <div class='column is-5 has-text-left'>
+        <label>Type: </label>
+        
+<code class="param-type">Uint32Array</code>
+|
+
+<code class="param-type"><a href="NodeSelector.html">NodeSelector</a></code>
+
+
+    </div>
+    
+</div>
+
+                
+        </div>
+    </div>
+
+
+
+
+</div>
+            
+                <div class="member">
+
+
+    
     <h4 class="name" id=".create">
         <a class="href-link" href="#.create">#</a>
         
@@ -708,7 +2129,7 @@
         
         <span class="code-name">
             
-                create<span class="signature">(module)</span><span class="type-signature"> &rarr; {<a href="EdgeSelector.html">EdgeSelector</a>}</span>
+                create<span class="signature">(module, network)</span><span class="type-signature"> &rarr; {<a href="EdgeSelector.html">EdgeSelector</a>}</span>
             
         </span>
     </h4>
@@ -776,6 +2197,31 @@
 
 
         
+
+            
+<tr class="deep-level-0">
+  
+      <td class="name"><code>network</code></td>
+  
+
+  <td class="type">
+  
+      
+<code class="param-type"><a href="HeliosNetwork.html">HeliosNetwork</a></code>
+
+
+  
+  </td>
+
+  
+
+  
+
+  <td class="description last">Owning network instance.</td>
+</tr>
+
+
+        
         </tbody>
     </table>
 </div>
@@ -819,7 +2265,7 @@
         <p class="tag-source">
             <a href="HeliosNetwork.js.html" class="button">View Source</a>
             <span>
-                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line251">line 251</a>
+                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line636">line 636</a>
             </span>
         </p>
     
@@ -872,6 +2318,208 @@
 <div class="columns">
     
     <div class='param-desc column is-7'>Newly allocated selector wrapper.</div>
+    
+    
+    <div class='column is-5 has-text-left'>
+        <label>Type: </label>
+        
+<code class="param-type"><a href="EdgeSelector.html">EdgeSelector</a></code>
+
+
+    </div>
+    
+</div>
+
+                
+        </div>
+    </div>
+
+
+
+
+</div>
+            
+                <div class="member">
+
+
+    
+    <h4 class="name" id=".fromIndices">
+        <a class="href-link" href="#.fromIndices">#</a>
+        
+            
+                <span class='tag'>static</span>
+            
+        
+        <span class="code-name">
+            
+                fromIndices<span class="signature">(network, indices)</span><span class="type-signature"> &rarr; {<a href="EdgeSelector.html">EdgeSelector</a>}</span>
+            
+        </span>
+    </h4>
+    
+
+    
+    
+    <div class="description">
+        Instantiates a selector populated with the provided edge indices.
+    </div>
+    
+
+
+
+
+
+
+
+
+
+    <h5>Parameters:</h5>
+    
+<div class="table-container">
+    <table class="params table">
+        <thead>
+        <tr>
+            
+            <th>Name</th>
+            
+
+            <th>Type</th>
+
+            
+
+            
+
+            <th class="last">Description</th>
+        </tr>
+        </thead>
+
+        <tbody>
+        
+
+            
+<tr class="deep-level-0">
+  
+      <td class="name"><code>network</code></td>
+  
+
+  <td class="type">
+  
+      
+<code class="param-type"><a href="HeliosNetwork.html">HeliosNetwork</a></code>
+
+
+  
+  </td>
+
+  
+
+  
+
+  <td class="description last">Owning network instance.</td>
+</tr>
+
+
+        
+
+            
+<tr class="deep-level-0">
+  
+      <td class="name"><code>indices</code></td>
+  
+
+  <td class="type">
+  
+      
+<code class="param-type">Uint32Array</code>
+
+
+  
+  </td>
+
+  
+
+  
+
+  <td class="description last">Edge indices to populate.</td>
+</tr>
+
+
+        
+        </tbody>
+    </table>
+</div>
+
+
+
+
+
+<dl class="details">
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+    
+
+    
+
+    
+
+    
+        <p class="tag-source">
+            <a href="HeliosNetwork.js.html" class="button">View Source</a>
+            <span>
+                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line651">line 651</a>
+            </span>
+        </p>
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    <div class='columns method-parameter'>
+        <div class="column is-2"><label>Returns:</label></div>
+        <div class="column is-10">
+            
+                    
+
+<div class="columns">
+    
+    <div class='param-desc column is-7'>Populated selector proxy.</div>
     
     
     <div class='column is-5 has-text-left'>
