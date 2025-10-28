@@ -277,7 +277,7 @@ Manages lifetime, attribute registration, and buffer views.</div>
         <p class="tag-source">
             <a href="HeliosNetwork.js.html" class="button">View Source</a>
             <span>
-                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line876">line 876</a>
+                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line961">line 961</a>
             </span>
         </p>
     
@@ -388,7 +388,7 @@ Manages lifetime, attribute registration, and buffer views.</div>
         <p class="tag-source">
             <a href="HeliosNetwork.js.html" class="button">View Source</a>
             <span>
-                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1017">line 1017</a>
+                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1121">line 1121</a>
             </span>
         </p>
     
@@ -453,7 +453,7 @@ Manages lifetime, attribute registration, and buffer views.</div>
         <p class="tag-source">
             <a href="HeliosNetwork.js.html" class="button">View Source</a>
             <span>
-                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1000">line 1000</a>
+                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1104">line 1104</a>
             </span>
         </p>
     
@@ -518,7 +518,7 @@ Manages lifetime, attribute registration, and buffer views.</div>
         <p class="tag-source">
             <a href="HeliosNetwork.js.html" class="button">View Source</a>
             <span>
-                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line984">line 984</a>
+                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1088">line 1088</a>
             </span>
         </p>
     
@@ -583,7 +583,7 @@ Manages lifetime, attribute registration, and buffer views.</div>
         <p class="tag-source">
             <a href="HeliosNetwork.js.html" class="button">View Source</a>
             <span>
-                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1026">line 1026</a>
+                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1130">line 1130</a>
             </span>
         </p>
     
@@ -648,7 +648,7 @@ Manages lifetime, attribute registration, and buffer views.</div>
         <p class="tag-source">
             <a href="HeliosNetwork.js.html" class="button">View Source</a>
             <span>
-                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1008">line 1008</a>
+                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1112">line 1112</a>
             </span>
         </p>
     
@@ -713,7 +713,7 @@ Manages lifetime, attribute registration, and buffer views.</div>
         <p class="tag-source">
             <a href="HeliosNetwork.js.html" class="button">View Source</a>
             <span>
-                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line992">line 992</a>
+                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1096">line 1096</a>
             </span>
         </p>
     
@@ -778,7 +778,7 @@ Manages lifetime, attribute registration, and buffer views.</div>
         <p class="tag-source">
             <a href="HeliosNetwork.js.html" class="button">View Source</a>
             <span>
-                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line976">line 976</a>
+                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1080">line 1080</a>
             </span>
         </p>
     
@@ -934,7 +934,7 @@ Supported input shapes:
         <p class="tag-source">
             <a href="HeliosNetwork.js.html" class="button">View Source</a>
             <span>
-                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1111">line 1111</a>
+                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1235">line 1235</a>
             </span>
         </p>
     
@@ -1004,6 +1004,18 @@ Supported input shapes:
     </div>
 
 
+
+
+    <h5>Example</h5>
+    
+    
+        <pre class="prettyprint"><code>```js
+const net = await HeliosNetwork.create();
+const nodes = net.addNodes(2);
+const edges = net.addEdges([{ from: nodes[0], to: nodes[1] }]);
+console.log(edges.length); // 1
+```</code></pre>
+    
 
 
 </div>
@@ -1128,7 +1140,7 @@ Supported input shapes:
         <p class="tag-source">
             <a href="HeliosNetwork.js.html" class="button">View Source</a>
             <span>
-                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1038">line 1038</a>
+                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1148">line 1148</a>
             </span>
         </p>
     
@@ -1177,6 +1189,17 @@ Supported input shapes:
     </div>
 
 
+
+
+    <h5>Example</h5>
+    
+    
+        <pre class="prettyprint"><code>```js
+const net = await HeliosNetwork.create();
+const nodes = net.addNodes(3);
+console.log([...nodes]); // e.g. [0, 1, 2]
+```</code></pre>
+    
 
 
 </div>
@@ -1316,7 +1339,7 @@ Supported input shapes:
         <p class="tag-source">
             <a href="HeliosNetwork.js.html" class="button">View Source</a>
             <span>
-                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1682">line 1682</a>
+                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1925">line 1925</a>
             </span>
         </p>
     
@@ -1365,6 +1388,21 @@ Supported input shapes:
     </div>
 
 
+
+
+    <h5>Example</h5>
+    
+    
+        <pre class="prettyprint"><code>```js
+const net = await HeliosNetwork.create();
+net.addNodes(2);
+const edges = net.addEdges([[0, 1]]);
+
+const selector = net.createEdgeSelector(); // iterates over all edges
+const sample = net.createEdgeSelector(edges);
+console.log(sample.endpoints()); // [[0, 1]]
+```</code></pre>
+    
 
 
 </div>
@@ -1504,7 +1542,7 @@ Supported input shapes:
         <p class="tag-source">
             <a href="HeliosNetwork.js.html" class="button">View Source</a>
             <span>
-                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1666">line 1666</a>
+                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1899">line 1899</a>
             </span>
         </p>
     
@@ -1553,6 +1591,22 @@ Supported input shapes:
     </div>
 
 
+
+
+    <h5>Example</h5>
+    
+    
+        <pre class="prettyprint"><code>```js
+const net = await HeliosNetwork.create();
+net.addNodes(3);
+
+const selector = net.createNodeSelector(); // includes every node
+console.log(selector.count); // 3
+
+const subset = net.createNodeSelector([0, 2]);
+console.log([...subset]); // [0, 2]
+```</code></pre>
+    
 
 
 </div>
@@ -1771,7 +1825,7 @@ Supported input shapes:
         <p class="tag-source">
             <a href="HeliosNetwork.js.html" class="button">View Source</a>
             <span>
-                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1288">line 1288</a>
+                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1456">line 1456</a>
             </span>
         </p>
     
@@ -1816,6 +1870,20 @@ Supported input shapes:
 
 
 
+
+
+    <h5>Example</h5>
+    
+    
+        <pre class="prettyprint"><code>```js
+const net = await HeliosNetwork.create();
+net.addNodes(2);
+net.defineEdgeAttribute('capacity', AttributeType.Integer);
+const edges = net.addEdges([[0, 1]]);
+const capacity = net.getEdgeAttributeBuffer('capacity').view;
+capacity[edges[0]] = 10n;
+```</code></pre>
+    
 
 
 </div>
@@ -2034,7 +2102,7 @@ Supported input shapes:
         <p class="tag-source">
             <a href="HeliosNetwork.js.html" class="button">View Source</a>
             <span>
-                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1300">line 1300</a>
+                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1475">line 1475</a>
             </span>
         </p>
     
@@ -2079,6 +2147,18 @@ Supported input shapes:
 
 
 
+
+
+    <h5>Example</h5>
+    
+    
+        <pre class="prettyprint"><code>```js
+const net = await HeliosNetwork.create();
+net.defineNetworkAttribute('temperature', AttributeType.Float);
+const networkValues = net.getNetworkAttributeBuffer('temperature').view;
+networkValues[0] = 21.5;
+```</code></pre>
+    
 
 
 </div>
@@ -2297,7 +2377,7 @@ Supported input shapes:
         <p class="tag-source">
             <a href="HeliosNetwork.js.html" class="button">View Source</a>
             <span>
-                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1276">line 1276</a>
+                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1435">line 1435</a>
             </span>
         </p>
     
@@ -2342,6 +2422,21 @@ Supported input shapes:
 
 
 
+
+
+    <h5>Example</h5>
+    
+    
+        <pre class="prettyprint"><code>```js
+import HeliosNetwork, { AttributeType } from 'helios-network';
+
+const net = await HeliosNetwork.create({ initialNodes: 2 });
+net.defineNodeAttribute('weight', AttributeType.Float);
+
+const weightBuffer = net.getNodeAttributeBuffer('weight').view;
+weightBuffer[0] = 1.5;
+```</code></pre>
+    
 
 
 </div>
@@ -2416,7 +2511,7 @@ Safe to call multiple times.
         <p class="tag-source">
             <a href="HeliosNetwork.js.html" class="button">View Source</a>
             <span>
-                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line951">line 951</a>
+                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1055">line 1055</a>
             </span>
         </p>
     
@@ -2564,7 +2659,7 @@ Safe to call multiple times.
         <p class="tag-source">
             <a href="HeliosNetwork.js.html" class="button">View Source</a>
             <span>
-                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1356">line 1356</a>
+                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1548">line 1548</a>
             </span>
         </p>
     
@@ -2613,6 +2708,20 @@ Safe to call multiple times.
     </div>
 
 
+
+
+    <h5>Example</h5>
+    
+    
+        <pre class="prettyprint"><code>```js
+const net = await HeliosNetwork.create();
+net.addNodes(2);
+net.defineEdgeAttribute('capacity', AttributeType.Double);
+const edges = net.addEdges([[0, 1]]);
+const attribute = net.getEdgeAttributeBuffer('capacity');
+attribute.view[edges[0]] = 12.5;
+```</code></pre>
+    
 
 
 </div>
@@ -2762,7 +2871,7 @@ Safe to call multiple times.
         <p class="tag-source">
             <a href="HeliosNetwork.js.html" class="button">View Source</a>
             <span>
-                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1410">line 1410</a>
+                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1625">line 1625</a>
             </span>
         </p>
     
@@ -2938,7 +3047,7 @@ Safe to call multiple times.
         <p class="tag-source">
             <a href="HeliosNetwork.js.html" class="button">View Source</a>
             <span>
-                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1234">line 1234</a>
+                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1383">line 1383</a>
             </span>
         </p>
     
@@ -2987,6 +3096,19 @@ Safe to call multiple times.
     </div>
 
 
+
+
+    <h5>Example</h5>
+    
+    
+        <pre class="prettyprint"><code>```js
+const net = await HeliosNetwork.create();
+const nodes = net.addNodes(2);
+net.addEdges([[nodes[0], nodes[1]]]);
+const { nodes: incoming } = net.getInNeighbors(nodes[1]);
+console.log([...incoming]); // [nodes[0]]
+```</code></pre>
+    
 
 
 </div>
@@ -3111,7 +3233,7 @@ Safe to call multiple times.
         <p class="tag-source">
             <a href="HeliosNetwork.js.html" class="button">View Source</a>
             <span>
-                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1366">line 1366</a>
+                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1565">line 1565</a>
             </span>
         </p>
     
@@ -3160,6 +3282,18 @@ Safe to call multiple times.
     </div>
 
 
+
+
+    <h5>Example</h5>
+    
+    
+        <pre class="prettyprint"><code>```js
+const net = await HeliosNetwork.create();
+net.defineNetworkAttribute('version', AttributeType.UnsignedInteger);
+const attribute = net.getNetworkAttributeBuffer('version');
+attribute.view[0] = 1n;
+```</code></pre>
+    
 
 
 </div>
@@ -3284,7 +3418,7 @@ Safe to call multiple times.
         <p class="tag-source">
             <a href="HeliosNetwork.js.html" class="button">View Source</a>
             <span>
-                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1430">line 1430</a>
+                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1652">line 1652</a>
             </span>
         </p>
     
@@ -3460,7 +3594,7 @@ Safe to call multiple times.
         <p class="tag-source">
             <a href="HeliosNetwork.js.html" class="button">View Source</a>
             <span>
-                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1346">line 1346</a>
+                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1529">line 1529</a>
             </span>
         </p>
     
@@ -3509,6 +3643,19 @@ Safe to call multiple times.
     </div>
 
 
+
+
+    <h5>Example</h5>
+    
+    
+        <pre class="prettyprint"><code>```js
+const net = await HeliosNetwork.create();
+net.defineNodeAttribute('flag', AttributeType.Boolean);
+const nodes = net.addNodes(1);
+const attribute = net.getNodeAttributeBuffer('flag');
+attribute.view[nodes[0]] = 1;
+```</code></pre>
+    
 
 
 </div>
@@ -3658,7 +3805,7 @@ Safe to call multiple times.
         <p class="tag-source">
             <a href="HeliosNetwork.js.html" class="button">View Source</a>
             <span>
-                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1388">line 1388</a>
+                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1595">line 1595</a>
             </span>
         </p>
     
@@ -3834,7 +3981,7 @@ Safe to call multiple times.
         <p class="tag-source">
             <a href="HeliosNetwork.js.html" class="button">View Source</a>
             <span>
-                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1222">line 1222</a>
+                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1363">line 1363</a>
             </span>
         </p>
     
@@ -3883,6 +4030,20 @@ Safe to call multiple times.
     </div>
 
 
+
+
+    <h5>Example</h5>
+    
+    
+        <pre class="prettyprint"><code>```js
+const net = await HeliosNetwork.create();
+const nodes = net.addNodes(3);
+net.addEdges([[nodes[0], nodes[1]], [nodes[0], nodes[2]]]);
+
+const { nodes: outgoing } = net.getOutNeighbors(nodes[0]);
+console.log([...outgoing]); // [nodes[1], nodes[2]]
+```</code></pre>
+    
 
 
 </div>
@@ -4010,7 +4171,7 @@ Safe to call multiple times.
         <p class="tag-source">
             <a href="HeliosNetwork.js.html" class="button">View Source</a>
             <span>
-                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1180">line 1180</a>
+                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1312">line 1312</a>
             </span>
         </p>
     
@@ -4034,6 +4195,19 @@ Safe to call multiple times.
 
 
 
+
+
+    <h5>Example</h5>
+    
+    
+        <pre class="prettyprint"><code>```js
+const net = await HeliosNetwork.create();
+net.addNodes(2);
+const edges = net.addEdges([[0, 1]]);
+net.removeEdges(edges);
+console.log(net.edgeCount); // 0
+```</code></pre>
+    
 
 
 </div>
@@ -4161,7 +4335,7 @@ Safe to call multiple times.
         <p class="tag-source">
             <a href="HeliosNetwork.js.html" class="button">View Source</a>
             <span>
-                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1062">line 1062</a>
+                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1179">line 1179</a>
             </span>
         </p>
     
@@ -4185,6 +4359,18 @@ Safe to call multiple times.
 
 
 
+
+
+    <h5>Example</h5>
+    
+    
+        <pre class="prettyprint"><code>```js
+const net = await HeliosNetwork.create();
+const nodes = net.addNodes(2);
+net.removeNodes([nodes[0]]);
+console.log(net.nodeCount); // 1
+```</code></pre>
+    
 
 
 </div>
@@ -4365,7 +4551,7 @@ Safe to call multiple times.
         <p class="tag-source">
             <a href="HeliosNetwork.js.html" class="button">View Source</a>
             <span>
-                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1399">line 1399</a>
+                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1614">line 1614</a>
             </span>
         </p>
     
@@ -4389,6 +4575,19 @@ Safe to call multiple times.
 
 
 
+
+
+    <h5>Example</h5>
+    
+    
+        <pre class="prettyprint"><code>```js
+const net = await HeliosNetwork.create();
+net.addNodes(2);
+net.defineEdgeAttribute('label', AttributeType.String);
+const edges = net.addEdges([[0, 1]]);
+net.setEdgeStringAttribute('label', edges[0], 'link');
+```</code></pre>
+    
 
 
 </div>
@@ -4544,7 +4743,7 @@ Safe to call multiple times.
         <p class="tag-source">
             <a href="HeliosNetwork.js.html" class="button">View Source</a>
             <span>
-                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1420">line 1420</a>
+                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1642">line 1642</a>
             </span>
         </p>
     
@@ -4568,6 +4767,18 @@ Safe to call multiple times.
 
 
 
+
+
+    <h5>Example</h5>
+    
+    
+        <pre class="prettyprint"><code>```js
+const net = await HeliosNetwork.create();
+net.defineNetworkAttribute('status', AttributeType.String);
+net.setNetworkStringAttribute('status', 'ready');
+console.log(net.getNetworkStringAttribute('status')); // "ready"
+```</code></pre>
+    
 
 
 </div>
@@ -4748,7 +4959,7 @@ Safe to call multiple times.
         <p class="tag-source">
             <a href="HeliosNetwork.js.html" class="button">View Source</a>
             <span>
-                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1377">line 1377</a>
+                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1584">line 1584</a>
             </span>
         </p>
     
@@ -4772,6 +4983,19 @@ Safe to call multiple times.
 
 
 
+
+
+    <h5>Example</h5>
+    
+    
+        <pre class="prettyprint"><code>```js
+const net = await HeliosNetwork.create();
+net.defineNodeAttribute('label', AttributeType.String);
+const node = net.addNodes(1)[0];
+net.setNodeStringAttribute('label', node, 'source');
+console.log(net.getNodeStringAttribute('label', node)); // "source"
+```</code></pre>
+    
 
 
 </div>
@@ -5077,7 +5301,7 @@ Safe to call multiple times.
         <p class="tag-source">
             <a href="HeliosNetwork.js.html" class="button">View Source</a>
             <span>
-                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line887">line 887</a>
+                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line980">line 980</a>
             </span>
         </p>
     
@@ -5126,6 +5350,19 @@ Safe to call multiple times.
     </div>
 
 
+
+
+    <h5>Example</h5>
+    
+    
+        <pre class="prettyprint"><code>```js
+import HeliosNetwork from 'helios-network';
+
+const network = await HeliosNetwork.create({ initialNodes: 2 });
+console.log(network.nodeCount); // 2
+network.dispose();
+```</code></pre>
+    
 
 
 </div>
@@ -5433,7 +5670,7 @@ was previously initialized through `await HeliosNetwork.create(...)` or
         <p class="tag-source">
             <a href="HeliosNetwork.js.html" class="button">View Source</a>
             <span>
-                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line914">line 914</a>
+                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1018">line 1018</a>
             </span>
         </p>
     
@@ -5503,6 +5740,22 @@ was previously initialized through `await HeliosNetwork.create(...)` or
     </div>
 
 
+
+
+    <h5>Example</h5>
+    
+    
+        <pre class="prettyprint"><code>```js
+import HeliosNetwork from 'helios-network';
+
+const boot = await HeliosNetwork.create();
+boot.dispose(); // primes the WASM module once
+
+const network = HeliosNetwork.createSync({ initialNodes: 1 });
+console.log(network.nodeCount); // 1
+network.dispose();
+```</code></pre>
+    
 
 
 </div>

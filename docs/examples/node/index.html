@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Helios Network • Node.js Examples</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --fg: #0f172a;
+      --fg-muted: #475569;
+      --bg: #f8fafc;
+      --card: #ffffff;
+      --border: rgba(148, 163, 184, 0.35);
+      --accent: #38bdf8;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --fg: #e2e8f0;
+        --fg-muted: #94a3b8;
+        --bg: #0f172a;
+        --card: rgba(15, 23, 42, 0.85);
+        --border: rgba(148, 163, 184, 0.2);
+      }
+    }
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      margin: 0;
+      font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.6;
+      background: var(--bg);
+      color: var(--fg);
+      padding: 2.5rem 1.5rem 3rem;
+    }
+    header {
+      max-width: 720px;
+      margin: 0 auto 2rem;
+      text-align: center;
+    }
+    header h1 {
+      margin: 0 0 0.75rem;
+      font-size: clamp(2rem, 5vw, 2.6rem);
+    }
+    header p {
+      margin: 0;
+      color: var(--fg-muted);
+    }
+    main {
+      max-width: 720px;
+      margin: 0 auto;
+      background: var(--card);
+      border-radius: 18px;
+      border: 1px solid var(--border);
+      box-shadow: 0 18px 40px rgba(15, 23, 42, 0.15);
+      padding: 2rem;
+    }
+    h2 {
+      margin-top: 2rem;
+      font-size: 1.35rem;
+    }
+    ul,
+    ol {
+      margin: 0 0 1rem 1.4rem;
+      padding: 0;
+    }
+    code {
+      font-family: "JetBrains Mono", "Fira Code", "SFMono-Regular", monospace;
+      font-size: 0.95rem;
+      background: rgba(148, 163, 184, 0.12);
+      padding: 0.25rem 0.4rem;
+      border-radius: 6px;
+    }
+    pre {
+      background: rgba(148, 163, 184, 0.12);
+      padding: 1rem;
+      border-radius: 12px;
+      overflow-x: auto;
+      font-family: "JetBrains Mono", "Fira Code", "SFMono-Regular", monospace;
+      font-size: 0.9rem;
+    }
+    a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+    a:hover,
+    a:focus-visible {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Node.js Example Suite</h1>
+    <p>Use these scripts to exercise Helios Network directly from Node 18+ without bundlers.</p>
+  </header>
+  <main>
+    <section>
+      <h2>Prerequisites</h2>
+      <ul>
+        <li>Install dependencies with <code>npm install</code>.</li>
+        <li>Build the WASM artefacts so the <code>dist/</code> bundle is current:
+          <pre><code>npm run build
+npm run build:wasm</code></pre>
+        </li>
+        <li>Ensure you are running on Node.js 18 or newer (the package targets native ES modules).</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Run the Samples</h2>
+      <p>Execute the scripts from the project root. Each script logs its operations to stdout, so you can observe the mutations Helios performs.</p>
+      <pre><code>node docs/examples/node/run.mjs
+node docs/examples/node/attributes.mjs</code></pre>
+      <ul>
+        <li><strong>run.mjs</strong> creates a small undirected network, adds nodes and edges, and then disposes of the instance.</li>
+        <li><strong>attributes.mjs</strong> showcases attribute registration across every scope, including multi-dimensional and JavaScript-backed values.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Next Steps</h2>
+      <p>Inspect the script sources alongside the <a href="../../api/HeliosNetwork.html">API reference</a> to learn how selectors, attributes, and memory views map to the public API.</p>
+    </section>
+  </main>
+</body>
+</html>

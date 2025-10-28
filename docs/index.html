@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Helios Network Documentation</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #0f172a;
+      --bg-light: #f8fafc;
+      --fg: #0f172a;
+      --fg-light: #94a3b8;
+      --accent: #38bdf8;
+      --card-bg: rgba(255, 255, 255, 0.85);
+      --card-border: rgba(148, 163, 184, 0.4);
+    }
+    @media (prefers-color-scheme: light) {
+      body {
+        background: #f1f5f9;
+        color: var(--fg);
+      }
+      header {
+        background: linear-gradient(135deg, #38bdf8, #3b82f6);
+        color: #fff;
+      }
+      .card {
+        background: #fff;
+      }
+    }
+    @media (prefers-color-scheme: dark) {
+      body {
+        background: radial-gradient(circle at top, rgba(56, 189, 248, 0.15), rgba(15, 23, 42, 0.95));
+        color: #e2e8f0;
+      }
+      header {
+        background: linear-gradient(135deg, rgba(56, 189, 248, 0.2), rgba(30, 64, 175, 0.4));
+        color: #f8fafc;
+      }
+      .card {
+        background: rgba(15, 23, 42, 0.85);
+      }
+    }
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      margin: 0;
+      font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.5;
+    }
+    header {
+      padding: 5rem 1.5rem 4rem;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+    header::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(circle at top right, rgba(56, 189, 248, 0.25), transparent),
+                  radial-gradient(circle at bottom left, rgba(59, 130, 246, 0.25), transparent);
+      mix-blend-mode: screen;
+      pointer-events: none;
+    }
+    header h1 {
+      margin: 0 0 1rem;
+      font-size: clamp(2.2rem, 4vw, 3rem);
+      letter-spacing: 0.5px;
+    }
+    header p {
+      margin: 0 auto;
+      max-width: 640px;
+      font-size: 1.05rem;
+      color: var(--fg-light);
+    }
+    main {
+      max-width: 1080px;
+      margin: -2rem auto 3rem;
+      padding: 0 1.5rem;
+      display: grid;
+      gap: 1.5rem;
+    }
+    .card {
+      border-radius: 18px;
+      padding: 2.25rem;
+      border: 1px solid var(--card-border);
+      backdrop-filter: blur(10px);
+      box-shadow: 0 25px 45px rgba(15, 23, 42, 0.15);
+    }
+    .card h2 {
+      margin-top: 0;
+      font-size: 1.5rem;
+    }
+    .card p {
+      margin-bottom: 1rem;
+      color: var(--fg-light);
+    }
+    ul {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      display: grid;
+      gap: 0.75rem;
+    }
+    li {
+      display: flex;
+      flex-direction: column;
+    }
+    a {
+      color: inherit;
+      text-decoration: none;
+    }
+    .link-card {
+      display: block;
+      padding: 0.85rem 1rem;
+      border-radius: 12px;
+      border: 1px solid transparent;
+      transition: transform 0.2s ease, border-color 0.2s ease, background-color 0.2s ease;
+      background: rgba(148, 163, 184, 0.08);
+    }
+    .link-card strong {
+      display: block;
+      font-size: 1rem;
+      margin-bottom: 0.2rem;
+    }
+    .link-card span {
+      font-size: 0.95rem;
+      color: var(--fg-light);
+    }
+    .link-card:hover,
+    .link-card:focus-visible {
+      border-color: rgba(56, 189, 248, 0.6);
+      transform: translateY(-2px);
+      background: rgba(56, 189, 248, 0.08);
+    }
+    footer {
+      text-align: center;
+      padding: 2rem 1.5rem 3rem;
+      color: var(--fg-light);
+      font-size: 0.95rem;
+    }
+    @media (max-width: 720px) {
+      header {
+        padding: 3.5rem 1.25rem 3rem;
+      }
+      .card {
+        padding: 1.75rem;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Helios Network Documentation</h1>
+    <p>Welcome to the unified reference for Helios Network. Explore the API reference, runnable examples, and workflow guides to get productive quickly.</p>
+  </header>
+  <main>
+    <section class="card" aria-labelledby="api-reference">
+      <h2 id="api-reference">API Reference</h2>
+      <p>Detailed documentation for every class, selector, and helper exposed by the Helios Network JavaScript package.</p>
+      <ul>
+        <li>
+          <a class="link-card" href="./api/">
+            <strong>JavaScript API</strong>
+            <span>Generated JSDoc reference for `HeliosNetwork`, selectors, and attribute utilities.</span>
+          </a>
+        </li>
+      </ul>
+    </section>
+
+    <section class="card" aria-labelledby="examples">
+      <h2 id="examples">Hands-on Examples</h2>
+      <p>Explore minimal runnable projects showcasing Helios Network from the browser and Node.js.</p>
+      <ul>
+        <li>
+          <a class="link-card" href="./examples/browser/">
+            <strong>Browser quickstart</strong>
+            <span>Loads the ESM bundle in a static page and prints network mutations to the console.</span>
+          </a>
+        </li>
+        <li>
+          <a class="link-card" href="./examples/node/">
+            <strong>Node.js scripts</strong>
+            <span>Step-by-step instructions and scripts for running Helios Network under Node 18+.</span>
+          </a>
+        </li>
+      </ul>
+    </section>
+
+    <section class="card" aria-labelledby="guides">
+      <h2 id="guides">Guides &amp; References</h2>
+      <p>Supplementary documentation that covers packaging, distribution, and contribution workflows.</p>
+      <ul>
+        <li>
+          <a class="link-card" href="https://github.com/filipinascimento/helios-network/blob/main/README.md">
+            <strong>Project overview</strong>
+            <span>High-level introduction, build scripts, and compatibility notes.</span>
+          </a>
+        </li>
+        <li>
+          <a class="link-card" href="https://github.com/filipinascimento/helios-network/blob/main/docs/packaging.md">
+            <strong>Packaging guide</strong>
+            <span>How to consume the WASM bundle from npm and modern toolchains.</span>
+          </a>
+        </li>
+        <li>
+          <a class="link-card" href="https://github.com/filipinascimento/helios-network/blob/main/docs/CONTRIBUTING.md">
+            <strong>Contributing</strong>
+            <span>Development setup, coding conventions, and pull request checklist.</span>
+          </a>
+        </li>
+      </ul>
+    </section>
+  </main>
+  <footer>
+    <span>Maintained by <a href="https://github.com/filipinascimento/helios-network">Helios Network</a> • Hosted on GitHub Pages</span>
+  </footer>
+</body>
+</html>

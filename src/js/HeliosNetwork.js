@@ -453,6 +453,15 @@ class NodeSelector extends Selector {
 	 * @param {Object} [options] - Projection options.
 	 * @param {boolean} [options.raw=false] - When true, returns the raw typed buffer.
 	 * @returns {Array|TypedArray} Attribute values aligned with the selector indices.
+	 * @example
+	 * ```js
+	 * const net = await HeliosNetwork.create();
+	 * net.defineNodeAttribute('weight', AttributeType.Float);
+	 * const nodes = net.addNodes(2);
+	 * const selector = net.createNodeSelector(nodes);
+	 * const weights = selector.attribute('weight');
+	 * console.log(weights[0]); // weight for the first node in the selector
+	 * ```
 	 */
 	attribute(name, options = {}) {
 		if (!this.hasAttribute(name)) {
@@ -515,6 +524,16 @@ class NodeSelector extends Selector {
 	 * @param {boolean} [options.includeEdges=false] - When true, also collects traversed edges.
 	 * @param {boolean} [options.asSelector=false] - When true, returns selector proxies.
 	 * @returns {(Uint32Array|{nodes:(Uint32Array|NodeSelector), edges:(Uint32Array|EdgeSelector)})} Neighbor information.
+	 * @example
+	 * ```js
+	 * const net = await HeliosNetwork.create();
+	 * const nodes = net.addNodes(3);
+	 * net.addEdges([[nodes[0], nodes[1]], [nodes[2], nodes[0]]]);
+	 *
+	 * const selector = net.createNodeSelector([nodes[0]]);
+	 * const { nodes: neighbours } = selector.neighbors({ mode: 'both' });
+	 * console.log([...neighbours]); // neighbouring node indices for nodes[0]
+	 * ```
 	 */
 	neighbors(options = {}) {
 		const {
@@ -571,6 +590,15 @@ class NodeSelector extends Selector {
 	 * @param {Object} [options] - Degree configuration.
 	 * @param {'out'|'in'|'both'|'all'} [options.mode='out'] - Determines which edge directions to count.
 	 * @returns {number[]} Degree values aligned with the selector order.
+	 * @example
+	 * ```js
+	 * const net = await HeliosNetwork.create();
+	 * const nodes = net.addNodes(2);
+	 * net.addEdges([[nodes[0], nodes[1]], [nodes[0], nodes[1]]]);
+	 *
+	 * const selector = net.createNodeSelector(nodes);
+	 * console.log(selector.degree({ mode: 'out' })); // [2, 0]
+	 * ```
 	 */
 	degree(options = {}) {
 		const { mode = 'out' } = options;
@@ -596,6 +624,16 @@ class NodeSelector extends Selector {
 	 * @param {'out'|'in'|'both'|'all'} [options.mode='out'] - Determines which edges to collect.
 	 * @param {boolean} [options.asSelector=false] - When true, returns a selector proxy.
 	 * @returns {Uint32Array|EdgeSelector} Edge indices or selector proxy.
+	 * @example
+	 * ```js
+	 * const net = await HeliosNetwork.create();
+	 * const nodes = net.addNodes(2);
+	 * const edges = net.addEdges([[nodes[0], nodes[1]]]);
+	 *
+	 * const selector = net.createNodeSelector([nodes[1]]);
+	 * const touching = selector.incidentEdges({ mode: 'both' });
+	 * console.log([...touching]); // [edges[0]]
+	 * ```
 	 */
 	incidentEdges(options = {}) {
 		const { mode = 'out', asSelector = false } = options;
@@ -722,6 +760,16 @@ class EdgeSelector extends Selector {
 	 * @param {Object} [options] - Projection options.
 	 * @param {boolean} [options.raw=false] - When true, returns the raw typed buffer.
 	 * @returns {Array|TypedArray} Attribute values aligned with the selector indices.
+	 * @example
+	 * ```js
+	 * const net = await HeliosNetwork.create();
+	 * net.addNodes(2);
+	 * net.defineEdgeAttribute('capacity', AttributeType.Float);
+	 * const edges = net.addEdges([[0, 1]]);
+	 * const selector = net.createEdgeSelector(edges);
+	 * const capacities = selector.attribute('capacity');
+	 * console.log(capacities[0]); // capacity for the first edge in the selector
+	 * ```
 	 */
 	attribute(name, options = {}) {
 		if (!this.hasAttribute(name)) {
@@ -783,6 +831,14 @@ class EdgeSelector extends Selector {
 	 * @param {boolean} [options.asSelector=false] - When true, returns a selector proxy.
 	 * @param {boolean} [options.unique=false] - When true, collapses duplicates.
 	 * @returns {Uint32Array|NodeSelector} Source node indices or selector proxy.
+	 * @example
+	 * ```js
+	 * const net = await HeliosNetwork.create();
+	 * net.addNodes(2);
+	 * const edges = net.addEdges([[0, 1]]);
+	 * const selector = net.createEdgeSelector(edges);
+	 * console.log([...selector.sources()]); // [0]
+	 * ```
 	 */
 	sources(options = {}) {
 		const { asSelector = false, unique = false } = options;
@@ -796,6 +852,14 @@ class EdgeSelector extends Selector {
 	 * @param {boolean} [options.asSelector=false] - When true, returns a selector proxy.
 	 * @param {boolean} [options.unique=false] - When true, collapses duplicates.
 	 * @returns {Uint32Array|NodeSelector} Target node indices or selector proxy.
+	 * @example
+	 * ```js
+	 * const net = await HeliosNetwork.create();
+	 * net.addNodes(2);
+	 * const edges = net.addEdges([[0, 1]]);
+	 * const selector = net.createEdgeSelector(edges);
+	 * console.log([...selector.targets()]); // [1]
+	 * ```
 	 */
 	targets(options = {}) {
 		const { asSelector = false, unique = false } = options;
@@ -806,6 +870,14 @@ class EdgeSelector extends Selector {
 	 * Returns the [source, target] pairs for the selection.
 	 *
 	 * @returns {Array<Array<number>>} Edge endpoint tuples.
+	 * @example
+	 * ```js
+	 * const net = await HeliosNetwork.create();
+	 * net.addNodes(2);
+	 * const edges = net.addEdges([[0, 1]]);
+	 * const selector = net.createEdgeSelector(edges);
+	 * console.log(selector.endpoints()); // [[0, 1]]
+	 * ```
 	 */
 	endpoints() {
 		const pairs = [];
@@ -823,6 +895,19 @@ class EdgeSelector extends Selector {
 	 * @param {Object} [options] - Projection options.
 	 * @param {boolean} [options.asSelector=false] - When true, returns a selector proxy.
 	 * @returns {Uint32Array|NodeSelector} Node indices or selector proxy.
+	 * @example
+	 * ```js
+	 * const net = await HeliosNetwork.create();
+	 * net.addNodes(3);
+	 * const edges = net.addEdges([[0, 1], [1, 2]]);
+	 * const selector = net.createEdgeSelector(edges);
+	 *
+	 * const touched = selector.nodes();
+	 * console.log([...touched]); // [0, 1, 2]
+	 *
+	 * const nodeSelector = selector.nodes({ asSelector: true });
+	 * console.log(nodeSelector.count); // 3
+	 * ```
 	 */
 	nodes(options = {}) {
 		const { asSelector = false } = options;
@@ -883,6 +968,14 @@ export class HeliosNetwork {
 	 * @param {number} [options.initialEdges=0] - Edge capacity to pre-allocate.
 	 * @param {object} [options.module] - Pre-initialized WASM module to reuse.
 	 * @returns {Promise<HeliosNetwork>} Ready-to-use network.
+	 * @example
+	 * ```js
+	 * import HeliosNetwork from 'helios-network';
+	 *
+	 * const network = await HeliosNetwork.create({ initialNodes: 2 });
+	 * console.log(network.nodeCount); // 2
+	 * network.dispose();
+	 * ```
 	 */
 	static async create(options = {}) {
 		const {
@@ -910,6 +1003,17 @@ export class HeliosNetwork {
 	 * @param {object} [options.module] - Pre-initialized WASM module to reuse.
 	 * @returns {HeliosNetwork} Ready-to-use network.
 	 * @throws {Error} When the module has not been initialized yet.
+	 * @example
+	 * ```js
+	 * import HeliosNetwork from 'helios-network';
+	 *
+	 * const boot = await HeliosNetwork.create();
+	 * boot.dispose(); // primes the WASM module once
+	 *
+	 * const network = HeliosNetwork.createSync({ initialNodes: 1 });
+	 * console.log(network.nodeCount); // 1
+	 * network.dispose();
+	 * ```
 	 */
 	static createSync(options = {}) {
 		const {
@@ -1034,6 +1138,12 @@ export class HeliosNetwork {
 	 *
 	 * @param {number} count - Number of nodes to add.
 	 * @returns {Uint32Array} Copy of the inserted node indices.
+	 * @example
+	 * ```js
+	 * const net = await HeliosNetwork.create();
+	 * const nodes = net.addNodes(3);
+	 * console.log([...nodes]); // e.g. [0, 1, 2]
+	 * ```
 	 */
 	addNodes(count) {
 		this._ensureActive();
@@ -1058,6 +1168,13 @@ export class HeliosNetwork {
 	 * Removes nodes from the network and clears related attributes.
 	 *
 	 * @param {Iterable<number>|Uint32Array} indices - Node indices slated for removal.
+	 * @example
+	 * ```js
+	 * const net = await HeliosNetwork.create();
+	 * const nodes = net.addNodes(2);
+	 * net.removeNodes([nodes[0]]);
+	 * console.log(net.nodeCount); // 1
+	 * ```
 	 */
 	removeNodes(indices) {
 		this._ensureActive();
@@ -1106,6 +1223,13 @@ export class HeliosNetwork {
 	 *
 	 * @param {Uint32Array|number[]|Array.<Array.<number>>|Array.<{from:number,to:number}>} edgeList - Collection describing edges to add.
 	 * @returns {Uint32Array} Copy of the newly created edge indices.
+	 * @example
+	 * ```js
+	 * const net = await HeliosNetwork.create();
+	 * const nodes = net.addNodes(2);
+	 * const edges = net.addEdges([{ from: nodes[0], to: nodes[1] }]);
+	 * console.log(edges.length); // 1
+	 * ```
 	 * @throws {Error} When the input shape is invalid or memory allocation fails.
 	 */
 	addEdges(edgeList) {
@@ -1176,6 +1300,14 @@ export class HeliosNetwork {
 	 * Removes edges from the network and clears related attributes.
 	 *
 	 * @param {Iterable<number>|Uint32Array} indices - Edge indices slated for removal.
+	 * @example
+	 * ```js
+	 * const net = await HeliosNetwork.create();
+	 * net.addNodes(2);
+	 * const edges = net.addEdges([[0, 1]]);
+	 * net.removeEdges(edges);
+	 * console.log(net.edgeCount); // 0
+	 * ```
 	 */
 	removeEdges(indices) {
 		this._ensureActive();
@@ -1218,6 +1350,15 @@ export class HeliosNetwork {
 	 *
 	 * @param {number} node - Source node index.
 	 * @returns {{nodes: Uint32Array, edges: Uint32Array}} Neighbor node and edge indices.
+	 * @example
+	 * ```js
+	 * const net = await HeliosNetwork.create();
+	 * const nodes = net.addNodes(3);
+	 * net.addEdges([[nodes[0], nodes[1]], [nodes[0], nodes[2]]]);
+	 *
+	 * const { nodes: outgoing } = net.getOutNeighbors(nodes[0]);
+	 * console.log([...outgoing]); // [nodes[1], nodes[2]]
+	 * ```
 	 */
 	getOutNeighbors(node) {
 		this._ensureActive();
@@ -1230,6 +1371,14 @@ export class HeliosNetwork {
 	 *
 	 * @param {number} node - Target node index.
 	 * @returns {{nodes: Uint32Array, edges: Uint32Array}} Neighbor node and edge indices.
+	 * @example
+	 * ```js
+	 * const net = await HeliosNetwork.create();
+	 * const nodes = net.addNodes(2);
+	 * net.addEdges([[nodes[0], nodes[1]]]);
+	 * const { nodes: incoming } = net.getInNeighbors(nodes[1]);
+	 * console.log([...incoming]); // [nodes[0]]
+	 * ```
 	 */
 	getInNeighbors(node) {
 		this._ensureActive();
@@ -1272,6 +1421,16 @@ export class HeliosNetwork {
 	 * @param {AttributeType} type - Attribute type constant.
 	 * @param {number} [dimension=1] - Number of elements per node.
 	 * @throws {Error} When the attribute already exists or native allocation fails.
+	 * @example
+	 * ```js
+	 * import HeliosNetwork, { AttributeType } from 'helios-network';
+	 *
+	 * const net = await HeliosNetwork.create({ initialNodes: 2 });
+	 * net.defineNodeAttribute('weight', AttributeType.Float);
+	 *
+	 * const weightBuffer = net.getNodeAttributeBuffer('weight').view;
+	 * weightBuffer[0] = 1.5;
+	 * ```
 	 */
 	defineNodeAttribute(name, type, dimension = 1) {
 		this._defineAttribute('node', name, type, dimension, this.module._CXNetworkDefineNodeAttribute);
@@ -1284,6 +1443,15 @@ export class HeliosNetwork {
 	 * @param {AttributeType} type - Attribute type constant.
 	 * @param {number} [dimension=1] - Number of elements per edge.
 	 * @throws {Error} When the attribute already exists or native allocation fails.
+	 * @example
+	 * ```js
+	 * const net = await HeliosNetwork.create();
+	 * net.addNodes(2);
+	 * net.defineEdgeAttribute('capacity', AttributeType.Integer);
+	 * const edges = net.addEdges([[0, 1]]);
+	 * const capacity = net.getEdgeAttributeBuffer('capacity').view;
+	 * capacity[edges[0]] = 10n;
+	 * ```
 	 */
 	defineEdgeAttribute(name, type, dimension = 1) {
 		this._defineAttribute('edge', name, type, dimension, this.module._CXNetworkDefineEdgeAttribute);
@@ -1296,6 +1464,13 @@ export class HeliosNetwork {
 	 * @param {AttributeType} type - Attribute type constant.
 	 * @param {number} [dimension=1] - Number of elements per network (capacity is always 1).
 	 * @throws {Error} When the attribute already exists or native allocation fails.
+	 * @example
+	 * ```js
+	 * const net = await HeliosNetwork.create();
+	 * net.defineNetworkAttribute('temperature', AttributeType.Float);
+	 * const networkValues = net.getNetworkAttributeBuffer('temperature').view;
+	 * networkValues[0] = 21.5;
+	 * ```
 	 */
 	defineNetworkAttribute(name, type, dimension = 1) {
 		this._defineAttribute('network', name, type, dimension, this.module._CXNetworkDefineNetworkAttribute);
@@ -1342,6 +1517,14 @@ export class HeliosNetwork {
 	 *
 	 * @param {string} name - Attribute identifier.
 	 * @returns {object} Wrapper providing type information and buffer helpers.
+	 * @example
+	 * ```js
+	 * const net = await HeliosNetwork.create();
+	 * net.defineNodeAttribute('flag', AttributeType.Boolean);
+	 * const nodes = net.addNodes(1);
+	 * const attribute = net.getNodeAttributeBuffer('flag');
+	 * attribute.view[nodes[0]] = 1;
+	 * ```
 	 */
 	getNodeAttributeBuffer(name) {
 		return this._getAttributeBuffer('node', name);
@@ -1352,6 +1535,15 @@ export class HeliosNetwork {
 	 *
 	 * @param {string} name - Attribute identifier.
 	 * @returns {object} Wrapper providing type information and buffer helpers.
+	 * @example
+	 * ```js
+	 * const net = await HeliosNetwork.create();
+	 * net.addNodes(2);
+	 * net.defineEdgeAttribute('capacity', AttributeType.Double);
+	 * const edges = net.addEdges([[0, 1]]);
+	 * const attribute = net.getEdgeAttributeBuffer('capacity');
+	 * attribute.view[edges[0]] = 12.5;
+	 * ```
 	 */
 	getEdgeAttributeBuffer(name) {
 		return this._getAttributeBuffer('edge', name);
@@ -1362,6 +1554,13 @@ export class HeliosNetwork {
 	 *
 	 * @param {string} name - Attribute identifier.
 	 * @returns {object} Wrapper providing type information and buffer helpers.
+	 * @example
+	 * ```js
+	 * const net = await HeliosNetwork.create();
+	 * net.defineNetworkAttribute('version', AttributeType.UnsignedInteger);
+	 * const attribute = net.getNetworkAttributeBuffer('version');
+	 * attribute.view[0] = 1n;
+	 * ```
 	 */
 	getNetworkAttributeBuffer(name) {
 		return this._getAttributeBuffer('network', name);
@@ -1373,6 +1572,14 @@ export class HeliosNetwork {
 	 * @param {string} name - Attribute identifier.
 	 * @param {number} index - Node index.
 	 * @param {string|null|undefined} value - String to store (or nullish to clear).
+	 * @example
+	 * ```js
+	 * const net = await HeliosNetwork.create();
+	 * net.defineNodeAttribute('label', AttributeType.String);
+	 * const node = net.addNodes(1)[0];
+	 * net.setNodeStringAttribute('label', node, 'source');
+	 * console.log(net.getNodeStringAttribute('label', node)); // "source"
+	 * ```
 	 */
 	setNodeStringAttribute(name, index, value) {
 		this._setStringAttribute('node', name, index, value);
@@ -1395,6 +1602,14 @@ export class HeliosNetwork {
 	 * @param {string} name - Attribute identifier.
 	 * @param {number} index - Edge index.
 	 * @param {string|null|undefined} value - String to store (or nullish to clear).
+	 * @example
+	 * ```js
+	 * const net = await HeliosNetwork.create();
+	 * net.addNodes(2);
+	 * net.defineEdgeAttribute('label', AttributeType.String);
+	 * const edges = net.addEdges([[0, 1]]);
+	 * net.setEdgeStringAttribute('label', edges[0], 'link');
+	 * ```
 	 */
 	setEdgeStringAttribute(name, index, value) {
 		this._setStringAttribute('edge', name, index, value);
@@ -1416,6 +1631,13 @@ export class HeliosNetwork {
 	 *
 	 * @param {string} name - Attribute identifier.
 	 * @param {string|null|undefined} value - String to store (or nullish to clear).
+	 * @example
+	 * ```js
+	 * const net = await HeliosNetwork.create();
+	 * net.defineNetworkAttribute('status', AttributeType.String);
+	 * net.setNetworkStringAttribute('status', 'ready');
+	 * console.log(net.getNetworkStringAttribute('status')); // "ready"
+	 * ```
 	 */
 	setNetworkStringAttribute(name, value) {
 		this._setStringAttribute('network', name, 0, value);
@@ -1662,6 +1884,17 @@ export class HeliosNetwork {
 	 *
 	 * @param {Iterable<number>|Uint32Array} [indices] - Indices to preload into the selector.
 	 * @returns {NodeSelector} Prepared selector.
+	 * @example
+	 * ```js
+	 * const net = await HeliosNetwork.create();
+	 * net.addNodes(3);
+	 *
+	 * const selector = net.createNodeSelector(); // includes every node
+	 * console.log(selector.count); // 3
+	 *
+	 * const subset = net.createNodeSelector([0, 2]);
+	 * console.log([...subset]); // [0, 2]
+	 * ```
 	 */
 	createNodeSelector(indices) {
 		const selector = NodeSelector.create(this.module, this);
@@ -1678,6 +1911,16 @@ export class HeliosNetwork {
 	 *
 	 * @param {Iterable<number>|Uint32Array} [indices] - Indices to preload into the selector.
 	 * @returns {EdgeSelector} Prepared selector.
+	 * @example
+	 * ```js
+	 * const net = await HeliosNetwork.create();
+	 * net.addNodes(2);
+	 * const edges = net.addEdges([[0, 1]]);
+	 *
+	 * const selector = net.createEdgeSelector(); // iterates over all edges
+	 * const sample = net.createEdgeSelector(edges);
+	 * console.log(sample.endpoints()); // [[0, 1]]
+	 * ```
 	 */
 	createEdgeSelector(indices) {
 		const selector = EdgeSelector.create(this.module, this);
