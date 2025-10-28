@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.18)
 
-project(HeliosNetwork LANGUAGES C VERSION 0.2.0 DESCRIPTION "Helios Network native graph core")
+project(HeliosNetwork LANGUAGES C VERSION 0.2.2 DESCRIPTION "Helios Network native graph core")
 
 option(HELIOS_BUILD_SHARED "Build the Helios shared library" ON)
 option(HELIOS_BUILD_STATIC "Build the Helios static library" ON)
