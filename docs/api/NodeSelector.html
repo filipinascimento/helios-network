@@ -369,7 +369,7 @@
         <p class="tag-source">
             <a href="HeliosNetwork.js.html" class="button">View Source</a>
             <span>
-                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line478">line 478</a>
+                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line476">line 476</a>
             </span>
         </p>
     
@@ -639,7 +639,7 @@
         <p class="tag-source">
             <a href="HeliosNetwork.js.html" class="button">View Source</a>
             <span>
-                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line466">line 466</a>
+                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line464">line 464</a>
             </span>
         </p>
     
@@ -696,14 +696,12 @@
     <h5>Example</h5>
     
     
-        <pre class="prettyprint"><code>```js
-const net = await HeliosNetwork.create();
+        <pre class="prettyprint"><code>const net = await HeliosNetwork.create();
 net.defineNodeAttribute('weight', AttributeType.Float);
 const nodes = net.addNodes(2);
 const selector = net.createNodeSelector(nodes);
 const weights = selector.attribute('weight');
-console.log(weights[0]); // weight for the first node in the selector
-```</code></pre>
+console.log(weights[0]); // weight for the first node in the selector</code></pre>
     
 
 
@@ -898,7 +896,7 @@ console.log(weights[0]); // weight for the first node in the selector
         <p class="tag-source">
             <a href="HeliosNetwork.js.html" class="button">View Source</a>
             <span>
-                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line603">line 603</a>
+                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line597">line 597</a>
             </span>
         </p>
     
@@ -952,14 +950,12 @@ console.log(weights[0]); // weight for the first node in the selector
     <h5>Example</h5>
     
     
-        <pre class="prettyprint"><code>```js
-const net = await HeliosNetwork.create();
+        <pre class="prettyprint"><code>const net = await HeliosNetwork.create();
 const nodes = net.addNodes(2);
 net.addEdges([[nodes[0], nodes[1]], [nodes[0], nodes[1]]]);
 
 const selector = net.createNodeSelector(nodes);
-console.log(selector.degree({ mode: 'out' })); // [2, 0]
-```</code></pre>
+console.log(selector.degree({ mode: 'out' })); // [2, 0]</code></pre>
     
 
 
@@ -1706,7 +1702,7 @@ console.log(selector.degree({ mode: 'out' })); // [2, 0]
         <p class="tag-source">
             <a href="HeliosNetwork.js.html" class="button">View Source</a>
             <span>
-                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line638">line 638</a>
+                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line630">line 630</a>
             </span>
         </p>
     
@@ -1763,15 +1759,13 @@ console.log(selector.degree({ mode: 'out' })); // [2, 0]
     <h5>Example</h5>
     
     
-        <pre class="prettyprint"><code>```js
-const net = await HeliosNetwork.create();
+        <pre class="prettyprint"><code>const net = await HeliosNetwork.create();
 const nodes = net.addNodes(2);
 const edges = net.addEdges([[nodes[0], nodes[1]]]);
 
 const selector = net.createNodeSelector([nodes[1]]);
 const touching = selector.incidentEdges({ mode: 'both' });
-console.log([...touching]); // [edges[0]]
-```</code></pre>
+console.log([...touching]); // [edges[0]]</code></pre>
     
 
 
@@ -2044,7 +2038,7 @@ console.log([...touching]); // [edges[0]]
         <p class="tag-source">
             <a href="HeliosNetwork.js.html" class="button">View Source</a>
             <span>
-                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line538">line 538</a>
+                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line534">line 534</a>
             </span>
         </p>
     
@@ -2101,15 +2095,13 @@ console.log([...touching]); // [edges[0]]
     <h5>Example</h5>
     
     
-        <pre class="prettyprint"><code>```js
-const net = await HeliosNetwork.create();
+        <pre class="prettyprint"><code>const net = await HeliosNetwork.create();
 const nodes = net.addNodes(3);
 net.addEdges([[nodes[0], nodes[1]], [nodes[2], nodes[0]]]);
 
 const selector = net.createNodeSelector([nodes[0]]);
 const { nodes: neighbours } = selector.neighbors({ mode: 'both' });
-console.log([...neighbours]); // neighbouring node indices for nodes[0]
-```</code></pre>
+console.log([...neighbours]); // neighbouring node indices for nodes[0]</code></pre>
     
 
 
