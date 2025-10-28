@@ -39,7 +39,19 @@ let moduleInstance = null;
 async function getModule(options = {}) {
 	if (!modulePromise) {
 		modulePromise = (async () => {
-			const instance = await createHeliosModule(options);
+			const moduleOptions = { ...options };
+			if (typeof moduleOptions.locateFile !== 'function') {
+				moduleOptions.locateFile = (path, scriptDirectory = '') => {
+					if (typeof path === 'string' && path.endsWith('.wasm')) {
+						if (scriptDirectory && scriptDirectory.includes('compiled')) {
+							return `${scriptDirectory}${path}`;
+						}
+						return new URL('./compiled/' + path, import.meta.url).href;
+					}
+					return `${scriptDirectory ?? ''}${path ?? ''}`;
+				};
+			}
+			const instance = await createHeliosModule(moduleOptions);
 			if (instance.ready) {
 				await instance.ready;
 			}
@@ -92,6 +104,100 @@ const TYPE_ELEMENT_SIZE = {
 };
 
 /**
+ * Materializes a `Set<number>` into a compact `Uint32Array`.
+ *
+ * @param {Set<number>} values - Unique numeric values to convert.
+ * @returns {Uint32Array} Frozen copy of the provided values.
+ */
+function setToUint32Array(values) {
+	if (!values.size) {
+		return new Uint32Array();
+	}
+	const result = new Uint32Array(values.size);
+	let idx = 0;
+	for (const value of values) {
+		result[idx] = value;
+		idx += 1;
+	}
+	return result;
+}
+
+/**
+ * Projects attribute values for the provided selection scope into JavaScript data structures.
+ *
+ * @param {HeliosNetwork} network - Owning network instance.
+ * @param {'node'|'edge'} scope - Attribute scope to read.
+ * @param {string} name - Attribute identifier.
+ * @param {Uint32Array} indices - Selection indices.
+ * @param {{raw?:boolean}} [options] - Projection options.
+ * @returns {Array|TypedArray} Resolved attribute payload.
+ */
+function projectAttributeValues(network, scope, name, indices, options = {}) {
+	const { raw = false } = options;
+	const buffer = scope === 'node'
+		? network.getNodeAttributeBuffer(name)
+		: network.getEdgeAttributeBuffer(name);
+
+	if ('get' in buffer && typeof buffer.get === 'function') {
+		const result = new Array(indices.length);
+		for (let i = 0; i < indices.length; i += 1) {
+			const index = indices[i];
+			result[i] = buffer.get(index) ?? null;
+		}
+		return result;
+	}
+
+	if (buffer.type === AttributeType.String) {
+		const reader = scope === 'node'
+			? network.getNodeStringAttribute.bind(network)
+			: network.getEdgeStringAttribute.bind(network);
+		if (!indices.length) {
+			return [];
+		}
+		const result = new Array(indices.length);
+		for (let i = 0; i < indices.length; i += 1) {
+			result[i] = reader(name, indices[i]);
+		}
+		return result;
+	}
+
+	if (!('view' in buffer) || !buffer.view) {
+		throw new Error(`Attribute "${name}" on ${scope} is not a numeric attribute`);
+	}
+
+	const { view, dimension } = buffer;
+	const TypedCtor = view.constructor;
+
+	if (!indices.length) {
+		return raw && dimension === 1 ? new TypedCtor(0) : [];
+	}
+
+	if (dimension === 1) {
+		if (raw) {
+			const result = new TypedCtor(indices.length);
+			for (let i = 0; i < indices.length; i += 1) {
+				result[i] = view[indices[i]];
+			}
+			return result;
+		}
+		const result = new Array(indices.length);
+		for (let i = 0; i < indices.length; i += 1) {
+			result[i] = view[indices[i]];
+		}
+		return result;
+	}
+
+	const result = new Array(indices.length);
+	for (let i = 0; i < indices.length; i += 1) {
+		const index = indices[i];
+		const start = index * dimension;
+		const slice = view.slice(start, start + dimension);
+		result[i] = raw ? slice : Array.from(slice);
+	}
+	return result;
+}
+
+/**
  * RAII-style helper that marshals temporary UTF-8 strings into WASM memory.
  * @private
  */
@@ -129,11 +235,13 @@ class CString {
 class Selector {
 	/**
 	 * @param {object} module - Active Helios WASM module.
+	 * @param {HeliosNetwork} network - Owning Helios network wrapper.
 	 * @param {number} ptr - Pointer to the native selector.
 	 * @param {{destroyFn:function(number):void,countFn:function(number):number,dataFn:function(number):number}} fns - Selector function table.
 	 */
-	constructor(module, ptr, fns) {
+	constructor(module, network, ptr, fns) {
 		this.module = module;
+		this.network = network;
 		this.ptr = ptr;
 		this._destroyFn = fns.destroyFn;
 		this._countFn = fns.countFn;
@@ -169,6 +277,71 @@ class Selector {
 	}
 
 	/**
+	 * Iterator over the selector indices.
+	 *
+	 * @returns {IterableIterator<number>} Generator yielding each index.
+	 */
+	*[Symbol.iterator]() {
+		const count = this.count;
+		const ptr = this.dataPointer;
+		if (!ptr || count === 0) {
+			return;
+		}
+		const base = ptr >>> 2;
+		for (let i = 0; i < count; i += 1) {
+			yield this.module.HEAPU32[base + i];
+		}
+	}
+
+	/**
+	 * Convenience wrapper that materializes the selector as a plain array.
+	 *
+	 * @returns {number[]} Copied index array.
+	 */
+	toArray() {
+		return Array.from(this);
+	}
+
+	/**
+	 * Applies the provided callback to every index in the selector.
+	 *
+	 * @param {function(number, number):void} callback - Invoked with (index, position).
+	 */
+	forEach(callback) {
+		let position = 0;
+		for (const index of this) {
+			callback(index, position);
+			position += 1;
+		}
+	}
+
+	/**
+	 * Maps the indices into a new array using the provided transformer.
+	 *
+	 * @template T
+	 * @param {function(number, number):T} mapper - Invoked with (index, position).
+	 * @returns {T[]} Array of mapped values.
+	 */
+	map(mapper) {
+		const results = [];
+		let position = 0;
+		for (const index of this) {
+			results.push(mapper(index, position));
+			position += 1;
+		}
+		return results;
+	}
+
+	/**
+	 * Provides a standalone iterator instance over the selector indices.
+	 *
+	 * @returns {IterableIterator<number>} Iterator yielding selector indices.
+	 */
+	values() {
+		return this[Symbol.iterator]();
+	}
+
+	/**
 	 * Releases the native selector.
 	 */
 	dispose() {
@@ -187,27 +360,43 @@ class NodeSelector extends Selector {
 	 * Allocates a node selector within the WASM module.
 	 *
 	 * @param {object} module - Active Helios WASM module.
+	 * @param {HeliosNetwork} network - Owning network instance.
 	 * @returns {NodeSelector} Newly allocated selector wrapper.
 	 * @throws {Error} When allocation fails.
 	 */
-	static create(module) {
+	static create(module, network) {
 		const ptr = module._CXNodeSelectorCreate(0);
 		if (!ptr) {
 			throw new Error('Failed to create node selector');
 		}
-		return new NodeSelector(module, ptr);
+		return new NodeSelector(module, network, ptr);
+	}
+
+	/**
+	 * Internal helper that instantiates a selector from explicit indices.
+	 *
+	 * @param {HeliosNetwork} network - Owning network instance.
+	 * @param {Uint32Array} indices - Indices to populate.
+	 * @returns {NodeSelector} Populated selector proxy.
+	 */
+	static fromIndices(network, indices) {
+		const selector = NodeSelector.create(network.module, network);
+		selector.fillFromArray(network, indices);
+		return selector._asProxy();
 	}
 
 	/**
 	 * @param {object} module - Active Helios WASM module.
 	 * @param {number} ptr - Pointer to the native selector.
 	 */
-	constructor(module, ptr) {
-		super(module, ptr, {
+	constructor(module, network, ptr) {
+		super(module, network, ptr, {
 			destroyFn: module._CXNodeSelectorDestroy,
 			countFn: module._CXNodeSelectorCount,
 			dataFn: module._CXNodeSelectorData,
 		});
+		this._proxy = null;
+		this._attributeProxy = null;
 	}
 
 	/**
@@ -231,6 +420,14 @@ class NodeSelector extends Selector {
 	 */
 	fillFromArray(network, indices) {
 		const array = Array.isArray(indices) ? Uint32Array.from(indices) : new Uint32Array(indices);
+		if (array.length === 0) {
+			if (typeof this.module._CXNodeSelectorClear === 'function') {
+				this.module._CXNodeSelectorClear(this.ptr);
+			} else {
+				this.module._CXNodeSelectorFillFromArray(this.ptr, 0, 0);
+			}
+			return this;
+		}
 		const size = array.length * 4;
 		const ptr = this.module._malloc(size);
 		if (!ptr) {
@@ -240,6 +437,180 @@ class NodeSelector extends Selector {
 		this.module._CXNodeSelectorFillFromArray(this.ptr, ptr, array.length);
 		this.module._free(ptr);
 		return this;
+	}
+
+	/**
+	 * @returns {boolean} Whether the network defines the specified attribute.
+	 */
+	hasAttribute(name) {
+		return Boolean(this.network?._nodeAttributes?.has(name));
+	}
+
+	/**
+	 * Resolves attribute values for the selected nodes.
+	 *
+	 * @param {string} name - Attribute identifier.
+	 * @param {{raw?:boolean}} [options] - Projection options.
+	 * @returns {Array|TypedArray} Attribute values aligned with the selector indices.
+	 */
+	attribute(name, options = {}) {
+		if (!this.hasAttribute(name)) {
+			throw new Error(`Unknown node attribute "${name}"`);
+		}
+		return projectAttributeValues(this.network, 'node', name, this.toTypedArray(), options);
+	}
+
+	/**
+	 * Provides a proxy that lazily exposes attributes via property access.
+	 *
+	 * @returns {NodeSelector} Proxy-backed selector.
+	 */
+	_asProxy() {
+		if (!this._proxy) {
+			const attributeProxy = () => {
+				if (!this._attributeProxy) {
+					this._attributeProxy = new Proxy({}, {
+						get: (_, prop) => {
+							if (typeof prop !== 'string') {
+								return undefined;
+							}
+							if (!this.hasAttribute(prop)) {
+								return undefined;
+							}
+							return this.attribute(prop);
+						},
+					});
+				}
+				return this._attributeProxy;
+			};
+
+			this._proxy = new Proxy(this, {
+				get: (target, prop) => {
+					if (typeof prop === 'symbol') {
+						return Reflect.get(target, prop, target);
+					}
+					if (prop === 'attributes') {
+						return attributeProxy();
+					}
+					if (prop in target) {
+						const value = Reflect.get(target, prop, target);
+						return typeof value === 'function' ? value.bind(target) : value;
+					}
+					if (typeof prop === 'string' && target.hasAttribute(prop)) {
+						return target.attribute(prop);
+					}
+					return Reflect.get(target, prop, target);
+				},
+			});
+		}
+		return this._proxy;
+	}
+
+	/**
+	 * Computes neighbour sets for the selected nodes.
+	 *
+	 * @param {{mode?:'out'|'in'|'both'|'all',includeEdges?:boolean,asSelector?:boolean}} [options] - Query options.
+	 * @returns {Uint32Array|{nodes:Uint32Array|NodeSelector,edges?:Uint32Array|EdgeSelector}} Neighbor information.
+	 */
+	neighbors(options = {}) {
+		const {
+			mode = 'out',
+			includeEdges = false,
+			asSelector = false,
+		} = options;
+
+		const collectOut = mode === 'out' || mode === 'both' || mode === 'all';
+		const collectIn = mode === 'in' || mode === 'both' || mode === 'all';
+		const nodeSet = new Set();
+		const edgeSet = includeEdges ? new Set() : null;
+
+		for (const node of this) {
+			if (collectOut) {
+				const { nodes, edges } = this.network.getOutNeighbors(node);
+				for (const neighbor of nodes) {
+					nodeSet.add(neighbor);
+				}
+				if (edgeSet) {
+					for (const edge of edges) {
+						edgeSet.add(edge);
+					}
+				}
+			}
+			if (collectIn) {
+				const { nodes, edges } = this.network.getInNeighbors(node);
+				for (const neighbor of nodes) {
+					nodeSet.add(neighbor);
+				}
+				if (edgeSet) {
+					for (const edge of edges) {
+						edgeSet.add(edge);
+					}
+				}
+			}
+		}
+
+		const nodesArray = setToUint32Array(nodeSet);
+		if (!includeEdges) {
+			return asSelector ? NodeSelector.fromIndices(this.network, nodesArray) : nodesArray;
+		}
+
+		const edgesArray = edgeSet ? setToUint32Array(edgeSet) : new Uint32Array();
+		return {
+			nodes: asSelector ? NodeSelector.fromIndices(this.network, nodesArray) : nodesArray,
+			edges: asSelector ? EdgeSelector.fromIndices(this.network, edgesArray) : edgesArray,
+		};
+	}
+
+	/**
+	 * Derives degree values for the selected nodes.
+	 *
+	 * @param {{mode?:'out'|'in'|'both'|'all'}} [options] - Degree configuration.
+	 * @returns {number[]} Degree values aligned with the selector order.
+	 */
+	degree(options = {}) {
+		const { mode = 'out' } = options;
+		const collectOut = mode === 'out' || mode === 'both' || mode === 'all';
+		const collectIn = mode === 'in' || mode === 'both' || mode === 'all';
+
+		return this.map((node) => {
+			let count = 0;
+			if (collectOut) {
+				count += this.network.getOutNeighbors(node).nodes.length;
+			}
+			if (collectIn) {
+				count += this.network.getInNeighbors(node).nodes.length;
+			}
+			return count;
+		});
+	}
+
+	/**
+	 * Retrieves incident edges for the selected nodes.
+	 *
+	 * @param {{mode?:'out'|'in'|'both'|'all',asSelector?:boolean}} [options] - Incident edge options.
+	 * @returns {Uint32Array|EdgeSelector} Edge indices or selector proxy.
+	 */
+	incidentEdges(options = {}) {
+		const { mode = 'out', asSelector = false } = options;
+		const edgeSet = new Set();
+		const collectOut = mode === 'out' || mode === 'both' || mode === 'all';
+		const collectIn = mode === 'in' || mode === 'both' || mode === 'all';
+
+		for (const node of this) {
+			if (collectOut) {
+				for (const edge of this.network.getOutNeighbors(node).edges) {
+					edgeSet.add(edge);
+				}
+			}
+			if (collectIn) {
+				for (const edge of this.network.getInNeighbors(node).edges) {
+					edgeSet.add(edge);
+				}
+			}
+		}
+
+		const edgesArray = setToUint32Array(edgeSet);
+		return asSelector ? EdgeSelector.fromIndices(this.network, edgesArray) : edgesArray;
 	}
 }
 
@@ -251,27 +622,43 @@ class EdgeSelector extends Selector {
 	 * Allocates an edge selector within the WASM module.
 	 *
 	 * @param {object} module - Active Helios WASM module.
+	 * @param {HeliosNetwork} network - Owning network instance.
 	 * @returns {EdgeSelector} Newly allocated selector wrapper.
 	 * @throws {Error} When allocation fails.
 	 */
-	static create(module) {
+	static create(module, network) {
 		const ptr = module._CXEdgeSelectorCreate(0);
 		if (!ptr) {
 			throw new Error('Failed to create edge selector');
 		}
-		return new EdgeSelector(module, ptr);
+		return new EdgeSelector(module, network, ptr);
+	}
+
+	/**
+	 * Instantiates a selector populated with the provided edge indices.
+	 *
+	 * @param {HeliosNetwork} network - Owning network instance.
+	 * @param {Uint32Array} indices - Edge indices to populate.
+	 * @returns {EdgeSelector} Populated selector proxy.
+	 */
+	static fromIndices(network, indices) {
+		const selector = EdgeSelector.create(network.module, network);
+		selector.fillFromArray(network, indices);
+		return selector._asProxy();
 	}
 
 	/**
 	 * @param {object} module - Active Helios WASM module.
 	 * @param {number} ptr - Pointer to the native selector.
 	 */
-	constructor(module, ptr) {
-		super(module, ptr, {
+	constructor(module, network, ptr) {
+		super(module, network, ptr, {
 			destroyFn: module._CXEdgeSelectorDestroy,
 			countFn: module._CXEdgeSelectorCount,
 			dataFn: module._CXEdgeSelectorData,
 		});
+		this._proxy = null;
+		this._attributeProxy = null;
 	}
 
 	/**
@@ -295,6 +682,14 @@ class EdgeSelector extends Selector {
 	 */
 	fillFromArray(network, indices) {
 		const array = Array.isArray(indices) ? Uint32Array.from(indices) : new Uint32Array(indices);
+		if (array.length === 0) {
+			if (typeof this.module._CXEdgeSelectorClear === 'function') {
+				this.module._CXEdgeSelectorClear(this.ptr);
+			} else {
+				this.module._CXEdgeSelectorFillFromArray(this.ptr, 0, 0);
+			}
+			return this;
+		}
 		const size = array.length * 4;
 		const ptr = this.module._malloc(size);
 		if (!ptr) {
@@ -304,6 +699,158 @@ class EdgeSelector extends Selector {
 		this.module._CXEdgeSelectorFillFromArray(this.ptr, ptr, array.length);
 		this.module._free(ptr);
 		return this;
+	}
+
+	/**
+	 * @returns {boolean} Whether the specified attribute is registered for edges.
+	 */
+	hasAttribute(name) {
+		return Boolean(this.network?._edgeAttributes?.has(name));
+	}
+
+	/**
+	 * Resolves attribute values for the selected edges.
+	 *
+	 * @param {string} name - Attribute identifier.
+	 * @param {{raw?:boolean}} [options] - Projection options.
+	 * @returns {Array|TypedArray} Attribute values aligned with the selector indices.
+	 */
+	attribute(name, options = {}) {
+		if (!this.hasAttribute(name)) {
+			throw new Error(`Unknown edge attribute "${name}"`);
+		}
+		return projectAttributeValues(this.network, 'edge', name, this.toTypedArray(), options);
+	}
+
+	/**
+	 * Provides a proxy that exposes attributes through property access.
+	 *
+	 * @returns {EdgeSelector} Proxy-backed selector.
+	 */
+	_asProxy() {
+		if (!this._proxy) {
+			const attributeProxy = () => {
+				if (!this._attributeProxy) {
+					this._attributeProxy = new Proxy({}, {
+						get: (_, prop) => {
+							if (typeof prop !== 'string') {
+								return undefined;
+							}
+							if (!this.hasAttribute(prop)) {
+								return undefined;
+							}
+							return this.attribute(prop);
+						},
+					});
+				}
+				return this._attributeProxy;
+			};
+
+			this._proxy = new Proxy(this, {
+				get: (target, prop) => {
+					if (typeof prop === 'symbol') {
+						return Reflect.get(target, prop, target);
+					}
+					if (prop === 'attributes') {
+						return attributeProxy();
+					}
+					if (prop in target) {
+						const value = Reflect.get(target, prop, target);
+						return typeof value === 'function' ? value.bind(target) : value;
+					}
+					if (typeof prop === 'string' && target.hasAttribute(prop)) {
+						return target.attribute(prop);
+					}
+					return Reflect.get(target, prop, target);
+				},
+			});
+		}
+		return this._proxy;
+	}
+
+	/**
+	 * Retrieves the source node for each selected edge.
+	 *
+	 * @param {{asSelector?:boolean,unique?:boolean}} [options] - Projection options.
+	 * @returns {Uint32Array|NodeSelector} Source node indices or selector proxy.
+	 */
+	sources(options = {}) {
+		const { asSelector = false, unique = false } = options;
+		return this._projectEndpoint(0, { asSelector, unique });
+	}
+
+	/**
+	 * Retrieves the target node for each selected edge.
+	 *
+	 * @param {{asSelector?:boolean,unique?:boolean}} [options] - Projection options.
+	 * @returns {Uint32Array|NodeSelector} Target node indices or selector proxy.
+	 */
+	targets(options = {}) {
+		const { asSelector = false, unique = false } = options;
+		return this._projectEndpoint(1, { asSelector, unique });
+	}
+
+	/**
+	 * Returns the [source, target] pairs for the selection.
+	 *
+	 * @returns {Array<[number, number]>} Edge endpoint tuples.
+	 */
+	endpoints() {
+		const pairs = [];
+		const edgesView = this.network.edgesView;
+		for (const edge of this) {
+			const base = edge * 2;
+			pairs.push([edgesView[base], edgesView[base + 1]]);
+		}
+		return pairs;
+	}
+
+	/**
+	 * Collects all nodes touched by the selected edges.
+	 *
+	 * @param {{asSelector?:boolean}} [options] - Projection options.
+	 * @returns {Uint32Array|NodeSelector} Node indices or selector proxy.
+	 */
+	nodes(options = {}) {
+		const { asSelector = false } = options;
+		const nodeSet = new Set();
+		const edgesView = this.network.edgesView;
+		for (const edge of this) {
+			const base = edge * 2;
+			nodeSet.add(edgesView[base]);
+			nodeSet.add(edgesView[base + 1]);
+		}
+		const indices = setToUint32Array(nodeSet);
+		return asSelector ? NodeSelector.fromIndices(this.network, indices) : indices;
+	}
+
+	/**
+	 * Internal helper that projects either edge endpoint.
+	 * @private
+	 *
+	 * @param {0|1} offset - 0 for source, 1 for target.
+	 * @param {{asSelector?:boolean,unique?:boolean}} options - Projection options.
+	 * @returns {Uint32Array|NodeSelector} Projected nodes.
+	 */
+	_projectEndpoint(offset, options) {
+		const { asSelector, unique } = options;
+		const edgesView = this.network.edgesView;
+		if (unique) {
+			const nodeSet = new Set();
+			for (const edge of this) {
+				nodeSet.add(edgesView[edge * 2 + offset]);
+			}
+			const indices = setToUint32Array(nodeSet);
+			return asSelector ? NodeSelector.fromIndices(this.network, indices) : indices;
+		}
+
+		const indices = new Uint32Array(this.count);
+		let position = 0;
+		for (const edge of this) {
+			indices[position] = edgesView[edge * 2 + offset];
+			position += 1;
+		}
+		return asSelector ? NodeSelector.fromIndices(this.network, indices) : indices;
 	}
 }
 
@@ -1102,13 +1649,13 @@ export class HeliosNetwork {
 	 * @returns {NodeSelector} Prepared selector.
 	 */
 	createNodeSelector(indices) {
-		const selector = NodeSelector.create(this.module);
+		const selector = NodeSelector.create(this.module, this);
 		if (indices) {
 			selector.fillFromArray(this, indices);
 		} else {
 			selector.fillAll(this);
 		}
-		return selector;
+		return selector._asProxy();
 	}
 
 	/**
@@ -1118,13 +1665,13 @@ export class HeliosNetwork {
 	 * @returns {EdgeSelector} Prepared selector.
 	 */
 	createEdgeSelector(indices) {
-		const selector = EdgeSelector.create(this.module);
+		const selector = EdgeSelector.create(this.module, this);
 		if (indices) {
 			selector.fillFromArray(this, indices);
 		} else {
 			selector.fillAll(this);
 		}
-		return selector;
+		return selector._asProxy();
 	}
 
 	/**

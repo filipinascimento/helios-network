@@ -38,6 +38,10 @@ export default {
 			formats: isUMD ? ['umd'] : ['es'],
 		},
 		minify: "esbuild",
+		rollupOptions: {
+			external: ['module', 'node:module'],
+		},
+		assetsInlineLimit: 0,
 	},
 	define: {
 		isUMD: isUMD,
@@ -53,4 +57,3 @@ export default {
 
 
 }
-

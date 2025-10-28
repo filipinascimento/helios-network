@@ -122,6 +122,23 @@ async function main() {
 		network.setNetworkStringAttribute('title', null);
 		console.log('network settings after delete:', settings.get(0));
 		console.log('network title after clear:', network.getNetworkStringAttribute('title'));
+
+		section('Selectors as proxies');
+		const nodeSelector = network.createNodeSelector(nodes);
+		console.log('nodes via iterator:', [...nodeSelector]);
+		console.log('labels via proxy:', nodeSelector.label);
+		const { nodes: neighborNodes, edges: neighborEdges } = nodeSelector.neighbors({ includeEdges: true });
+		console.log('neighbor nodes:', Array.from(neighborNodes));
+		console.log('neighbor edges:', Array.from(neighborEdges));
+		const incidentEdges = nodeSelector.incidentEdges({ asSelector: true });
+		console.log('incident edge selector:', [...incidentEdges]);
+		const edgeSelector = network.createEdgeSelector(edges);
+		console.log('edge weights via proxy:', edgeSelector.weight);
+		console.log('edge sources:', Array.from(edgeSelector.sources()));
+		console.log('edge targets:', Array.from(edgeSelector.targets()));
+		nodeSelector.dispose();
+		incidentEdges.dispose();
+		edgeSelector.dispose();
 	} finally {
 		section('Teardown');
 		network.dispose();

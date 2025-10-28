@@ -184,10 +184,16 @@ meta.set(0, { description: 'Halo subgraph' });
 // Neighbour iteration
 const { nodes, edges: incidentEdges } = net.getOutNeighbors(newNodes[0]);
 
-// Selectors
+// Selectors are iterable proxies that surface attributes & topology helpers
 const selector = net.createNodeSelector([newNodes[0], newNodes[1]]);
-console.log(selector.toTypedArray());
+console.log([...selector]);                 // -> node indices
+console.log(selector.weight);               // -> [1.25, ...] via attribute proxy
+const { nodes: neigh } = selector.neighbors({ includeEdges: false });
+console.log(Array.from(neigh));             // -> neighbour node ids
+const edgeSelector = net.createEdgeSelector(edges);
+console.log(edgeSelector.label);            // -> ['a→b', null, ...]
 selector.dispose();
+edgeSelector.dispose();
 
 net.dispose();
 ```
@@ -200,7 +206,7 @@ Once the WebAssembly module has been initialised (for example by awaiting `Helio
 - `HeliosNetwork.createSync(options)` → Synchronous factory that reuses an already loaded WASM module.
 - `HeliosNetwork.addNodes(count)` / `addEdges(list)` → return typed-array copies of new indices.
 - Attribute helpers (`define*Attribute`, `get*AttributeBuffer`, `set*StringAttribute`, etc.).
-- Selectors (`createNodeSelector`, `createEdgeSelector`) and the `Selector` helper API.
+- Selectors (`createNodeSelector`, `createEdgeSelector`) now behave as iterable proxies with attribute accessors and topology helpers.
 - Static export `AttributeType` enumerates supported attribute kinds.
 
 #### Graph-level attributes

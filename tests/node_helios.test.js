@@ -80,4 +80,50 @@ describe('HeliosNetwork (Node runtime)', () => {
 		edgeSelector.dispose();
 		customSelector.dispose();
 	});
+
+	test('selector proxies expose attributes and topology helpers', () => {
+		const nodes = network.addNodes(3);
+		const edges = network.addEdges([
+			{ from: nodes[0], to: nodes[1] },
+			{ from: nodes[1], to: nodes[2] },
+		]);
+
+		network.defineNodeAttribute('proxy_label', AttributeType.String);
+		network.defineEdgeAttribute('proxy_capacity', AttributeType.Double);
+
+		network.setNodeStringAttribute('proxy_label', nodes[0], 'root');
+		network.setNodeStringAttribute('proxy_label', nodes[1], 'middle');
+		const capacity = network.getEdgeAttributeBuffer('proxy_capacity');
+		capacity.view[edges[0]] = 1.25;
+		capacity.view[edges[1]] = 2.5;
+
+		const subset = Array.from(nodes.slice(0, 2));
+		const nodeSelector = network.createNodeSelector(subset);
+		expect(Array.from(nodeSelector)).toEqual(subset);
+		expect(nodeSelector.toArray()).toEqual(subset);
+		expect(nodeSelector.proxy_label).toEqual(['root', 'middle']);
+		expect(nodeSelector.attribute('proxy_label')).toEqual(['root', 'middle']);
+		expect(nodeSelector.degree({ mode: 'out' })).toEqual([1, 1]);
+
+		const neighborInfo = nodeSelector.neighbors({ includeEdges: true });
+		expect(Array.from(neighborInfo.nodes)).toEqual(expect.arrayContaining([nodes[1], nodes[2]]));
+		expect(Array.from(neighborInfo.edges)).toEqual(expect.arrayContaining(Array.from(edges)));
+
+		const incidentSelector = nodeSelector.incidentEdges({ asSelector: true });
+		expect(Array.from(incidentSelector)).toEqual(expect.arrayContaining(Array.from(edges)));
+		incidentSelector.dispose();
+
+		const edgeSelector = network.createEdgeSelector(edges);
+		expect(edgeSelector.proxy_capacity).toEqual([1.25, 2.5]);
+		expect(Array.from(edgeSelector.sources())).toEqual([nodes[0], nodes[1]]);
+		expect(Array.from(edgeSelector.targets())).toEqual([nodes[1], nodes[2]]);
+		expect(Array.from(edgeSelector.nodes())).toEqual(expect.arrayContaining(Array.from(nodes)));
+
+		const uniqueSources = edgeSelector.sources({ unique: true, asSelector: true });
+		expect(uniqueSources.count).toBe(2);
+		uniqueSources.dispose();
+
+		nodeSelector.dispose();
+		edgeSelector.dispose();
+	});
 });

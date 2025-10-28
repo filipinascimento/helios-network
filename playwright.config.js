@@ -11,6 +11,7 @@ export default defineConfig({
   use: {
     headless: true, // <--- Force headless mode
   },
-  testDir: './tests', // <--- Use 'tests' folder for browser specs
+  testDir: './tests',
+  testMatch: /browser\.spec\.js/,
   timeout: 30000,
 });
