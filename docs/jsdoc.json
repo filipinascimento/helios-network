@@ -5,9 +5,13 @@
     "exclude": ["node_modules", "dist", "build"]
   },
   "plugins": [
+    "plugins/markdown",
     "node_modules/jsdoc-typeof-plugin",
     "node_modules/better-docs/category"
   ],
+  "markdown": {
+    "idInHeadings": true
+  },
   "opts": {
     "template": "./node_modules/better-docs",
     "encoding": "utf8",

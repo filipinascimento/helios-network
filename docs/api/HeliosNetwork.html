@@ -91,8 +91,8 @@
     
         <h2><span class="attribs"><span class="type-signature"></span></span>HeliosNetwork<span class="signature">(module, ptr, directed)</span><span class="type-signature"></span></h2>
         
-            <div class="class-description">High-level JavaScript wrapper around the Helios WASM network implementation.
-Manages lifetime, attribute registration, and buffer views.</div>
+            <div class="class-description"><p>High-level JavaScript wrapper around the Helios WASM network implementation.
+Manages lifetime, attribute registration, and buffer views.</p></div>
         
     
 </header>
@@ -125,7 +125,7 @@ Manages lifetime, attribute registration, and buffer views.</div>
     
     
     <div class="description">
-        Wraps an existing native network pointer.
+        <p>Wraps an existing native network pointer.</p>
     </div>
     
 
@@ -179,7 +179,7 @@ Manages lifetime, attribute registration, and buffer views.</div>
 
   
 
-  <td class="description last">Active Helios WASM module.</td>
+  <td class="description last"><p>Active Helios WASM module.</p></td>
 </tr>
 
 
@@ -204,7 +204,7 @@ Manages lifetime, attribute registration, and buffer views.</div>
 
   
 
-  <td class="description last">Pointer to the native network structure.</td>
+  <td class="description last"><p>Pointer to the native network structure.</p></td>
 </tr>
 
 
@@ -229,7 +229,7 @@ Manages lifetime, attribute registration, and buffer views.</div>
 
   
 
-  <td class="description last">Indicates whether the network is directed.</td>
+  <td class="description last"><p>Indicates whether the network is directed.</p></td>
 </tr>
 
 
@@ -817,13 +817,14 @@ Manages lifetime, attribute registration, and buffer views.</div>
     
     
     <div class="description">
-        Adds edges to the network in bulk.
-
-Supported input shapes:
-  - `Uint32Array` / typed array with flattened `[from0, to0, from1, to1, ...]`
-  - `number[]` flattened pairs (same layout as above)
-  - `Array<[number, number]>`
-  - `Array<{ from: number, to: number }>`
+        <p>Adds edges to the network in bulk.</p>
+<p>Supported input shapes:</p>
+<ul>
+<li><code>Uint32Array</code> / typed array with flattened <code>[from0, to0, from1, to1, ...]</code></li>
+<li><code>number[]</code> flattened pairs (same layout as above)</li>
+<li><code>Array&lt;[number, number]&gt;</code></li>
+<li><code>Array&lt;{ from: number, to: number }&gt;</code></li>
+</ul>
     </div>
     
 
@@ -886,7 +887,7 @@ Supported input shapes:
 
   
 
-  <td class="description last">Collection describing edges to add.</td>
+  <td class="description last"><p>Collection describing edges to add.</p></td>
 </tr>
 
 
@@ -962,7 +963,7 @@ Supported input shapes:
                     
 <div class="columns">
     
-    <div class='param-desc column is-7'>When the input shape is invalid or memory allocation fails.</div>
+    <div class='param-desc column is-7'><p>When the input shape is invalid or memory allocation fails.</p></div>
     <div class='column is-5 has-text-left'>
         <label>Type: </label>
 <code class="param-type">Error</code>
@@ -986,7 +987,7 @@ Supported input shapes:
 
 <div class="columns">
     
-    <div class='param-desc column is-7'>Copy of the newly created edge indices.</div>
+    <div class='param-desc column is-7'><p>Copy of the newly created edge indices.</p></div>
     
     
     <div class='column is-5 has-text-left'>
@@ -1038,7 +1039,7 @@ console.log(edges.length); // 1
     
     
     <div class="description">
-        Adds nodes to the network, returning their indices.
+        <p>Adds nodes to the network, returning their indices.</p>
     </div>
     
 
@@ -1092,7 +1093,7 @@ console.log(edges.length); // 1
 
   
 
-  <td class="description last">Number of nodes to add.</td>
+  <td class="description last"><p>Number of nodes to add.</p></td>
 </tr>
 
 
@@ -1171,7 +1172,7 @@ console.log(edges.length); // 1
 
 <div class="columns">
     
-    <div class='param-desc column is-7'>Copy of the inserted node indices.</div>
+    <div class='param-desc column is-7'><p>Copy of the inserted node indices.</p></div>
     
     
     <div class='column is-5 has-text-left'>
@@ -1222,7 +1223,7 @@ console.log([...nodes]); // e.g. [0, 1, 2]
     
     
     <div class="description">
-        Creates an edge selector optionally seeded with indices.
+        <p>Creates an edge selector optionally seeded with indices.</p>
     </div>
     
 
@@ -1291,7 +1292,7 @@ console.log([...nodes]); // e.g. [0, 1, 2]
 
   
 
-  <td class="description last">Indices to preload into the selector.</td>
+  <td class="description last"><p>Indices to preload into the selector.</p></td>
 </tr>
 
 
@@ -1370,7 +1371,7 @@ console.log([...nodes]); // e.g. [0, 1, 2]
 
 <div class="columns">
     
-    <div class='param-desc column is-7'>Prepared selector.</div>
+    <div class='param-desc column is-7'><p>Prepared selector.</p></div>
     
     
     <div class='column is-5 has-text-left'>
@@ -1425,7 +1426,7 @@ console.log(sample.endpoints()); // [[0, 1]]
     
     
     <div class="description">
-        Creates a node selector optionally seeded with indices.
+        <p>Creates a node selector optionally seeded with indices.</p>
     </div>
     
 
@@ -1494,7 +1495,7 @@ console.log(sample.endpoints()); // [[0, 1]]
 
   
 
-  <td class="description last">Indices to preload into the selector.</td>
+  <td class="description last"><p>Indices to preload into the selector.</p></td>
 </tr>
 
 
@@ -1573,7 +1574,7 @@ console.log(sample.endpoints()); // [[0, 1]]
 
 <div class="columns">
     
-    <div class='param-desc column is-7'>Prepared selector.</div>
+    <div class='param-desc column is-7'><p>Prepared selector.</p></div>
     
     
     <div class='column is-5 has-text-left'>
@@ -1629,7 +1630,7 @@ console.log([...subset]); // [0, 2]
     
     
     <div class="description">
-        Defines an edge attribute backed by linear WASM memory.
+        <p>Defines an edge attribute backed by linear WASM memory.</p>
     </div>
     
 
@@ -1699,7 +1700,7 @@ console.log([...subset]); // [0, 2]
       </td>
   
 
-  <td class="description last">Attribute identifier.</td>
+  <td class="description last"><p>Attribute identifier.</p></td>
 </tr>
 
 
@@ -1736,7 +1737,7 @@ console.log([...subset]); // [0, 2]
       </td>
   
 
-  <td class="description last">Attribute type constant.</td>
+  <td class="description last"><p>Attribute type constant.</p></td>
 </tr>
 
 
@@ -1777,7 +1778,7 @@ console.log([...subset]); // [0, 2]
       </td>
   
 
-  <td class="description last">Number of elements per edge.</td>
+  <td class="description last"><p>Number of elements per edge.</p></td>
 </tr>
 
 
@@ -1853,7 +1854,7 @@ console.log([...subset]); // [0, 2]
                     
 <div class="columns">
     
-    <div class='param-desc column is-7'>When the attribute already exists or native allocation fails.</div>
+    <div class='param-desc column is-7'><p>When the attribute already exists or native allocation fails.</p></div>
     <div class='column is-5 has-text-left'>
         <label>Type: </label>
 <code class="param-type">Error</code>
@@ -1906,7 +1907,7 @@ capacity[edges[0]] = 10n;
     
     
     <div class="description">
-        Defines a network-level attribute backed by linear WASM memory.
+        <p>Defines a network-level attribute backed by linear WASM memory.</p>
     </div>
     
 
@@ -1976,7 +1977,7 @@ capacity[edges[0]] = 10n;
       </td>
   
 
-  <td class="description last">Attribute identifier.</td>
+  <td class="description last"><p>Attribute identifier.</p></td>
 </tr>
 
 
@@ -2013,7 +2014,7 @@ capacity[edges[0]] = 10n;
       </td>
   
 
-  <td class="description last">Attribute type constant.</td>
+  <td class="description last"><p>Attribute type constant.</p></td>
 </tr>
 
 
@@ -2054,7 +2055,7 @@ capacity[edges[0]] = 10n;
       </td>
   
 
-  <td class="description last">Number of elements per network (capacity is always 1).</td>
+  <td class="description last"><p>Number of elements per network (capacity is always 1).</p></td>
 </tr>
 
 
@@ -2130,7 +2131,7 @@ capacity[edges[0]] = 10n;
                     
 <div class="columns">
     
-    <div class='param-desc column is-7'>When the attribute already exists or native allocation fails.</div>
+    <div class='param-desc column is-7'><p>When the attribute already exists or native allocation fails.</p></div>
     <div class='column is-5 has-text-left'>
         <label>Type: </label>
 <code class="param-type">Error</code>
@@ -2181,7 +2182,7 @@ networkValues[0] = 21.5;
     
     
     <div class="description">
-        Defines a node attribute backed by linear WASM memory.
+        <p>Defines a node attribute backed by linear WASM memory.</p>
     </div>
     
 
@@ -2251,7 +2252,7 @@ networkValues[0] = 21.5;
       </td>
   
 
-  <td class="description last">Attribute identifier.</td>
+  <td class="description last"><p>Attribute identifier.</p></td>
 </tr>
 
 
@@ -2288,7 +2289,7 @@ networkValues[0] = 21.5;
       </td>
   
 
-  <td class="description last">Attribute type constant.</td>
+  <td class="description last"><p>Attribute type constant.</p></td>
 </tr>
 
 
@@ -2329,7 +2330,7 @@ networkValues[0] = 21.5;
       </td>
   
 
-  <td class="description last">Number of elements per node.</td>
+  <td class="description last"><p>Number of elements per node.</p></td>
 </tr>
 
 
@@ -2405,7 +2406,7 @@ networkValues[0] = 21.5;
                     
 <div class="columns">
     
-    <div class='param-desc column is-7'>When the attribute already exists or native allocation fails.</div>
+    <div class='param-desc column is-7'><p>When the attribute already exists or native allocation fails.</p></div>
     <div class='column is-5 has-text-left'>
         <label>Type: </label>
 <code class="param-type">Error</code>
@@ -2459,8 +2460,8 @@ weightBuffer[0] = 1.5;
     
     
     <div class="description">
-        Disposes of the underlying native resources.
-Safe to call multiple times.
+        <p>Disposes of the underlying native resources.
+Safe to call multiple times.</p>
     </div>
     
 
@@ -2557,7 +2558,7 @@ Safe to call multiple times.
     
     
     <div class="description">
-        Retrieves a wrapper around the edge attribute buffer.
+        <p>Retrieves a wrapper around the edge attribute buffer.</p>
     </div>
     
 
@@ -2611,7 +2612,7 @@ Safe to call multiple times.
 
   
 
-  <td class="description last">Attribute identifier.</td>
+  <td class="description last"><p>Attribute identifier.</p></td>
 </tr>
 
 
@@ -2690,7 +2691,7 @@ Safe to call multiple times.
 
 <div class="columns">
     
-    <div class='param-desc column is-7'>Wrapper providing type information and buffer helpers.</div>
+    <div class='param-desc column is-7'><p>Wrapper providing type information and buffer helpers.</p></div>
     
     
     <div class='column is-5 has-text-left'>
@@ -2744,7 +2745,7 @@ attribute.view[edges[0]] = 12.5;
     
     
     <div class="description">
-        Reads a string attribute from an edge.
+        <p>Reads a string attribute from an edge.</p>
     </div>
     
 
@@ -2798,7 +2799,7 @@ attribute.view[edges[0]] = 12.5;
 
   
 
-  <td class="description last">Attribute identifier.</td>
+  <td class="description last"><p>Attribute identifier.</p></td>
 </tr>
 
 
@@ -2823,7 +2824,7 @@ attribute.view[edges[0]] = 12.5;
 
   
 
-  <td class="description last">Edge index.</td>
+  <td class="description last"><p>Edge index.</p></td>
 </tr>
 
 
@@ -2902,7 +2903,7 @@ attribute.view[edges[0]] = 12.5;
 
 <div class="columns">
     
-    <div class='param-desc column is-7'>Stored string value if present.</div>
+    <div class='param-desc column is-7'><p>Stored string value if present.</p></div>
     
     
     <div class='column is-5 has-text-left'>
@@ -2945,7 +2946,7 @@ attribute.view[edges[0]] = 12.5;
     
     
     <div class="description">
-        Returns the incoming neighbors of the provided node.
+        <p>Returns the incoming neighbors of the provided node.</p>
     </div>
     
 
@@ -2999,7 +3000,7 @@ attribute.view[edges[0]] = 12.5;
 
   
 
-  <td class="description last">Target node index.</td>
+  <td class="description last"><p>Target node index.</p></td>
 </tr>
 
 
@@ -3078,7 +3079,7 @@ attribute.view[edges[0]] = 12.5;
 
 <div class="columns">
     
-    <div class='param-desc column is-7'>Neighbor node and edge indices.</div>
+    <div class='param-desc column is-7'><p>Neighbor node and edge indices.</p></div>
     
     
     <div class='column is-5 has-text-left'>
@@ -3131,7 +3132,7 @@ console.log([...incoming]); // [nodes[0]]
     
     
     <div class="description">
-        Retrieves a wrapper around the network attribute buffer.
+        <p>Retrieves a wrapper around the network attribute buffer.</p>
     </div>
     
 
@@ -3185,7 +3186,7 @@ console.log([...incoming]); // [nodes[0]]
 
   
 
-  <td class="description last">Attribute identifier.</td>
+  <td class="description last"><p>Attribute identifier.</p></td>
 </tr>
 
 
@@ -3264,7 +3265,7 @@ console.log([...incoming]); // [nodes[0]]
 
 <div class="columns">
     
-    <div class='param-desc column is-7'>Wrapper providing type information and buffer helpers.</div>
+    <div class='param-desc column is-7'><p>Wrapper providing type information and buffer helpers.</p></div>
     
     
     <div class='column is-5 has-text-left'>
@@ -3316,7 +3317,7 @@ attribute.view[0] = 1n;
     
     
     <div class="description">
-        Reads a string attribute from the network.
+        <p>Reads a string attribute from the network.</p>
     </div>
     
 
@@ -3370,7 +3371,7 @@ attribute.view[0] = 1n;
 
   
 
-  <td class="description last">Attribute identifier.</td>
+  <td class="description last"><p>Attribute identifier.</p></td>
 </tr>
 
 
@@ -3449,7 +3450,7 @@ attribute.view[0] = 1n;
 
 <div class="columns">
     
-    <div class='param-desc column is-7'>Stored string value if present.</div>
+    <div class='param-desc column is-7'><p>Stored string value if present.</p></div>
     
     
     <div class='column is-5 has-text-left'>
@@ -3492,7 +3493,7 @@ attribute.view[0] = 1n;
     
     
     <div class="description">
-        Retrieves a wrapper around the node attribute buffer.
+        <p>Retrieves a wrapper around the node attribute buffer.</p>
     </div>
     
 
@@ -3546,7 +3547,7 @@ attribute.view[0] = 1n;
 
   
 
-  <td class="description last">Attribute identifier.</td>
+  <td class="description last"><p>Attribute identifier.</p></td>
 </tr>
 
 
@@ -3625,7 +3626,7 @@ attribute.view[0] = 1n;
 
 <div class="columns">
     
-    <div class='param-desc column is-7'>Wrapper providing type information and buffer helpers.</div>
+    <div class='param-desc column is-7'><p>Wrapper providing type information and buffer helpers.</p></div>
     
     
     <div class='column is-5 has-text-left'>
@@ -3678,7 +3679,7 @@ attribute.view[nodes[0]] = 1;
     
     
     <div class="description">
-        Reads a string attribute from a node.
+        <p>Reads a string attribute from a node.</p>
     </div>
     
 
@@ -3732,7 +3733,7 @@ attribute.view[nodes[0]] = 1;
 
   
 
-  <td class="description last">Attribute identifier.</td>
+  <td class="description last"><p>Attribute identifier.</p></td>
 </tr>
 
 
@@ -3757,7 +3758,7 @@ attribute.view[nodes[0]] = 1;
 
   
 
-  <td class="description last">Node index.</td>
+  <td class="description last"><p>Node index.</p></td>
 </tr>
 
 
@@ -3836,7 +3837,7 @@ attribute.view[nodes[0]] = 1;
 
 <div class="columns">
     
-    <div class='param-desc column is-7'>Stored string value if present.</div>
+    <div class='param-desc column is-7'><p>Stored string value if present.</p></div>
     
     
     <div class='column is-5 has-text-left'>
@@ -3879,7 +3880,7 @@ attribute.view[nodes[0]] = 1;
     
     
     <div class="description">
-        Returns the outgoing neighbors of the provided node.
+        <p>Returns the outgoing neighbors of the provided node.</p>
     </div>
     
 
@@ -3933,7 +3934,7 @@ attribute.view[nodes[0]] = 1;
 
   
 
-  <td class="description last">Source node index.</td>
+  <td class="description last"><p>Source node index.</p></td>
 </tr>
 
 
@@ -4012,7 +4013,7 @@ attribute.view[nodes[0]] = 1;
 
 <div class="columns">
     
-    <div class='param-desc column is-7'>Neighbor node and edge indices.</div>
+    <div class='param-desc column is-7'><p>Neighbor node and edge indices.</p></div>
     
     
     <div class='column is-5 has-text-left'>
@@ -4066,7 +4067,7 @@ console.log([...outgoing]); // [nodes[1], nodes[2]]
     
     
     <div class="description">
-        Removes edges from the network and clears related attributes.
+        <p>Removes edges from the network and clears related attributes.</p>
     </div>
     
 
@@ -4123,7 +4124,7 @@ console.log([...outgoing]); // [nodes[1], nodes[2]]
 
   
 
-  <td class="description last">Edge indices slated for removal.</td>
+  <td class="description last"><p>Edge indices slated for removal.</p></td>
 </tr>
 
 
@@ -4230,7 +4231,7 @@ console.log(net.edgeCount); // 0
     
     
     <div class="description">
-        Removes nodes from the network and clears related attributes.
+        <p>Removes nodes from the network and clears related attributes.</p>
     </div>
     
 
@@ -4287,7 +4288,7 @@ console.log(net.edgeCount); // 0
 
   
 
-  <td class="description last">Node indices slated for removal.</td>
+  <td class="description last"><p>Node indices slated for removal.</p></td>
 </tr>
 
 
@@ -4393,7 +4394,7 @@ console.log(net.nodeCount); // 1
     
     
     <div class="description">
-        Assigns a string attribute to an edge.
+        <p>Assigns a string attribute to an edge.</p>
     </div>
     
 
@@ -4447,7 +4448,7 @@ console.log(net.nodeCount); // 1
 
   
 
-  <td class="description last">Attribute identifier.</td>
+  <td class="description last"><p>Attribute identifier.</p></td>
 </tr>
 
 
@@ -4472,7 +4473,7 @@ console.log(net.nodeCount); // 1
 
   
 
-  <td class="description last">Edge index.</td>
+  <td class="description last"><p>Edge index.</p></td>
 </tr>
 
 
@@ -4503,7 +4504,7 @@ console.log(net.nodeCount); // 1
 
   
 
-  <td class="description last">String to store (or nullish to clear).</td>
+  <td class="description last"><p>String to store (or nullish to clear).</p></td>
 </tr>
 
 
@@ -4610,7 +4611,7 @@ net.setEdgeStringAttribute('label', edges[0], 'link');
     
     
     <div class="description">
-        Assigns a string attribute to the network itself.
+        <p>Assigns a string attribute to the network itself.</p>
     </div>
     
 
@@ -4664,7 +4665,7 @@ net.setEdgeStringAttribute('label', edges[0], 'link');
 
   
 
-  <td class="description last">Attribute identifier.</td>
+  <td class="description last"><p>Attribute identifier.</p></td>
 </tr>
 
 
@@ -4695,7 +4696,7 @@ net.setEdgeStringAttribute('label', edges[0], 'link');
 
   
 
-  <td class="description last">String to store (or nullish to clear).</td>
+  <td class="description last"><p>String to store (or nullish to clear).</p></td>
 </tr>
 
 
@@ -4801,7 +4802,7 @@ console.log(net.getNetworkStringAttribute('status')); // "ready"
     
     
     <div class="description">
-        Assigns a string attribute to a node.
+        <p>Assigns a string attribute to a node.</p>
     </div>
     
 
@@ -4855,7 +4856,7 @@ console.log(net.getNetworkStringAttribute('status')); // "ready"
 
   
 
-  <td class="description last">Attribute identifier.</td>
+  <td class="description last"><p>Attribute identifier.</p></td>
 </tr>
 
 
@@ -4880,7 +4881,7 @@ console.log(net.getNetworkStringAttribute('status')); // "ready"
 
   
 
-  <td class="description last">Node index.</td>
+  <td class="description last"><p>Node index.</p></td>
 </tr>
 
 
@@ -4911,7 +4912,7 @@ console.log(net.getNetworkStringAttribute('status')); // "ready"
 
   
 
-  <td class="description last">String to store (or nullish to clear).</td>
+  <td class="description last"><p>String to store (or nullish to clear).</p></td>
 </tr>
 
 
@@ -5024,7 +5025,7 @@ console.log(net.getNodeStringAttribute('label', node)); // "source"
     
     
     <div class="description">
-        Asynchronously constructs and initializes a network instance.
+        <p>Asynchronously constructs and initializes a network instance.</p>
     </div>
     
 
@@ -5136,7 +5137,7 @@ console.log(net.getNodeStringAttribute('label', node)); // "source"
       </td>
   
 
-  <td class="description last">Whether the graph enforces edge direction.</td>
+  <td class="description last"><p>Whether the graph enforces edge direction.</p></td>
 </tr>
 
   
@@ -5175,7 +5176,7 @@ console.log(net.getNodeStringAttribute('label', node)); // "source"
       </td>
   
 
-  <td class="description last">Nodes to pre-allocate and populate.</td>
+  <td class="description last"><p>Nodes to pre-allocate and populate.</p></td>
 </tr>
 
   
@@ -5214,7 +5215,7 @@ console.log(net.getNodeStringAttribute('label', node)); // "source"
       </td>
   
 
-  <td class="description last">Edge capacity to pre-allocate.</td>
+  <td class="description last"><p>Edge capacity to pre-allocate.</p></td>
 </tr>
 
   
@@ -5251,7 +5252,7 @@ console.log(net.getNodeStringAttribute('label', node)); // "source"
       </td>
   
 
-  <td class="description last">Pre-initialized WASM module to reuse.</td>
+  <td class="description last"><p>Pre-initialized WASM module to reuse.</p></td>
 </tr>
 
   
@@ -5332,7 +5333,7 @@ console.log(net.getNodeStringAttribute('label', node)); // "source"
 
 <div class="columns">
     
-    <div class='param-desc column is-7'>Ready-to-use network.</div>
+    <div class='param-desc column is-7'><p>Ready-to-use network.</p></div>
     
     
     <div class='column is-5 has-text-left'>
@@ -5389,11 +5390,10 @@ network.dispose();
     
     
     <div class="description">
-        Synchronously constructs a network instance using an already-initialized module.
-
-Either provide the `module` option explicitly or ensure that the module
-was previously initialized through `await HeliosNetwork.create(...)` or
-`await getHeliosModule(...)`.
+        <p>Synchronously constructs a network instance using an already-initialized module.</p>
+<p>Either provide the <code>module</code> option explicitly or ensure that the module
+was previously initialized through <code>await HeliosNetwork.create(...)</code> or
+<code>await getHeliosModule(...)</code>.</p>
     </div>
     
 
@@ -5505,7 +5505,7 @@ was previously initialized through `await HeliosNetwork.create(...)` or
       </td>
   
 
-  <td class="description last">Whether the graph enforces edge direction.</td>
+  <td class="description last"><p>Whether the graph enforces edge direction.</p></td>
 </tr>
 
   
@@ -5544,7 +5544,7 @@ was previously initialized through `await HeliosNetwork.create(...)` or
       </td>
   
 
-  <td class="description last">Nodes to pre-allocate and populate.</td>
+  <td class="description last"><p>Nodes to pre-allocate and populate.</p></td>
 </tr>
 
   
@@ -5583,7 +5583,7 @@ was previously initialized through `await HeliosNetwork.create(...)` or
       </td>
   
 
-  <td class="description last">Edge capacity to pre-allocate.</td>
+  <td class="description last"><p>Edge capacity to pre-allocate.</p></td>
 </tr>
 
   
@@ -5620,7 +5620,7 @@ was previously initialized through `await HeliosNetwork.create(...)` or
       </td>
   
 
-  <td class="description last">Pre-initialized WASM module to reuse.</td>
+  <td class="description last"><p>Pre-initialized WASM module to reuse.</p></td>
 </tr>
 
   
@@ -5698,7 +5698,7 @@ was previously initialized through `await HeliosNetwork.create(...)` or
                     
 <div class="columns">
     
-    <div class='param-desc column is-7'>When the module has not been initialized yet.</div>
+    <div class='param-desc column is-7'><p>When the module has not been initialized yet.</p></div>
     <div class='column is-5 has-text-left'>
         <label>Type: </label>
 <code class="param-type">Error</code>
@@ -5722,7 +5722,7 @@ was previously initialized through `await HeliosNetwork.create(...)` or
 
 <div class="columns">
     
-    <div class='param-desc column is-7'>Ready-to-use network.</div>
+    <div class='param-desc column is-7'><p>Ready-to-use network.</p></div>
     
     
     <div class='column is-5 has-text-left'>
