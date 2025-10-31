@@ -9,15 +9,26 @@ if(NOT HELIOS_BUILD_SHARED AND NOT HELIOS_BUILD_STATIC)
   message(FATAL_ERROR "At least one of HELIOS_BUILD_SHARED or HELIOS_BUILD_STATIC must be enabled.")
 endif()
 
+find_package(ZLIB REQUIRED)
+
 set(HELIOS_SOURCES
   src/native/src/CXDictionary.c
   src/native/src/CXDistribution.c
   src/native/src/CXIndexManager.c
   src/native/src/CXNeighborStorage.c
   src/native/src/CXNetwork.c
+  src/native/src/CXNetworkSerialization.c
   src/native/src/CXSet.c
   src/native/src/CXSimpleQueue.c
   src/native/src/fib/fib.c
+  src/native/libraries/htslib/bgzf.c
+  src/native/libraries/htslib/hfile.c
+  src/native/libraries/htslib/textutils.c
+  src/native/libraries/htslib/kstring.c
+  src/native/libraries/htslib/kfunc.c
+  src/native/libraries/htslib/thread_pool.c
+  src/native/libraries/htslib/cram/pooled_alloc.c
+  src/native/libraries/htslib/hts_shim.c
 )
 
 set(HELIOS_PUBLIC_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src/native/include")
@@ -32,8 +43,11 @@ function(helios_configure_target target_name)
     PUBLIC
       $<BUILD_INTERFACE:${HELIOS_PUBLIC_INCLUDE_DIR}>
       $<INSTALL_INTERFACE:${HELIOS_INSTALL_INCLUDE_DIR}>
+    PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}/src/native/libraries/htslib
   )
   target_compile_features(${target_name} PUBLIC c_std_17)
+  target_link_libraries(${target_name} PRIVATE ZLIB::ZLIB)
   set_target_properties(${target_name} PROPERTIES
     POSITION_INDEPENDENT_CODE ON
     PUBLIC_HEADER ""

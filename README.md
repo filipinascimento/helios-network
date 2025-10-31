@@ -139,14 +139,16 @@ Tests currently cover:
 - Primitive, string, and JavaScript-managed attributes
 - Selector behaviour and typed-array exports
 
-Run browser tests separately (requires Playwright & dev server):
+Run the Playwright browser suite (this command starts the Vite dev server automatically):
 
 ```bash
 # Optional – only if you need browser coverage
 npm run test:browser
-# or the CI version
+# CI-friendly alias (same flow, headless)
 npm run test:browser:ci
 ```
+
+Pass extra flags (e.g. `--headed`) via `npx playwright test --headed` if you prefer an interactive run.
 
 ---
 
@@ -215,16 +217,78 @@ Once the WebAssembly module has been initialised (for example by awaiting `Helio
 - Primitive buffers expose index `0` as the graph slot (e.g., `getNetworkAttributeBuffer('weight').view[0] = 42`).
 - `setNetworkStringAttribute`/`getNetworkStringAttribute` and JavaScript-managed attributes (`AttributeType.Javascript`) provide convenience accessors.
 
+### Serialization & Persistence
+
+The WASM core exposes the native `.bxnet` (binary) and `.zxnet` (BGZF-compressed) container formats directly to JavaScript.
+
+- `saveBXNet(options?)` / `saveZXNet(options?)` return serialized bytes (default `Uint8Array`). In Node you may also pass `{ path: '/tmp/graph.zxnet' }` to persist the file on disk. Optional `format` values include `'arraybuffer'`, `'base64'`, and `'blob'` (browser-friendly).
+- `HeliosNetwork.fromBXNet(source)` / `HeliosNetwork.fromZXNet(source)` hydrate a new network from a `Uint8Array`, `ArrayBuffer`, `Blob`/`Response` (browser), or filesystem path (Node).
+- `compact({ nodeOriginalIndexAttribute?, edgeOriginalIndexAttribute? })` rewrites the network so node/edge IDs become contiguous while preserving JavaScript-managed and string attribute stores. When attribute names are provided, the original indices are copied into unsigned integer buffers for audit trails.
+
+#### Node.js example
+
+```js
+import fs from 'node:fs/promises';
+import HeliosNetwork, { AttributeType } from 'helios-network';
+
+const net = await HeliosNetwork.create({ directed: true });
+const nodes = net.addNodes(2);
+net.addEdges([{ from: nodes[0], to: nodes[1] }]);
+net.defineNodeAttribute('weight', AttributeType.Float);
+net.getNodeAttributeBuffer('weight').view[nodes[0]] = 2.5;
+
+// Persist a compressed `.zxnet` file to disk.
+await net.saveZXNet({ path: './data/graph.zxnet', compressionLevel: 6 });
+
+// Capture a binary `.bxnet` payload in memory (Uint8Array by default).
+const payload = await net.saveBXNet();
+
+// Hydrate a fresh network from the serialized bytes.
+const restored = await HeliosNetwork.fromBXNet(payload);
+console.log(restored.nodeCount, restored.edgeCount); // 2 nodes, 1 edge
+
+restored.dispose();
+net.dispose();
+```
+
+#### Browser example
+
+```js
+import HeliosNetwork from 'helios-network';
+
+const network = await HeliosNetwork.create();
+network.addNodes(4);
+
+// Downloadable blob – ideal for user-triggered "Save" buttons.
+const blob = await network.saveBXNet({ format: 'blob' });
+const url = URL.createObjectURL(blob);
+const anchor = Object.assign(document.createElement('a'), {
+  href: url,
+  download: 'graph.bxnet',
+});
+anchor.click();
+URL.revokeObjectURL(url);
+
+// Round-trip the blob back into a live network.
+const rehydrated = await HeliosNetwork.fromBXNet(blob);
+console.log(rehydrated.nodeCount); // 4
+
+rehydrated.dispose();
+network.dispose();
+```
+
+For full Node.js and browser walkthroughs—saving to disk, generating downloads, and round-tripping Base64/typed-array payloads—see `docs/saving-and-loading.md`.
+
 Full JSDoc comments inside `src/js/HeliosNetwork.js` describe signatures and behaviours. You can generate HTML docs as shown below.
 
 ---
 
 ## Examples
 
-Ready-to-run samples live in [`docs/examples`](docs/examples/README.md):
+Ready-to-run samples live in [`docs/examples`](docs/examples/README.md). Each platform contains topic-specific folders for:
 
-- **Browser** – static HTML/ES module demo that writes results into the page (`docs/examples/browser`).
-- **Node.js** – executable script that logs a short workflow to stdout (`docs/examples/node`).
+- **Browser** – ESM demos covering basic usage, attributes, iteration, mutations, and saving/loading (`docs/examples/browser/*`).
+- **Node.js** – CLI scripts that mirror the same topics with stdout logging (`docs/examples/node/*`).
 
 Follow the instructions in each subdirectory README to build artefacts and run the samples.
 

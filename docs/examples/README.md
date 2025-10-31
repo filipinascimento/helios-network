@@ -1,10 +1,10 @@
 # Examples
 
-This directory contains minimal end-to-end examples that demonstrate how to consume Helios Network from both the browser and a Node.js runtime. Each example includes runnable code plus step-by-step instructions so you can verify your toolchain quickly.
+This directory collects runnable examples for both the browser and Node.js environments. Each platform contains topic-specific subfolders so you can jump straight to the workflow you want to explore:
 
-- `browser/` – loads the ESM bundle inside a plain HTML page.
-- `node/` – executes the WASM-backed API from a small Node.js script.
+- `browser/` – in-browser demos for basic usage, attributes, iteration, graph mutations, and saving/loading.
+- `node/` – Node 18+ scripts covering the same topics with stdout logging.
 
-Both examples assume you have already installed dependencies (`npm install`) and built the artefacts (`npm run build` and `npm run build:wasm`), which places the distributable files under `dist/`.
+Before running the examples ensure dependencies are installed (`npm install`) and the WASM artefacts are up to date (`npm run build && npm run build:wasm`), which produces the ESM bundle under `dist/`.
 
-Refer to the README inside each subdirectory for detailed usage.
+Refer to the README inside each platform directory for instructions plus direct links to each example.

@@ -122,6 +122,178 @@ function setToUint32Array(values) {
 	return result;
 }
 
+const NODE_RUNTIME = typeof process !== 'undefined' && !!process.versions?.node;
+const VIRTUAL_TEMP_DIR = '/tmp/helios';
+
+let nodeFsModulePromise = null;
+let nodePathModulePromise = null;
+let nodeOsModulePromise = null;
+
+function isNodeRuntime() {
+	return NODE_RUNTIME;
+}
+
+async function getNodeFsModule() {
+	if (!isNodeRuntime()) {
+		throw new Error('Node filesystem is unavailable in this environment');
+	}
+	if (!nodeFsModulePromise) {
+		nodeFsModulePromise = import('node:fs/promises').catch(() => import('fs/promises'));
+	}
+	const mod = await nodeFsModulePromise;
+	return mod.default ?? mod;
+}
+
+async function getNodeOsModule() {
+	if (!isNodeRuntime()) {
+		throw new Error('OS helpers are only available in Node runtimes');
+	}
+	if (!nodeOsModulePromise) {
+		nodeOsModulePromise = import('node:os').catch(() => import('os'));
+	}
+	const mod = await nodeOsModulePromise;
+	return mod.default ?? mod;
+}
+
+async function getNodePathModule() {
+	if (!isNodeRuntime()) {
+		throw new Error('Path resolution is only supported in Node runtimes');
+	}
+	if (!nodePathModulePromise) {
+		nodePathModulePromise = import('node:path').catch(() => import('path'));
+	}
+	const mod = await nodePathModulePromise;
+	return mod.default ?? mod;
+}
+
+async function resolveNodePath(targetPath) {
+	const mod = await getNodePathModule();
+	const resolver = typeof mod.resolve === 'function' ? mod.resolve.bind(mod) : mod.default?.resolve?.bind(mod.default);
+	if (!resolver) {
+		throw new Error('Unable to resolve file path in Node runtime');
+	}
+	return resolver(targetPath);
+}
+
+async function createNodeTempPath(extension) {
+	const os = await getNodeOsModule();
+	const pathMod = await getNodePathModule();
+	const baseDir = typeof os.tmpdir === 'function' ? os.tmpdir() : '/tmp';
+	const name = `helios-${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}.${extension}`;
+	const joiner = typeof pathMod.join === 'function'
+		? pathMod.join.bind(pathMod)
+		: pathMod.default?.join?.bind(pathMod.default);
+	return joiner ? joiner(baseDir, name) : `${baseDir}/${name}`;
+}
+
+function getModuleFS(module) {
+	try {
+		const candidate = module?.FS;
+		if (candidate && typeof candidate.mkdirTree === 'function') {
+			return candidate;
+		}
+	} catch (_) {
+		// FS not exported
+	}
+	return null;
+}
+
+function ensureVirtualTempDir(fs) {
+	if (!fs || typeof fs.mkdirTree !== 'function') {
+		throw new Error('Emscripten FS support is required for serialization features');
+	}
+	fs.mkdirTree(VIRTUAL_TEMP_DIR);
+}
+
+function createVirtualPath(fs, extension) {
+	ensureVirtualTempDir(fs);
+	const timestamp = Date.now().toString(16);
+	const random = Math.random().toString(16).slice(2);
+	return `${VIRTUAL_TEMP_DIR}/${timestamp}-${random}.${extension}`;
+}
+
+function clampCompressionLevel(level) {
+	if (!Number.isFinite(level)) {
+		return 6;
+	}
+	const value = Math.round(level);
+	if (value < 0) {
+		return 0;
+	}
+	if (value > 9) {
+		return 9;
+	}
+	return value;
+}
+
+async function resolveInputBytes(source) {
+	if (source == null) {
+		throw new TypeError('No source provided for deserialization');
+	}
+	if (typeof source === 'string') {
+		if (!isNodeRuntime()) {
+			throw new TypeError('String paths are only supported in Node runtimes');
+		}
+		const fs = await getNodeFsModule();
+		const resolved = await resolveNodePath(source);
+		const buffer = await fs.readFile(resolved);
+		return buffer instanceof Uint8Array ? new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength) : new Uint8Array(buffer);
+	}
+	if (source instanceof Uint8Array) {
+		return source;
+	}
+	if (ArrayBuffer.isView(source)) {
+		return new Uint8Array(source.buffer, source.byteOffset, source.byteLength);
+	}
+	if (source instanceof ArrayBuffer) {
+		return new Uint8Array(source);
+	}
+	if (typeof source === 'object' && typeof source.arrayBuffer === 'function') {
+		const buffer = await source.arrayBuffer();
+		return new Uint8Array(buffer);
+	}
+	throw new TypeError('Unsupported source type for deserialization');
+}
+
+function bytesToFormat(bytes, format = 'uint8array') {
+	const normalized = typeof format === 'string' ? format.toLowerCase() : 'uint8array';
+	switch (normalized) {
+		case 'uint8array':
+			return bytes;
+		case 'arraybuffer':
+			return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+		case 'base64':
+			return uint8ToBase64(bytes);
+		case 'blob':
+			if (typeof Blob === 'undefined') {
+				throw new Error('Blob is not available in this environment');
+			}
+			return new Blob([bytes], { type: 'application/octet-stream' });
+		default:
+			throw new Error(`Unsupported output format "${format}"`);
+	}
+}
+
+function uint8ToBase64(bytes) {
+	if (isNodeRuntime()) {
+		return Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString('base64');
+	}
+	if (typeof btoa !== 'function') {
+		throw new Error('Base64 encoding is not supported in this environment');
+	}
+	let binary = '';
+	const chunkSize = 0x8000;
+	for (let i = 0; i < bytes.length; i += chunkSize) {
+		const slice = bytes.subarray(i, i + chunkSize);
+		let chunk = '';
+		for (let j = 0; j < slice.length; j += 1) {
+			chunk += String.fromCharCode(slice[j]);
+		}
+		binary += chunk;
+	}
+	return btoa(binary);
+}
+
 /**
  * Projects attribute values for the provided selection scope into JavaScript data structures.
  *
@@ -1009,6 +1181,30 @@ export class HeliosNetwork {
 	}
 
 	/**
+	 * Hydrates a network instance from a `.bxnet` container.
+	 *
+	 * @param {Uint8Array|ArrayBuffer|string|Blob|Response} source - Serialized payload or Node file path.
+	 * @param {object} [options]
+	 * @param {object} [options.module] - Optional WASM module to reuse.
+	 * @returns {Promise<HeliosNetwork>} Newly constructed network.
+	 */
+	static async fromBXNet(source, options = {}) {
+		return HeliosNetwork._fromSerialized(source, 'bxnet', options);
+	}
+
+	/**
+	 * Hydrates a network instance from a BGZF-compressed `.zxnet` container.
+	 *
+	 * @param {Uint8Array|ArrayBuffer|string|Blob|Response} source - Serialized payload or Node file path.
+	 * @param {object} [options]
+	 * @param {object} [options.module] - Optional WASM module to reuse.
+	 * @returns {Promise<HeliosNetwork>} Newly constructed network.
+	 */
+	static async fromZXNet(source, options = {}) {
+		return HeliosNetwork._fromSerialized(source, 'zxnet', options);
+	}
+
+	/**
 	 * Wraps an existing native network pointer.
 	 *
 	 * @param {object} module - Active Helios WASM module.
@@ -1109,6 +1305,31 @@ export class HeliosNetwork {
 		this._ensureActive();
 		const ptr = this.module._CXNetworkEdgesBuffer(this.ptr);
 		return new Uint32Array(this.module.HEAPU32.buffer, ptr, this.edgeCapacity * 2);
+	}
+
+	/**
+	 * Serializes the network into the `.bxnet` container format.
+	 *
+	 * @param {object} [options]
+	 * @param {string} [options.path] - Node-only destination path. When omitted the bytes are returned.
+	 * @param {'uint8array'|'arraybuffer'|'base64'|'blob'} [options.format='uint8array'] - Desired return representation.
+	 * @returns {Promise<Uint8Array|ArrayBuffer|string|Blob|undefined>} Serialized payload or void when writing directly to disk.
+	 */
+	async saveBXNet(options = {}) {
+		return this._saveSerialized('bxnet', options);
+	}
+
+	/**
+	 * Serializes the network into the BGZF-compressed `.zxnet` container format.
+	 *
+	 * @param {object} [options]
+	 * @param {string} [options.path] - Node-only destination path. When omitted the bytes are returned.
+	 * @param {number} [options.compressionLevel=6] - BGZF compression level (0-9).
+	 * @param {'uint8array'|'arraybuffer'|'base64'|'blob'} [options.format='uint8array'] - Desired return representation.
+	 * @returns {Promise<Uint8Array|ArrayBuffer|string|Blob|undefined>} Serialized payload or void when writing directly to disk.
+	 */
+	async saveZXNet(options = {}) {
+		return this._saveSerialized('zxnet', options);
 	}
 
 	/**
@@ -1611,7 +1832,7 @@ export class HeliosNetwork {
 	 */
 	_getAttributeBuffer(scope, name) {
 		this._ensureActive();
-		const meta = this._attributeMap(scope).get(name);
+		const meta = this._ensureAttributeMetadata(scope, name);
 		if (!meta) {
 			throw new Error(`Unknown ${scope} attribute "${name}"`);
 		}
@@ -1753,6 +1974,45 @@ export class HeliosNetwork {
 		}
 	}
 
+	_ensureAttributeMetadata(scope, name) {
+		const metaMap = this._attributeMap(scope);
+		let meta = metaMap.get(name);
+		if (meta) {
+			return meta;
+		}
+
+		const getter = scope === 'node'
+			? this.module._CXNetworkGetNodeAttribute
+			: scope === 'edge'
+				? this.module._CXNetworkGetEdgeAttribute
+				: this.module._CXNetworkGetNetworkAttribute;
+
+		const cstr = new CString(this.module, name);
+		let attributePtr = 0;
+		try {
+			attributePtr = getter.call(this.module, this.ptr, cstr.ptr);
+		} finally {
+			cstr.dispose();
+		}
+		if (!attributePtr) {
+			return null;
+		}
+
+		const base = attributePtr >>> 2;
+		const type = this.module.HEAP32[base];
+		const dimension = this.module.HEAP32[base + 1] || 1;
+		meta = {
+			type,
+			dimension,
+			complex: COMPLEX_ATTRIBUTE_TYPES.has(type),
+			jsStore: new Map(),
+			stringPointers: new Map(),
+			nextHandle: 1,
+		};
+		metaMap.set(name, meta);
+		return meta;
+	}
+
 	/**
 	 * Frees any WASM strings owned by attributes in the provided map.
 	 * @private
@@ -1877,6 +2137,79 @@ export class HeliosNetwork {
 	}
 
 	/**
+	 * Compacts the network so nodes and edges occupy contiguous indices.
+	 *
+	 * @param {object} [options]
+	 * @param {string} [options.nodeOriginalIndexAttribute] - Optional node attribute to store previous indices.
+	 * @param {string} [options.edgeOriginalIndexAttribute] - Optional edge attribute to store previous indices.
+	 * @returns {HeliosNetwork} The compacted network instance.
+	 */
+	compact(options = {}) {
+		this._ensureActive();
+		const {
+			nodeOriginalIndexAttribute = null,
+			edgeOriginalIndexAttribute = null,
+		} = options;
+
+		if (typeof this.module._CXNetworkCompact !== 'function') {
+			throw new Error('CXNetworkCompact is not available in this WASM build. Rebuild the module to enable compact().');
+		}
+
+		const nodeActivity = this.nodeActivityView.slice();
+		const edgeActivity = this.edgeActivityView.slice();
+		const nodeRemap = this._buildRemap(nodeActivity);
+		const edgeRemap = this._buildRemap(edgeActivity);
+
+		const nodeName = nodeOriginalIndexAttribute ? new CString(this.module, nodeOriginalIndexAttribute) : null;
+		const edgeName = edgeOriginalIndexAttribute ? new CString(this.module, edgeOriginalIndexAttribute) : null;
+
+		let success = false;
+		try {
+			success = this.module._CXNetworkCompact(
+				this.ptr,
+				nodeName ? nodeName.ptr : 0,
+				edgeName ? edgeName.ptr : 0
+			);
+		} finally {
+			if (nodeName) {
+				nodeName.dispose();
+			}
+			if (edgeName) {
+				edgeName.dispose();
+			}
+		}
+
+		if (!success) {
+			throw new Error('Failed to compact network');
+		}
+
+		if (nodeOriginalIndexAttribute && !this._nodeAttributes.has(nodeOriginalIndexAttribute)) {
+			this._nodeAttributes.set(nodeOriginalIndexAttribute, {
+				type: AttributeType.UnsignedInteger,
+				dimension: 1,
+				complex: false,
+				jsStore: new Map(),
+				stringPointers: new Map(),
+				nextHandle: 1,
+			});
+		}
+		if (edgeOriginalIndexAttribute && !this._edgeAttributes.has(edgeOriginalIndexAttribute)) {
+			this._edgeAttributes.set(edgeOriginalIndexAttribute, {
+				type: AttributeType.UnsignedInteger,
+				dimension: 1,
+				complex: false,
+				jsStore: new Map(),
+				stringPointers: new Map(),
+				nextHandle: 1,
+			});
+		}
+
+		this._remapAttributeStores(this._nodeAttributes, nodeRemap);
+		this._remapAttributeStores(this._edgeAttributes, edgeRemap);
+		return this;
+	}
+
+	/**
 	 * Internal helper that creates a network backed by the provided module.
 	 * @private
 	 */
@@ -1885,11 +2218,256 @@ export class HeliosNetwork {
 		if (!networkPtr) {
 			throw new Error('Failed to allocate Helios network');
 		}
-		const instance = new HeliosNetwork(module, networkPtr, directed);
+		const instance = HeliosNetwork._wrapNative(module, networkPtr);
+		instance.directed = Boolean(directed);
 		if (initialNodes > 0) {
 			instance.addNodes(initialNodes);
 		}
 		return instance;
+	}
+
+	static _wrapNative(module, ptr) {
+		if (!ptr) {
+			throw new Error('Invalid network pointer');
+		}
+		const directed = module._CXNetworkIsDirected ? module._CXNetworkIsDirected(ptr) !== 0 : false;
+		return new HeliosNetwork(module, ptr, directed);
+	}
+
+	static async _fromSerialized(source, kind, options = {}) {
+		const { module: providedModule } = options;
+		const module = providedModule || await getModule();
+		moduleInstance = module;
+
+		const extension = kind === 'zxnet' ? 'zxnet' : 'bxnet';
+		const readFn = kind === 'zxnet' ? module._CXNetworkReadZXNet : module._CXNetworkReadBXNet;
+		if (typeof readFn !== 'function') {
+			throw new Error(`CXNetwork${kind === 'zxnet' ? 'ReadZXNet' : 'ReadBXNet'} is not available in this WASM build. Rebuild the artefacts to enable deserialization helpers.`);
+		}
+		const fsApi = getModuleFS(module);
+		const canUseVirtualFS = Boolean(fsApi);
+		let pathForNative = null;
+		let fsModule = null;
+		let tempHostPath = null;
+		let bytes = null;
+
+		if (typeof source === 'string' && !canUseVirtualFS) {
+			if (!isNodeRuntime()) {
+				throw new Error('Current WASM build lacks virtual FS support; supply bytes or rebuild the artefacts.');
+			}
+			pathForNative = await resolveNodePath(source);
+		} else {
+			bytes = await resolveInputBytes(source);
+			if (canUseVirtualFS) {
+				pathForNative = createVirtualPath(fsApi, extension);
+				fsApi.writeFile(pathForNative, bytes);
+			} else {
+				if (!isNodeRuntime()) {
+					throw new Error('Current WASM build lacks virtual FS support; rebuild the artefacts to use serialization in the browser.');
+				}
+				fsModule = await getNodeFsModule();
+				tempHostPath = await createNodeTempPath(extension);
+				await fsModule.writeFile(tempHostPath, bytes);
+				pathForNative = tempHostPath;
+			}
+		}
+
+		if (!pathForNative) {
+			throw new Error('Unable to resolve input for deserialization');
+		}
+
+		let networkPtr = 0;
+		const cPath = new CString(module, pathForNative);
+		try {
+			networkPtr = readFn.call(module, cPath.ptr);
+		} finally {
+			cPath.dispose();
+			if (canUseVirtualFS) {
+				try {
+					fsApi.unlink(pathForNative);
+				} catch (_) {
+					/* no-op */
+				}
+			} else if (tempHostPath && fsModule) {
+				await fsModule.rm(tempHostPath, { force: true }).catch(() => {});
+			}
+		}
+
+		if (!networkPtr) {
+			throw new Error(`Failed to read ${kind === 'zxnet' ? '.zxnet' : '.bxnet'} data`);
+		}
+		return HeliosNetwork._wrapNative(module, networkPtr);
+	}
+
+	_buildRemap(activity) {
+		const remap = new Map();
+		let next = 0;
+		for (let idx = 0; idx < activity.length; idx += 1) {
+			if (activity[idx]) {
+				remap.set(idx, next);
+				next += 1;
+			}
+		}
+		return remap;
+	}
+
+	_remapAttributeStores(metaMap, remap) {
+		for (const meta of metaMap.values()) {
+			if (meta.jsStore?.size) {
+				const entries = [];
+				for (const [oldIndex, payload] of meta.jsStore.entries()) {
+					const mapped = remap.get(oldIndex);
+					if (mapped !== undefined) {
+						entries.push([mapped, payload]);
+					}
+				}
+				meta.jsStore.clear();
+				for (const [index, payload] of entries) {
+					meta.jsStore.set(index, payload);
+				}
+			}
+			if (meta.stringPointers?.size) {
+				const pointerEntries = [];
+				for (const [oldIndex, pointer] of meta.stringPointers.entries()) {
+					const mapped = remap.get(oldIndex);
+					if (mapped !== undefined) {
+						pointerEntries.push([mapped, pointer]);
+					}
+				}
+				meta.stringPointers.clear();
+				for (const [index, pointer] of pointerEntries) {
+					meta.stringPointers.set(index, pointer);
+				}
+			}
+		}
+	}
+
+	async _saveSerialized(kind, options) {
+		this._ensureActive();
+		const module = this.module;
+		const extension = kind === 'zxnet' ? 'zxnet' : 'bxnet';
+		const format = options?.format ?? 'uint8array';
+		const writeFn = kind === 'zxnet' ? module._CXNetworkWriteZXNet : module._CXNetworkWriteBXNet;
+		if (typeof writeFn !== 'function') {
+			throw new Error(`CXNetwork${kind === 'zxnet' ? 'WriteZXNet' : 'WriteBXNet'} is not available in this WASM build. Rebuild the artefacts to use serialization helpers.`);
+		}
+		const fsApi = getModuleFS(module);
+		const canUseVirtualFS = Boolean(fsApi);
+		const hasFormatOption = options && Object.prototype.hasOwnProperty.call(options, 'format');
+		const needsResult = !options?.path || hasFormatOption;
+
+		let fsModule = null;
+		let pathModule = null;
+		let resolvedTarget = null;
+		let cleanupHostFile = false;
+		let pathForNative = null;
+		let virtualPath = null;
+
+		if (options?.path) {
+			resolvedTarget = await resolveNodePath(options.path);
+		}
+
+		if (canUseVirtualFS) {
+			virtualPath = createVirtualPath(fsApi, extension);
+			pathForNative = virtualPath;
+		} else {
+			if (!isNodeRuntime()) {
+				throw new Error('Current WASM build lacks virtual FS support; rebuild the artefacts to enable serialization in the browser.');
+			}
+			fsModule = await getNodeFsModule();
+			pathModule = await getNodePathModule();
+			if (resolvedTarget) {
+				const dirnameFn = typeof pathModule.dirname === 'function'
+					? pathModule.dirname.bind(pathModule)
+					: pathModule.default?.dirname?.bind(pathModule.default);
+				if (dirnameFn) {
+					const dir = dirnameFn(resolvedTarget);
+					if (dir) {
+						await fsModule.mkdir(dir, { recursive: true });
+					}
+				}
+				pathForNative = resolvedTarget;
+			} else {
+				pathForNative = await createNodeTempPath(extension);
+				cleanupHostFile = true;
+			}
+		}
+
+		const cPath = new CString(module, pathForNative);
+		let success = false;
+		try {
+			if (kind === 'zxnet') {
+				const level = clampCompressionLevel(options?.compressionLevel ?? 6);
+				success = writeFn.call(module, this.ptr, cPath.ptr, level);
+			} else {
+				success = writeFn.call(module, this.ptr, cPath.ptr);
+			}
+		} finally {
+			cPath.dispose();
+		}
+
+		if (!success) {
+			if (canUseVirtualFS) {
+				try {
+					fsApi.unlink(virtualPath);
+				} catch (_) {
+					/* no-op */
+				}
+			} else if (cleanupHostFile && fsModule) {
+				await fsModule.rm(pathForNative, { force: true }).catch(() => {});
+			}
+			throw new Error(`Failed to write ${extension === 'zxnet' ? '.zxnet' : '.bxnet'} data`);
+		}
+
+		let bytes = null;
+		if (canUseVirtualFS) {
+			try {
+				bytes = fsApi.readFile(virtualPath);
+			} finally {
+				try {
+					fsApi.unlink(virtualPath);
+				} catch (_) {
+					/* no-op */
+				}
+			}
+		} else if (needsResult) {
+			fsModule = fsModule || await getNodeFsModule();
+			const buffer = await fsModule.readFile(pathForNative);
+			bytes = buffer instanceof Uint8Array
+				? new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength)
+				: new Uint8Array(buffer);
+		}
+
+		if (!canUseVirtualFS && cleanupHostFile && fsModule) {
+			await fsModule.rm(pathForNative, { force: true }).catch(() => {});
+		}
+
+		if (canUseVirtualFS && resolvedTarget) {
+			fsModule = fsModule || await getNodeFsModule();
+			pathModule = pathModule || await getNodePathModule();
+			const dirnameFn = typeof pathModule.dirname === 'function'
+				? pathModule.dirname.bind(pathModule)
+				: pathModule.default?.dirname?.bind(pathModule.default);
+			if (dirnameFn) {
+				const dir = dirnameFn(resolvedTarget);
+				if (dir) {
+					await fsModule.mkdir(dir, { recursive: true });
+				}
+			}
+			await fsModule.writeFile(resolvedTarget, bytes);
+		}
+
+		if (!needsResult) {
+			return undefined;
+		}
+		if (!bytes) {
+			const fs = await getNodeFsModule();
+			const buffer = await fs.readFile(resolvedTarget ?? pathForNative);
+			bytes = buffer instanceof Uint8Array
+				? new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength)
+				: new Uint8Array(buffer);
+		}
+		return bytesToFormat(bytes, format);
 	}
 }
 

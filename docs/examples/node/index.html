@@ -110,12 +110,18 @@ npm run build:wasm</code></pre>
 
     <section>
       <h2>Run the Samples</h2>
-      <p>Execute the scripts from the project root. Each script logs its operations to stdout, so you can observe the mutations Helios performs.</p>
-      <pre><code>node docs/examples/node/run.mjs
-node docs/examples/node/attributes.mjs</code></pre>
+      <p>Execute the scripts from the project root. Each script logs its operations to stdout, so you can follow the graph mutations in real time.</p>
+      <pre><code>node docs/examples/node/basic-usage/main.mjs
+node docs/examples/node/attributes/main.mjs
+node docs/examples/node/iteration/main.mjs
+node docs/examples/node/modifying-graphs/main.mjs
+node docs/examples/node/saving-loading/main.mjs</code></pre>
       <ul>
-        <li><strong>run.mjs</strong> creates a small undirected network, adds nodes and edges, and then disposes of the instance.</li>
-        <li><strong>attributes.mjs</strong> showcases attribute registration across every scope, including multi-dimensional and JavaScript-backed values.</li>
+        <li><strong>Basic usage</strong> — initialize the network and inspect neighbours.</li>
+        <li><strong>Attributes</strong> — register numeric/JS-backed stores.</li>
+        <li><strong>Iteration</strong> — work with selectors and traversal helpers.</li>
+        <li><strong>Modifying graphs</strong> — remove entities and optionally compact.</li>
+        <li><strong>Saving & loading</strong> — round-trip serialized payloads.</li>
       </ul>
     </section>
 

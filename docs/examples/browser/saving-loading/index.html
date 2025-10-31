@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Helios Network • Browser Saving & Loading</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="../shared.css">
+</head>
+<body>
+  <main>
+    <h1>Browser Saving & Loading</h1>
+    <p>Persist networks to memory-friendly formats and hydrate them again—no filesystem required.</p>
+    <div class="controls">
+      <button id="download">Download network</button>
+      <button id="upload">Upload network</button>
+      <input id="file-input" type="file" accept=".zxnet,application/octet-stream" hidden>
+    </div>
+    <pre id="output"></pre>
+  </main>
+  <script type="module" src="./main.js"></script>
+</body>
+</html>

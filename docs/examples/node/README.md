@@ -1,20 +1,21 @@
-# Node.js Example
+# Node.js Examples
 
-This script demonstrates how to use the Helios Network ES module directly inside Node.js.
+Executable scripts that showcase Helios Network features from Node 18+. Run them from the repository root after installing dependencies (`npm install`) and building the WASM bundle (`npm run build && npm run build:wasm`).
 
-## Prerequisites
+> **Note:** If `dist/helios-network.js` is missing, the scripts automatically fall back to `src/helios-network.js` and emit a console warning. Run `npm run build` to regenerate the distributable bundle when necessary.
 
-- Dependencies installed via `npm install`.
-- Artefacts generated with `npm run build` and `npm run build:wasm` so the ESM bundle under `dist/` is up to date.
-- Node.js 18 or newer (the package targets Node's native ES module support).
+## Catalogue
 
-## Running
+- `basic-usage/` – Bootstraps a network, adds nodes/edges, and inspects neighbours.
+- `attributes/` – Demonstrates numeric and JavaScript-backed attribute stores.
+- `iteration/` – Works with selectors, degrees, and traversal helpers.
+- `modifying-graphs/` – Performs removals and optional compaction to recycle capacity.
+- `saving-loading/` – Serializes to `.bxnet`/`.zxnet` and loads the artefacts back.
 
-Execute the scripts from the project root:
+From the project root execute any script via:
 
 ```bash
-node docs/examples/node/run.mjs
-node docs/examples/node/attributes.mjs
+node docs/examples/node/<example>/main.mjs
 ```
 
-Each script logs its operations to stdout: `run.mjs` focuses on basic mutations, while `attributes.mjs` exercises every attribute scope and type (including multi-dimensional and JavaScript-backed payloads).
+Each script logs its progress to stdout so you can follow along with the underlying mutations and counts.

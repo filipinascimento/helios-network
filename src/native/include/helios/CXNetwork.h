@@ -91,7 +91,7 @@ typedef struct {
 	CXNeighborContainer outNeighbors;
 } CXNodeRecord;
 
-typedef struct {
+typedef struct CXNetwork {
 	CXBool isDirected;
 	CXSize nodeCount;
 	CXSize edgeCount;
@@ -147,6 +147,8 @@ CX_EXTERN CXSize CXNetworkEdgeCount(CXNetworkRef network);
 CX_EXTERN CXSize CXNetworkNodeCapacity(CXNetworkRef network);
 /** Returns the allocated edge capacity. */
 CX_EXTERN CXSize CXNetworkEdgeCapacity(CXNetworkRef network);
+/** Returns CXTrue when the network treats edges as directed. */
+CX_EXTERN CXBool CXNetworkIsDirected(CXNetworkRef network);
 
 // Node management
 /**
@@ -207,6 +209,20 @@ CX_EXTERN void* CXNetworkGetNetworkAttributeBuffer(CXNetworkRef network, const C
 /** Returns the byte stride between consecutive entries of an attribute. */
 CX_EXTERN CXSize CXAttributeStride(CXAttributeRef attribute);
 
+/**
+ * Compacts the network so that node and edge indices become contiguous starting
+ * at zero and capacities shrink to match the number of active elements. When
+ * `nodeOriginalIndexAttr` or `edgeOriginalIndexAttr` are provided, the function
+ * records the previous indices in attributes of type
+ * `CXUnsignedIntegerAttributeType`. Returns CXFalse on allocation failure or
+ * when incompatible attributes are encountered.
+ */
+CX_EXTERN CXBool CXNetworkCompact(
+	CXNetworkRef network,
+	const CXString nodeOriginalIndexAttr,
+	const CXString edgeOriginalIndexAttr
+);
+
 // Selector utilities
 /** Creates a selector object for nodes with an optional initial capacity. */
 CX_EXTERN CXNodeSelectorRef CXNodeSelectorCreate(CXSize initialCapacity);
@@ -233,6 +249,8 @@ CX_EXTERN CXBool CXEdgeSelectorFillFromArray(CXEdgeSelectorRef selector, const C
 CX_EXTERN CXIndex* CXEdgeSelectorData(CXEdgeSelectorRef selector);
 /** Returns how many indices are currently stored in the selector. */
 CX_EXTERN CXSize CXEdgeSelectorCount(CXEdgeSelectorRef selector);
+
+#include "CXNetworkSerialization.h"
 
 #ifdef __cplusplus
 } // extern "C"

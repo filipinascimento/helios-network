@@ -17,7 +17,7 @@
     "dev": "vite",
     "test": "vitest --run --exclude tests/browser.spec.js",
     "docs:js": "jsdoc -c docs/jsdoc.json",
-    "test:browser": "vite",
+    "test:browser": "start-server-and-test dev http://localhost:5173 'playwright test'",
     "test:browser:ci": "start-server-and-test dev http://localhost:5173 'playwright test'",
     "prepublishOnly": "npm run build",
     "sync-version": "node sync-version.cjs"

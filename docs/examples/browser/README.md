@@ -1,19 +1,15 @@
-# Browser Example
+# Browser Examples
 
-This example shows how to load the Helios Network ESM build directly in a browser without any additional bundling.
+Browse-ready demos that exercise Helios Network from an unbundled ESM build. Serve the repository (e.g. `npm run dev` or `python3 -m http.server 4173`) and open <http://localhost:5173/docs/examples/browser/> or the equivalent port for your server.
 
-## Prerequisites
+> **Note:** The scripts prefer the bundled file under `dist/`. During local development the bundle might be missing; in that case the examples automatically fall back to `src/helios-network.js` and log a warning in the console.
 
-- Dependencies installed via `npm install`.
-- Artefacts generated with `npm run build` and `npm run build:wasm` so the `dist/` directory contains the latest bundle.
+## Catalogue
 
-## Running
+- `basic-usage/` – Initialize a network, add nodes/edges, and inspect immediate neighbours.
+- `attributes/` – Register node/edge/network attributes and write values inside the browser.
+- `iteration/` – Iterate across selectors, query degrees, and traverse neighbours client-side.
+- `modifying-graphs/` – Remove nodes/edges and optionally compact the structure.
+- `saving-loading/` – Serialize to `.bxnet`/`.zxnet` formats using in-memory blobs or Base64.
 
-1. From the project root start a static file server (any tool works). A built-in option is:
-   ```bash
-   python3 -m http.server 4173
-   ```
-2. Navigate to <http://localhost:4173/docs/examples/browser/> in your browser.
-3. Open the developer console to see the log output from the script as it creates nodes, edges, and attributes.
-
-The page (`index.html`) loads `main.js`, which imports `helios-network.js` from the local `dist/` bundle and exercises a minimal workflow.
+Each folder contains an `index.html` entry point plus a `main.js` module that logs progress to the page and the browser console.

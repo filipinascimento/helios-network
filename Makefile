@@ -10,9 +10,19 @@ AR ?= ar
 RANLIB ?= ranlib
 
 NATIVE_SRC := $(wildcard src/native/src/*.c) $(wildcard src/native/src/fib/*.c)
+HTSLIB_SRC := \
+	src/native/libraries/htslib/bgzf.c \
+	src/native/libraries/htslib/hfile.c \
+	src/native/libraries/htslib/textutils.c \
+	src/native/libraries/htslib/kstring.c \
+	src/native/libraries/htslib/kfunc.c \
+	src/native/libraries/htslib/thread_pool.c \
+	src/native/libraries/htslib/cram/pooled_alloc.c \
+	src/native/libraries/htslib/hts_shim.c
+NATIVE_SRC += $(HTSLIB_SRC)
 INCLUDE_DIR := src/native/include/helios
 NATIVE_BUILD_DIR := build/native
-NATIVE_OBJ := $(patsubst src/native/src/%.c,$(NATIVE_BUILD_DIR)/%.o,$(NATIVE_SRC))
+NATIVE_OBJ := $(patsubst src/native/%.c,$(NATIVE_BUILD_DIR)/%.o,$(NATIVE_SRC))
 
 UNAME_S := $(shell uname -s)
 ifeq ($(UNAME_S),Darwin)
@@ -24,21 +34,26 @@ SHARED_LDFLAGS := -shared
 endif
 
 NATIVE_CFLAGS := -std=c17 -O3 -Wall -Wextra -pedantic -DNDEBUG -fPIC \
-	-Isrc/native/include -Isrc/native/include/helios
+	-Isrc/native/include -Isrc/native/include/helios -Isrc/native/libraries/htslib
+LIBS := -lz
 
-EXPORTED_FUNCS := [_malloc,_free,_calloc,_CXNetworkVersionString,_CXNewNetwork,_CXNewNetworkWithCapacity,_CXFreeNetwork,_CXNetworkAddNodes,_CXNetworkRemoveNodes,_CXNetworkAddEdges,_CXNetworkRemoveEdges,_CXNetworkNodeCount,_CXNetworkEdgeCount,_CXNetworkNodeCapacity,_CXNetworkEdgeCapacity,_CXNetworkNodeActivityBuffer,_CXNetworkEdgeActivityBuffer,_CXNetworkEdgesBuffer,_CXNetworkOutNeighbors,_CXNetworkInNeighbors,_CXNetworkIsNodeActive,_CXNetworkIsEdgeActive,_CXNetworkDefineNodeAttribute,_CXNetworkDefineEdgeAttribute,_CXNetworkDefineNetworkAttribute,_CXNetworkGetNodeAttribute,_CXNetworkGetEdgeAttribute,_CXNetworkGetNetworkAttribute,_CXNetworkGetNodeAttributeBuffer,_CXNetworkGetEdgeAttributeBuffer,_CXNetworkGetNetworkAttributeBuffer,_CXAttributeStride,_CXNodeSelectorCreate,_CXNodeSelectorDestroy,_CXNodeSelectorFillAll,_CXNodeSelectorFillFromArray,_CXNodeSelectorData,_CXNodeSelectorCount,_CXEdgeSelectorCreate,_CXEdgeSelectorDestroy,_CXEdgeSelectorFillAll,_CXEdgeSelectorFillFromArray,_CXEdgeSelectorData,_CXEdgeSelectorCount,_CXNeighborContainerCount,_CXNeighborContainerGetNodes,_CXNeighborContainerGetEdges]
+EXPORTED_FUNCS := [_malloc,_free,_calloc,_CXNetworkVersionString,_CXNewNetwork,_CXNewNetworkWithCapacity,_CXFreeNetwork,_CXNetworkAddNodes,_CXNetworkRemoveNodes,_CXNetworkAddEdges,_CXNetworkRemoveEdges,_CXNetworkNodeCount,_CXNetworkEdgeCount,_CXNetworkNodeCapacity,_CXNetworkEdgeCapacity,_CXNetworkNodeActivityBuffer,_CXNetworkEdgeActivityBuffer,_CXNetworkEdgesBuffer,_CXNetworkIsDirected,_CXNetworkOutNeighbors,_CXNetworkInNeighbors,_CXNetworkIsNodeActive,_CXNetworkIsEdgeActive,_CXNetworkDefineNodeAttribute,_CXNetworkDefineEdgeAttribute,_CXNetworkDefineNetworkAttribute,_CXNetworkGetNodeAttribute,_CXNetworkGetEdgeAttribute,_CXNetworkGetNetworkAttribute,_CXNetworkGetNodeAttributeBuffer,_CXNetworkGetEdgeAttributeBuffer,_CXNetworkGetNetworkAttributeBuffer,_CXAttributeStride,_CXNodeSelectorCreate,_CXNodeSelectorDestroy,_CXNodeSelectorFillAll,_CXNodeSelectorFillFromArray,_CXNodeSelectorData,_CXNodeSelectorCount,_CXEdgeSelectorCreate,_CXEdgeSelectorDestroy,_CXEdgeSelectorFillAll,_CXEdgeSelectorFillFromArray,_CXEdgeSelectorData,_CXEdgeSelectorCount,_CXNeighborContainerCount,_CXNeighborContainerGetNodes,_CXNeighborContainerGetEdges,_CXNetworkWriteBXNet,_CXNetworkWriteZXNet,_CXNetworkReadBXNet,_CXNetworkReadZXNet,_CXNetworkCompact]
 EMCC_FLAGS := \
 	-O3 \
 	--std=c17 \
 	-Wall \
 	-Isrc/native/include/helios \
+	-Isrc/native/libraries/htslib \
+	-DHTS_DISABLE_BGZF_THREADS \
+	-D_POSIX_C_SOURCE=200809 \
 	-s EXPORT_ES6=1 \
 	-s MODULARIZE=1 \
 	-s ALLOW_MEMORY_GROWTH=1 \
 	-s EXPORT_NAME=HeliosNetwork \
 	-s EXPORTED_FUNCTIONS="$(EXPORTED_FUNCS)" \
-	-s EXPORTED_RUNTIME_METHODS='["cwrap","ccall","getValue","setValue","UTF8ToString","stringToUTF8","lengthBytesUTF8","HEAP8","HEAPU8","HEAP32","HEAPU32","HEAPF64"]' \
+	-s EXPORTED_RUNTIME_METHODS='["cwrap","ccall","getValue","setValue","UTF8ToString","stringToUTF8","lengthBytesUTF8","HEAP8","HEAPU8","HEAP32","HEAPU32","HEAPF64","FS"]' \
 	-s ASSERTIONS=1 \
+	-s USE_ZLIB=1 \
 	-s MAXIMUM_MEMORY=4gb
 
 main:
@@ -54,18 +69,19 @@ native-static: $(NATIVE_BUILD_DIR)/libhelios.a
 
 native-shared: $(NATIVE_BUILD_DIR)/libhelios.$(SHARED_EXT)
 
-$(NATIVE_BUILD_DIR)/%.o: src/native/src/%.c
+$(NATIVE_BUILD_DIR)/%.o: src/native/%.c
 	@mkdir -p $(dir $@)
 	$(CC) $(NATIVE_CFLAGS) -c $< -o $@
 
 $(NATIVE_BUILD_DIR)/libhelios.a: $(NATIVE_OBJ)
 	@mkdir -p $(dir $@)
+	rm -f $@
 	$(AR) rcs $@ $^
 	$(RANLIB) $@
 
 $(NATIVE_BUILD_DIR)/libhelios.$(SHARED_EXT): $(NATIVE_OBJ)
 	@mkdir -p $(dir $@)
-	$(CC) $(SHARED_LDFLAGS) -o $@ $^
+	$(CC) $(SHARED_LDFLAGS) -o $@ $^ $(LIBS)
 
 clean_compile:
 	rm -rf compiled

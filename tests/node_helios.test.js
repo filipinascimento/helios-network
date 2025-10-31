@@ -1,3 +1,7 @@
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { beforeAll, afterAll, describe, expect, test } from 'vitest';
 import HeliosNetwork, { AttributeType } from '../src/helios-network.js';
 
@@ -125,5 +129,154 @@ describe('HeliosNetwork (Node runtime)', () => {
 
 		nodeSelector.dispose();
 		edgeSelector.dispose();
+	});
+
+	test('round-trips .bxnet payloads via in-memory buffers', async () => {
+		const original = await HeliosNetwork.create({ directed: true, initialNodes: 0, initialEdges: 0 });
+		try {
+			if (typeof original.module._CXNetworkWriteBXNet !== 'function' || typeof original.module._CXNetworkReadBXNet !== 'function') {
+				await expect(original.saveBXNet()).rejects.toThrow(/CXNetworkWriteBXNet is not available/);
+				return;
+			}
+
+			const nodes = original.addNodes(2);
+			const edges = original.addEdges([{ from: nodes[0], to: nodes[1] }]);
+
+			original.defineNodeAttribute('weight', AttributeType.Float);
+			original.defineEdgeAttribute('capacity', AttributeType.Double);
+
+			original.getNodeAttributeBuffer('weight').view[nodes[0]] = 3.5;
+			original.getEdgeAttributeBuffer('capacity').view[edges[0]] = 7.25;
+
+			const payload = await original.saveBXNet();
+			expect(payload).toBeInstanceOf(Uint8Array);
+			expect(payload.byteLength).toBeGreaterThan(0);
+
+			const restored = await HeliosNetwork.fromBXNet(payload);
+				try {
+					expect(restored.directed).toBe(true);
+					expect(restored.nodeCount).toBe(2);
+					expect(restored.edgeCount).toBe(1);
+					const restoredWeight = restored.getNodeAttributeBuffer('weight').view;
+					expect(restoredWeight[0]).toBeCloseTo(3.5);
+					const restoredCapacity = restored.getEdgeAttributeBuffer('capacity').view;
+					expect(restoredCapacity[0]).toBeCloseTo(7.25);
+				} finally {
+					restored.dispose();
+				}
+		} finally {
+			original.dispose();
+		}
+	});
+
+	test('round-trips .zxnet payloads via filesystem paths and alternate outputs', async () => {
+		const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'helios-'));
+		const targetPath = path.join(tmpDir, `network-${randomUUID()}.zxnet`);
+		const networkInstance = await HeliosNetwork.create({ directed: false, initialNodes: 0, initialEdges: 0 });
+		try {
+			if (typeof networkInstance.module._CXNetworkWriteZXNet !== 'function' || typeof networkInstance.module._CXNetworkReadZXNet !== 'function') {
+				await expect(networkInstance.saveZXNet()).rejects.toThrow(/CXNetworkWriteZXNet is not available/);
+				return;
+			}
+
+			const nodes = networkInstance.addNodes(3);
+			const edges = networkInstance.addEdges([
+				{ from: nodes[0], to: nodes[1] },
+				{ from: nodes[1], to: nodes[2] },
+			]);
+			expect(edges.length).toBe(2);
+
+			const result = await networkInstance.saveZXNet({ path: targetPath, compressionLevel: 4 });
+			expect(result).toBeUndefined();
+
+			const stats = await fs.stat(targetPath);
+			expect(stats.size).toBeGreaterThan(0);
+
+			const reloaded = await HeliosNetwork.fromZXNet(targetPath);
+			try {
+				expect(reloaded.directed).toBe(false);
+				expect(reloaded.nodeCount).toBe(networkInstance.nodeCount);
+				expect(reloaded.edgeCount).toBe(networkInstance.edgeCount);
+
+				const base64 = await reloaded.saveZXNet({ format: 'base64' });
+				expect(typeof base64).toBe('string');
+				expect(base64.length).toBeGreaterThan(0);
+			} finally {
+				reloaded.dispose();
+			}
+		} finally {
+			networkInstance.dispose();
+			await fs.rm(tmpDir, { recursive: true, force: true });
+		}
+	});
+
+	test('compact reindexes networks and preserves attribute stores', async () => {
+		const net = await HeliosNetwork.create({ directed: true, initialNodes: 0, initialEdges: 0 });
+		try {
+			if (typeof net.module._CXNetworkCompact !== 'function') {
+				expect(() => net.compact()).toThrow(/CXNetworkCompact is not available/);
+				return;
+			}
+
+			const nodes = net.addNodes(5);
+			net.defineNodeAttribute('jsMeta', AttributeType.Javascript);
+			net.defineNodeAttribute('label', AttributeType.String);
+			net.defineNodeAttribute('score', AttributeType.Float);
+			net.defineEdgeAttribute('flag', AttributeType.Boolean);
+
+			const meta = net.getNodeAttributeBuffer('jsMeta');
+			meta.set(nodes[1], { name: 'one' });
+			meta.set(nodes[3], { name: 'three' });
+
+			net.setNodeStringAttribute('label', nodes[1], 'one');
+			net.setNodeStringAttribute('label', nodes[3], 'three');
+
+			const scores = net.getNodeAttributeBuffer('score').view;
+			scores[nodes[1]] = 1.25;
+			scores[nodes[3]] = 3.5;
+
+			const edges = net.addEdges([
+				{ from: nodes[1], to: nodes[3] },
+				{ from: nodes[3], to: nodes[4] },
+			]);
+			net.getEdgeAttributeBuffer('flag').view[edges[0]] = 1;
+
+			net.removeNodes([nodes[0], nodes[2]]);
+			net.removeEdges([edges[0]]);
+
+			net.compact({
+				nodeOriginalIndexAttribute: 'origin_node',
+				edgeOriginalIndexAttribute: 'origin_edge',
+			});
+
+			expect(net.nodeCount).toBe(3);
+			expect(net.nodeCapacity).toBe(net.nodeCount);
+			expect(net.edgeCount).toBe(1);
+			expect(net.edgeCapacity).toBe(net.edgeCount);
+
+			expect(net.getNodeStringAttribute('label', 0)).toBe('one');
+			expect(net.getNodeStringAttribute('label', 1)).toBe('three');
+			expect(net.getNodeStringAttribute('label', 2)).toBe(null);
+
+			const compactMeta = net.getNodeAttributeBuffer('jsMeta');
+			expect(compactMeta.get(0)).toEqual({ name: 'one' });
+			expect(compactMeta.get(1)).toEqual({ name: 'three' });
+			expect(compactMeta.get(2)).toBeNull();
+
+			const compactScores = net.getNodeAttributeBuffer('score').view;
+			expect(compactScores[0]).toBeCloseTo(1.25);
+			expect(compactScores[1]).toBeCloseTo(3.5);
+
+			const originNodes = net.getNodeAttributeBuffer('origin_node').view;
+			expect(Array.from(originNodes.slice(0, net.nodeCount), Number)).toEqual([1, 3, 4]);
+
+			const originEdges = net.getEdgeAttributeBuffer('origin_edge').view;
+			expect(Array.from(originEdges.slice(0, net.edgeCount), Number)).toEqual([1]);
+
+			const edgeFlags = net.getEdgeAttributeBuffer('flag').view;
+			expect(edgeFlags[0]).toBe(0);
+		} finally {
+			net.dispose();
+		}
 	});
 });

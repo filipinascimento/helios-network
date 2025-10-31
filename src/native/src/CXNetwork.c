@@ -429,6 +429,10 @@ CXSize CXNetworkEdgeCapacity(CXNetworkRef network) {
 	return network ? network->edgeCapacity : 0;
 }
 
+CXBool CXNetworkIsDirected(CXNetworkRef network) {
+	return network ? network->isDirected : CXFalse;
+}
+
 // -----------------------------------------------------------------------------
 // Node management
 // -----------------------------------------------------------------------------
@@ -799,6 +803,343 @@ void* CXNetworkGetNetworkAttributeBuffer(CXNetworkRef network, const CXString na
 /** Returns the byte stride for entries in the attribute buffer. */
 CXSize CXAttributeStride(CXAttributeRef attribute) {
 	return attribute ? attribute->stride : 0;
+}
+
+// -----------------------------------------------------------------------------
+// Compaction
+// -----------------------------------------------------------------------------
+
+static CXAttributeRef CXEnsureMappingAttribute(CXNetworkRef network, CXStringDictionaryRef dictionary, const CXString name, CXSize capacity) {
+	if (!name) {
+		return NULL;
+	}
+	CXAttributeRef attr = (CXAttributeRef)CXStringDictionaryEntryForKey(dictionary, name);
+	if (attr) {
+		if (attr->type != CXUnsignedIntegerAttributeType || attr->dimension != 1) {
+			return NULL;
+		}
+		if (!CXAttributeEnsureCapacity(attr, capacity)) {
+			return NULL;
+		}
+		return attr;
+	}
+	if (dictionary == network->nodeAttributes) {
+		if (!CXNetworkDefineNodeAttribute(network, name, CXUnsignedIntegerAttributeType, 1)) {
+			return NULL;
+		}
+		return CXNetworkGetNodeAttribute(network, name);
+	}
+	if (dictionary == network->edgeAttributes) {
+		if (!CXNetworkDefineEdgeAttribute(network, name, CXUnsignedIntegerAttributeType, 1)) {
+			return NULL;
+		}
+		return CXNetworkGetEdgeAttribute(network, name);
+	}
+	return NULL;
+}
+
+CXBool CXNetworkCompact(CXNetworkRef network, const CXString nodeOriginalIndexAttr, const CXString edgeOriginalIndexAttr) {
+	if (!network) {
+		return CXFalse;
+	}
+
+	CXSize nodeCount = network->nodeCount;
+	CXSize edgeCount = network->edgeCount;
+
+	CXNetworkRef compact = CXNewNetworkWithCapacity(
+		network->isDirected,
+		nodeCount > 0 ? nodeCount : 1,
+		edgeCount > 0 ? edgeCount : 1
+	);
+	if (!compact) {
+		return CXFalse;
+	}
+
+	CXIndex *nodeRemap = NULL;
+	CXIndex *edgeRemap = NULL;
+	CXEdge *edgeBuffer = NULL;
+	CXIndex *edgeOrder = NULL;
+	CXIndex *newEdgeIds = NULL;
+
+	// Clone attribute declarations and transfer categorical dictionaries.
+	CXStringDictionaryFOR(nodeEntry, network->nodeAttributes) {
+		CXAttributeRef attr = (CXAttributeRef)nodeEntry->data;
+		if (!CXNetworkDefineNodeAttribute(compact, nodeEntry->key, attr->type, attr->dimension)) {
+			goto fail;
+		}
+		CXAttributeRef newAttr = CXNetworkGetNodeAttribute(compact, nodeEntry->key);
+		if (!CXAttributeEnsureCapacity(newAttr, nodeCount)) {
+			goto fail;
+		}
+		newAttr->usesJavascriptShadow = attr->usesJavascriptShadow;
+		newAttr->categoricalDictionary = attr->categoricalDictionary;
+		attr->categoricalDictionary = NULL;
+	}
+
+	CXStringDictionaryFOR(edgeEntry, network->edgeAttributes) {
+		CXAttributeRef attr = (CXAttributeRef)edgeEntry->data;
+		if (!CXNetworkDefineEdgeAttribute(compact, edgeEntry->key, attr->type, attr->dimension)) {
+			goto fail;
+		}
+		CXAttributeRef newAttr = CXNetworkGetEdgeAttribute(compact, edgeEntry->key);
+		if (!CXAttributeEnsureCapacity(newAttr, edgeCount)) {
+			goto fail;
+		}
+		newAttr->usesJavascriptShadow = attr->usesJavascriptShadow;
+		newAttr->categoricalDictionary = attr->categoricalDictionary;
+		attr->categoricalDictionary = NULL;
+	}
+
+	CXStringDictionaryFOR(netEntry, network->networkAttributes) {
+		CXAttributeRef attr = (CXAttributeRef)netEntry->data;
+		if (!CXNetworkDefineNetworkAttribute(compact, netEntry->key, attr->type, attr->dimension)) {
+			goto fail;
+		}
+		CXAttributeRef newAttr = CXNetworkGetNetworkAttribute(compact, netEntry->key);
+		if (!CXAttributeEnsureCapacity(newAttr, 1)) {
+			goto fail;
+		}
+		newAttr->usesJavascriptShadow = attr->usesJavascriptShadow;
+		newAttr->categoricalDictionary = attr->categoricalDictionary;
+		attr->categoricalDictionary = NULL;
+	}
+
+	if (nodeCount > 0) {
+		if (!CXNetworkAddNodes(compact, nodeCount, NULL)) {
+			goto fail;
+		}
+	}
+
+	nodeRemap = calloc(network->nodeCapacity > 0 ? network->nodeCapacity : 1, sizeof(CXIndex));
+	if (!nodeRemap) {
+		goto fail;
+	}
+	for (CXSize i = 0; i < network->nodeCapacity; i++) {
+		nodeRemap[i] = CXIndexMAX;
+	}
+	CXSize nextNode = 0;
+	for (CXSize i = 0; i < network->nodeCapacity; i++) {
+		if (network->nodeActive && network->nodeActive[i]) {
+			nodeRemap[i] = (CXIndex)nextNode++;
+		}
+	}
+
+	edgeRemap = calloc(network->edgeCapacity > 0 ? network->edgeCapacity : 1, sizeof(CXIndex));
+	if (!edgeRemap) {
+		goto fail;
+	}
+	for (CXSize i = 0; i < network->edgeCapacity; i++) {
+		edgeRemap[i] = CXIndexMAX;
+	}
+
+	if (edgeCount > 0) {
+		edgeBuffer = malloc(sizeof(CXEdge) * edgeCount);
+		edgeOrder = malloc(sizeof(CXIndex) * edgeCount);
+		newEdgeIds = malloc(sizeof(CXIndex) * edgeCount);
+		if (!edgeBuffer || !edgeOrder || !newEdgeIds) {
+			goto fail;
+		}
+		CXSize writeEdge = 0;
+		for (CXSize i = 0; i < network->edgeCapacity; i++) {
+			if (network->edgeActive && network->edgeActive[i]) {
+				CXEdge edge = network->edges[i];
+				CXIndex from = nodeRemap[edge.from];
+				CXIndex to = nodeRemap[edge.to];
+				if (from == CXIndexMAX || to == CXIndexMAX) {
+					goto fail;
+				}
+				edgeBuffer[writeEdge].from = from;
+				edgeBuffer[writeEdge].to = to;
+				edgeOrder[writeEdge] = (CXIndex)i;
+				writeEdge++;
+			}
+		}
+		if (writeEdge != edgeCount) {
+			goto fail;
+		}
+		if (!CXNetworkAddEdges(compact, edgeBuffer, edgeCount, newEdgeIds)) {
+			goto fail;
+		}
+		for (CXSize i = 0; i < edgeCount; i++) {
+			edgeRemap[edgeOrder[i]] = newEdgeIds[i];
+		}
+	}
+
+	// Copy node attribute payloads.
+	CXStringDictionaryFOR(nodeEntry2, network->nodeAttributes) {
+		CXAttributeRef oldAttr = (CXAttributeRef)nodeEntry2->data;
+		CXAttributeRef newAttr = CXNetworkGetNodeAttribute(compact, nodeEntry2->key);
+		if (!newAttr) {
+			goto fail;
+		}
+		uint8_t *dstData = newAttr->data ? (uint8_t *)newAttr->data : NULL;
+		uint8_t *srcData = oldAttr->data ? (uint8_t *)oldAttr->data : NULL;
+		if (!dstData || !srcData) {
+			continue;
+		}
+		for (CXSize i = 0; i < network->nodeCapacity; i++) {
+			CXIndex mapped = nodeRemap[i];
+			if (mapped == CXIndexMAX) {
+				continue;
+			}
+			memcpy(dstData + (size_t)mapped * newAttr->stride, srcData + (size_t)i * oldAttr->stride, oldAttr->stride);
+		}
+	}
+
+	// Copy edge attribute payloads.
+	CXStringDictionaryFOR(edgeEntry2, network->edgeAttributes) {
+		CXAttributeRef oldAttr = (CXAttributeRef)edgeEntry2->data;
+		CXAttributeRef newAttr = CXNetworkGetEdgeAttribute(compact, edgeEntry2->key);
+		if (!newAttr) {
+			goto fail;
+		}
+		uint8_t *dstData = newAttr->data ? (uint8_t *)newAttr->data : NULL;
+		uint8_t *srcData = oldAttr->data ? (uint8_t *)oldAttr->data : NULL;
+		if (!dstData || !srcData) {
+			continue;
+		}
+		for (CXSize i = 0; i < network->edgeCapacity; i++) {
+			CXIndex mapped = edgeRemap[i];
+			if (mapped == CXIndexMAX) {
+				continue;
+			}
+			memcpy(dstData + (size_t)mapped * newAttr->stride, srcData + (size_t)i * oldAttr->stride, oldAttr->stride);
+		}
+	}
+
+	// Copy network-level attributes.
+	CXStringDictionaryFOR(netEntry2, network->networkAttributes) {
+		CXAttributeRef oldAttr = (CXAttributeRef)netEntry2->data;
+		CXAttributeRef newAttr = CXNetworkGetNetworkAttribute(compact, netEntry2->key);
+		if (!newAttr || !oldAttr->data || !newAttr->data) {
+			continue;
+		}
+		memcpy(newAttr->data, oldAttr->data, oldAttr->stride);
+	}
+
+	// Optional original index attributes.
+	CXAttributeRef nodeOriginAttr = CXEnsureMappingAttribute(compact, compact->nodeAttributes, nodeOriginalIndexAttr, nodeCount > 0 ? nodeCount : 1);
+	if (nodeOriginalIndexAttr && !nodeOriginAttr) {
+		goto fail;
+	}
+	CXAttributeRef edgeOriginAttr = CXEnsureMappingAttribute(compact, compact->edgeAttributes, edgeOriginalIndexAttr, edgeCount > 0 ? edgeCount : 1);
+	if (edgeOriginalIndexAttr && !edgeOriginAttr) {
+		goto fail;
+	}
+
+	if (nodeOriginAttr && nodeOriginAttr->data) {
+		uint64_t *origin = (uint64_t *)nodeOriginAttr->data;
+		for (CXSize i = 0; i < network->nodeCapacity; i++) {
+			CXIndex mapped = nodeRemap[i];
+			if (mapped == CXIndexMAX) {
+				continue;
+			}
+			origin[mapped] = (uint64_t)i;
+		}
+	}
+	if (edgeOriginAttr && edgeOriginAttr->data) {
+		uint64_t *origin = (uint64_t *)edgeOriginAttr->data;
+		for (CXSize i = 0; i < network->edgeCapacity; i++) {
+			CXIndex mapped = edgeRemap[i];
+			if (mapped == CXIndexMAX) {
+				continue;
+			}
+			origin[mapped] = (uint64_t)i;
+		}
+	}
+
+	// Shrink backing arrays to match the exact number of active elements.
+	if (nodeCount > 0 && compact->nodeCapacity > nodeCount) {
+		CXNodeRecord *newNodes = calloc(nodeCount, sizeof(CXNodeRecord));
+		CXBool *newActive = calloc(nodeCount, sizeof(CXBool));
+		if (!newNodes || !newActive) {
+			free(newNodes);
+			free(newActive);
+			goto fail;
+		}
+		memcpy(newNodes, compact->nodes, sizeof(CXNodeRecord) * nodeCount);
+		memcpy(newActive, compact->nodeActive, sizeof(CXBool) * nodeCount);
+		free(compact->nodes);
+		free(compact->nodeActive);
+		compact->nodes = newNodes;
+		compact->nodeActive = newActive;
+		compact->nodeCapacity = nodeCount;
+	}
+	if (edgeCount > 0 && compact->edgeCapacity > edgeCount) {
+		CXEdge *newEdges = calloc(edgeCount, sizeof(CXEdge));
+		CXBool *newEdgeActive = calloc(edgeCount, sizeof(CXBool));
+		if (!newEdges || !newEdgeActive) {
+			free(newEdges);
+			free(newEdgeActive);
+			goto fail;
+		}
+		memcpy(newEdges, compact->edges, sizeof(CXEdge) * edgeCount);
+		memcpy(newEdgeActive, compact->edgeActive, sizeof(CXBool) * edgeCount);
+		free(compact->edges);
+		free(compact->edgeActive);
+		compact->edges = newEdges;
+		compact->edgeActive = newEdgeActive;
+		compact->edgeCapacity = edgeCount;
+	}
+
+	// Adjust index managers to the new capacities.
+	CXResizeIndexManager(compact->nodeIndexManager, nodeCount);
+	CXResizeIndexManager(compact->edgeIndexManager, edgeCount);
+	compact->nodeCount = nodeCount;
+	compact->edgeCount = edgeCount;
+	if (nodeCount == 0) {
+		if (compact->nodes) {
+			for (CXSize i = 0; i < compact->nodeCapacity; i++) {
+				CXNeighborContainerFree(&compact->nodes[i].outNeighbors);
+				CXNeighborContainerFree(&compact->nodes[i].inNeighbors);
+			}
+			free(compact->nodes);
+			compact->nodes = NULL;
+		}
+		free(compact->nodeActive);
+		compact->nodeActive = NULL;
+		compact->nodeCapacity = 0;
+	}
+	if (edgeCount == 0) {
+		free(compact->edges);
+		compact->edges = NULL;
+		free(compact->edgeActive);
+		compact->edgeActive = NULL;
+		compact->edgeCapacity = 0;
+	}
+
+	CXNetwork temp = *network;
+	*network = *compact;
+	compact->nodes = temp.nodes;
+	compact->nodeActive = temp.nodeActive;
+	compact->edges = temp.edges;
+	compact->edgeActive = temp.edgeActive;
+	compact->nodeAttributes = temp.nodeAttributes;
+	compact->edgeAttributes = temp.edgeAttributes;
+	compact->networkAttributes = temp.networkAttributes;
+	compact->nodeIndexManager = temp.nodeIndexManager;
+	compact->edgeIndexManager = temp.edgeIndexManager;
+	CXFreeNetwork(compact);
+
+	free(nodeRemap);
+	free(edgeRemap);
+	free(edgeBuffer);
+	free(edgeOrder);
+	free(newEdgeIds);
+	return CXTrue;
+
+fail:
+	if (nodeRemap) {
+		free(nodeRemap);
+	}
+	if (edgeRemap) {
+		free(edgeRemap);
+	}
+	free(edgeBuffer);
+	free(edgeOrder);
+	free(newEdgeIds);
+	CXFreeNetwork(compact);
+	return CXFalse;
 }
 
 // -----------------------------------------------------------------------------
