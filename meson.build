@@ -1,5 +1,5 @@
 project('helios-network', 'c',
-  version : '0.2.9',
+  version : '0.2.10',
   default_options : ['c_std=c17']
 )
 
