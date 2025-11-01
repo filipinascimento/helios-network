@@ -120,6 +120,25 @@ This regenerates `compiled/CXNetwork.{mjs,wasm}`. The JS layer imports the `.mjs
 
 > The script prepends `node_modules/.bin` to `PATH` so local Meson/Ninja symlinks are also detected.
 
+### Native C Core
+
+The same C sources can be compiled into host libraries when you need a native build instead of WebAssembly.
+
+- **CMake**  
+  Configure once with the desired library types and build:
+  ```bash
+  cmake -S . -B build/native -DCMAKE_BUILD_TYPE=Release \
+    -DHELIOS_BUILD_STATIC=ON -DHELIOS_BUILD_SHARED=ON
+  cmake --build build/native
+  ```
+  Disable one of the toggles (`HELIOS_BUILD_STATIC`/`HELIOS_BUILD_SHARED`) if you only want a static or shared artefact. The resulting `libhelios.{a,dylib|so}` lives under `build/native/`; install headers and libraries via `cmake --install build/native --prefix <dest>`.
+
+- **Makefile**  
+  The GNUmakefile wraps the same flow: `make native` builds both flavours, or call `make native-static` / `make native-shared` individually. Outputs land in `build/native/`.
+
+- **Meson (WASM)**  
+  The checked-in `meson.build` is tuned for the Emscripten toolchain and is what powers `npm run build:wasm`. Invoking it with the system compiler (`meson setup … && meson compile …`) will use strict `-std=c17`, which on macOS hides extensions such as `srandomdev`/`vasprintf` and causes the build to fail unless you add something like `-Dc_args=-D_DARWIN_C_SOURCE`. If you need a host build, prefer the CMake or Make targets above.
+
 ### Makefile Shortcut
 
 For convenience, a legacy `make compile` target exists. It directly calls `emcc` with equivalent flags; use it only if you prefer Make over Meson.

@@ -25,10 +25,12 @@ Welcome! This document summarises the day-to-day development workflow, testing r
    - Browser tests (optional): `npm run test:browser`
 5. **Native builds**
    ```bash
-   # Build both shared and static libraries
-   cmake -S . -B build/native-cmake -DHELIOS_BUILD_SHARED=ON -DHELIOS_BUILD_STATIC=ON
+   # Build both shared and static libraries via CMake
+   cmake -S . -B build/native-cmake -DCMAKE_BUILD_TYPE=Release \
+     -DHELIOS_BUILD_SHARED=ON -DHELIOS_BUILD_STATIC=ON
    cmake --build build/native-cmake
    ```
+   Toggle `HELIOS_BUILD_SHARED` or `HELIOS_BUILD_STATIC` to restrict the output, and run `cmake --install build/native-cmake --prefix <dest>` when you need headers + libs staged. If you prefer the shorthand targets, `make native`, `make native-static`, or `make native-shared` wrap the same flow. (The repository’s Meson project is wired for the Emscripten build that `npm run build:wasm` uses; adapting it for a host compiler requires enabling platform extensions such as `_DARWIN_C_SOURCE`.)
 
 Follow the existing coding style (C17 for native code, modern ES modules for JS). Keep functions documented via Doxygen/JSDoc where they are part of the public API.
 
