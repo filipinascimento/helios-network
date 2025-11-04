@@ -250,7 +250,7 @@ CX_EXTERN CXIndex* CXEdgeSelectorData(CXEdgeSelectorRef selector);
 /** Returns how many indices are currently stored in the selector. */
 CX_EXTERN CXSize CXEdgeSelectorCount(CXEdgeSelectorRef selector);
 
-#include "CXNetworkSerialization.h"
+#include "CXNetworkBXNet.h"
 
 #ifdef __cplusplus
 } // extern "C"

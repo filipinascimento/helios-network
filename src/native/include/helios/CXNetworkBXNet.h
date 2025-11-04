@@ -1,5 +1,5 @@
-#ifndef CXNetwork_CXNetworkSerialization_h
-#define CXNetwork_CXNetworkSerialization_h
+#ifndef CXNetwork_CXNetworkBXNet_h
+#define CXNetwork_CXNetworkBXNet_h
 
 #include "CXCommons.h"
 
@@ -81,4 +81,4 @@ CX_EXTERN struct CXNetwork* CXNetworkReadZXNet(const char *path);
 } // extern "C"
 #endif
 
-#endif /* CXNetwork_CXNetworkSerialization_h */
+#endif /* CXNetwork_CXNetworkBXNet_h */

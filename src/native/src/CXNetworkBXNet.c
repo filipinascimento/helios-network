@@ -1,4 +1,4 @@
-#include "CXNetworkSerialization.h"
+#include "CXNetworkBXNet.h"
 
 #include "CXNetwork.h"
 #include "CXNeighborStorage.h"

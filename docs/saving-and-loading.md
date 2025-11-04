@@ -2,6 +2,8 @@
 
 Helios exposes high-level helpers for writing and reading the human-readable `.xnet` format alongside the binary `.bxnet` container and its compressed sibling `.zxnet`. The same API works in Node.js and in browsers thanks to the Emscripten virtual filesystem that ships with the WASM build. This guide shows the typical workflows for saving network snapshots and restoring them in both environments, including handling `Uint8Array`, `ArrayBuffer`, `Blob`, `Response`, and Base64 payloads.
 
+> Need the raw file layout? See the [XNET format specification](./xnet-format.md) for the authoritative grammar covering both 1.0.0 and legacy dialects.
+
 ---
 
 ## Quick Reference
