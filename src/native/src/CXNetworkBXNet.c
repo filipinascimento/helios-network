@@ -256,6 +256,8 @@ static CXBool CXAttributeStorageInfo(CXAttributeRef attribute, uint32_t *storage
 
 	switch (attribute->type) {
 		case CXStringAttributeType:
+			width = 0;
+			break;
 		case CXDataAttributeType:
 		case CXJavascriptAttributeType:
 			return CXFalse;
@@ -291,6 +293,9 @@ static CXBool CXExpectedStorageWidthForType(CXAttributeType type, uint32_t *outW
 		return CXFalse;
 	}
 	switch (type) {
+		case CXStringAttributeType:
+			*outWidth = 0;
+			return CXTrue;
 		case CXBooleanAttributeType:
 			*outWidth = 1;
 			return CXTrue;
@@ -830,9 +835,79 @@ static CXBool CXReadAttributeDefinitionsChunk(CXInputStream *stream, uint64_t pa
 	return CXTrue;
 }
 
+static CXBool CXReadStringAttributeValues(CXInputStream *stream, CXAttributeLoadEntry *plan, uint64_t valueBytes) {
+	if (!stream || !plan || !plan->attribute) {
+		return CXFalse;
+	}
+	uint64_t capacity = plan->capacity;
+	uint64_t dimension = plan->attribute->dimension > 0 ? (uint64_t)plan->attribute->dimension : 1;
+	uint8_t *destination = (uint8_t *)plan->attribute->data;
+	if (capacity > 0 && !destination) {
+		errno = EINVAL;
+		return CXFalse;
+	}
+
+	uint64_t consumed = 0;
+	for (uint64_t idx = 0; idx < capacity; idx++) {
+		CXString *entryBase = destination ? (CXString *)(destination + ((size_t)idx * plan->attribute->stride)) : NULL;
+		for (uint64_t dim = 0; dim < dimension; dim++) {
+			if (consumed + sizeof(uint32_t) > valueBytes) {
+				errno = EINVAL;
+				return CXFalse;
+			}
+			uint8_t lengthBytes[4];
+			if (!CXReadExact(stream, lengthBytes, sizeof(lengthBytes))) {
+				return CXFalse;
+			}
+			consumed += sizeof(uint32_t);
+			uint32_t length = cx_read_u32le(lengthBytes);
+			CXString *slot = entryBase ? &entryBase[dim] : NULL;
+			if (slot && *slot) {
+				free(*slot);
+				*slot = NULL;
+			}
+			if (length == UINT32_MAX) {
+				if (slot) {
+					*slot = NULL;
+				}
+				continue;
+			}
+			if ((uint64_t)length > valueBytes - consumed) {
+				errno = EINVAL;
+				return CXFalse;
+			}
+			char *buffer = malloc((size_t)length + 1);
+			if (!buffer) {
+				errno = ENOMEM;
+				return CXFalse;
+			}
+			if (length > 0 && !CXReadExact(stream, buffer, length)) {
+				free(buffer);
+				return CXFalse;
+			}
+			buffer[length] = '\0';
+			if (slot) {
+				*slot = buffer;
+			} else {
+				free(buffer);
+			}
+			consumed += length;
+		}
+	}
+
+	if (consumed != valueBytes) {
+		errno = EINVAL;
+		return CXFalse;
+	}
+	return CXTrue;
+}
+
 static CXBool CXReadAttributeValuesIntoPlan(CXInputStream *stream, CXAttributeLoadEntry *plan, uint64_t valueBytes) {
 	if (!stream || !plan || !plan->attribute) {
 		return CXFalse;
+	}
+	if (plan->type == CXStringAttributeType) {
+		return CXReadStringAttributeValues(stream, plan, valueBytes);
 	}
 	uint64_t capacity = plan->capacity;
 	uint64_t dimension = plan->dimension;
@@ -1218,6 +1293,37 @@ static CXBool CXWriteAttributeValuesCallback(CXSizedWriterContext *context, void
 			size_t encodedSize = valueCtx->entry->storageWidth;
 
 			switch (attribute->type) {
+				case CXStringAttributeType: {
+					if (scratchOffset > 0) {
+						if (!CXSizedWriteBytes(context, scratch, scratchOffset)) {
+							return CXFalse;
+						}
+						scratchOffset = 0;
+					}
+					const CXString *strings = (const CXString *)(entryBase);
+					CXString value = strings ? strings[dim] : NULL;
+					uint8_t lengthBytes[4];
+					if (!value) {
+						cx_write_u32le(UINT32_MAX, lengthBytes);
+						if (!CXSizedWriteBytes(context, lengthBytes, sizeof(lengthBytes))) {
+							return CXFalse;
+						}
+						continue;
+					}
+					size_t length = strlen(value);
+					if ((uint64_t)length >= (uint64_t)UINT32_MAX) {
+						errno = ERANGE;
+						return CXFalse;
+					}
+					cx_write_u32le((uint32_t)length, lengthBytes);
+					if (!CXSizedWriteBytes(context, lengthBytes, sizeof(lengthBytes))) {
+						return CXFalse;
+					}
+					if (length > 0 && !CXSizedWriteBytes(context, value, length)) {
+						return CXFalse;
+					}
+					continue;
+				}
 				case CXBooleanAttributeType:
 					encoded[0] = *elementPtr;
 					break;
@@ -1363,6 +1469,14 @@ static CXBool CXWriteAttributeDefinitionsChunk(CXOutputStream *stream, CXWritten
 static CXBool CXWriteAttributeValuesChunk(CXOutputStream *stream, CXWrittenChunkList *chunks, uint32_t chunkId, const CXAttributeList *attributes) {
 	const size_t attributeCount = attributes ? attributes->count : 0;
 	uint64_t payloadSize = CXSizedBlockLength(sizeof(uint32_t) * 2);
+	uint64_t *valueSizes = NULL;
+	CXBool success = CXFalse;
+	if (attributeCount > 0) {
+		valueSizes = calloc(attributeCount, sizeof(uint64_t));
+		if (!valueSizes) {
+			goto cleanup;
+		}
+	}
 
 	for (size_t idx = 0; idx < attributeCount; idx++) {
 		const CXAttributeEntry *entry = &attributes->items[idx];
@@ -1371,64 +1485,85 @@ static CXBool CXWriteAttributeValuesChunk(CXOutputStream *stream, CXWrittenChunk
 		uint64_t dimension = (uint64_t)entry->attribute->dimension;
 		if (dimension != 0 && capacity > UINT64_MAX / dimension) {
 			errno = ERANGE;
-			return CXFalse;
+			goto cleanup;
 		}
 		uint64_t elementCount = capacity * dimension;
-		if (entry->storageWidth != 0 && elementCount > UINT64_MAX / entry->storageWidth) {
-			errno = ERANGE;
-			return CXFalse;
+		uint64_t valueBytes = 0;
+		if (entry->attribute->type == CXStringAttributeType) {
+			const uint8_t *base = (const uint8_t *)entry->attribute->data;
+			for (CXSize capIdx = 0; capIdx < entry->attribute->capacity; capIdx++) {
+				const CXString *strings = base ? (const CXString *)(base + ((size_t)capIdx * entry->attribute->stride)) : NULL;
+				for (CXSize dimIdx = 0; dimIdx < entry->attribute->dimension; dimIdx++) {
+					CXString value = strings ? strings[dimIdx] : NULL;
+					uint64_t addition = sizeof(uint32_t);
+					if (value) {
+						size_t length = strlen(value);
+						if ((uint64_t)length >= (uint64_t)UINT32_MAX) {
+							errno = ERANGE;
+							goto cleanup;
+						}
+						addition += (uint64_t)length;
+					}
+					if (valueBytes > UINT64_MAX - addition) {
+						errno = ERANGE;
+						goto cleanup;
+					}
+					valueBytes += addition;
+				}
+			}
+		} else {
+			if (entry->storageWidth != 0 && elementCount > UINT64_MAX / entry->storageWidth) {
+				errno = ERANGE;
+				goto cleanup;
+			}
+			valueBytes = elementCount * entry->storageWidth;
 		}
-		uint64_t valueBytes = elementCount * entry->storageWidth;
+		if (valueSizes) {
+			valueSizes[idx] = valueBytes;
+		}
 		payloadSize += CXSizedBlockLength((uint64_t)nameLen);
 		payloadSize += CXSizedBlockLength(valueBytes);
 	}
 
 	int64_t chunkOffset = stream->tell(stream->context);
 	if (chunkOffset < 0) {
-		return CXFalse;
+		goto cleanup;
 	}
 
 	if (!CXWriteChunkHeader(stream, chunkId, 0, payloadSize)) {
-		return CXFalse;
+		goto cleanup;
 	}
 
 	uint8_t countData[8] = {0};
 	cx_write_u32le((uint32_t)attributeCount, countData + 0);
 	cx_write_u32le(0, countData + 4);
 	if (!CXWriteSizedRaw(stream, countData, sizeof(countData))) {
-		return CXFalse;
+		goto cleanup;
 	}
 
 	for (size_t idx = 0; idx < attributeCount; idx++) {
 		const CXAttributeEntry *entry = &attributes->items[idx];
 		size_t nameLen = strlen(entry->name);
-		uint64_t capacity = (uint64_t)entry->attribute->capacity;
-		uint64_t dimension = (uint64_t)entry->attribute->dimension;
-		if (dimension != 0 && capacity > UINT64_MAX / dimension) {
-			errno = ERANGE;
-			return CXFalse;
-		}
-		uint64_t elementCount = capacity * dimension;
-		if (entry->storageWidth != 0 && elementCount > UINT64_MAX / entry->storageWidth) {
-			errno = ERANGE;
-			return CXFalse;
-		}
-		uint64_t valueBytes = elementCount * entry->storageWidth;
+		uint64_t valueBytes = valueSizes ? valueSizes[idx] : 0;
 
 		if (!CXWriteSizedRaw(stream, entry->name, (uint64_t)nameLen)) {
-			return CXFalse;
+			goto cleanup;
 		}
 
 		CXAttributeValueWriterContext valueCtx = { entry };
 		if (!CXWriteSizedPayload(stream, valueBytes, CXWriteAttributeValuesCallback, &valueCtx)) {
-			return CXFalse;
+			goto cleanup;
 		}
 	}
 
 	if (!CXWrittenChunkListAppend(chunks, chunkId, 0, (uint64_t)chunkOffset, payloadSize)) {
-		return CXFalse;
+		goto cleanup;
 	}
-	return CXTrue;
+	success = CXTrue;
+
+cleanup:
+	free(valueSizes);
+	return success;
 }
 
 static CXBool CXWriteMetaChunk(CXOutputStream *stream, CXWrittenChunkList *chunks, const CXMetaChunkPayload *payload) {

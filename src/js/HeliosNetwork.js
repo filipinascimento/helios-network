@@ -2064,7 +2064,10 @@ export class HeliosNetwork {
 	 * @param {string|null|undefined} value - String to store (or nullish to clear).
 	 */
 	_setStringAttribute(scope, name, index, value) {
-		const meta = this._attributeMap(scope).get(name);
+		let meta = this._attributeMap(scope).get(name);
+		if (!meta) {
+			meta = this._ensureAttributeMetadata(scope, name);
+		}
 		if (!meta || meta.type !== AttributeType.String) {
 			throw new Error(`Attribute "${name}" on ${scope} is not a string attribute`);
 		}
@@ -2100,7 +2103,10 @@ export class HeliosNetwork {
 	 * @returns {string|null} Retrieved string value.
 	 */
 	_getStringAttribute(scope, name, index) {
-		const meta = this._attributeMap(scope).get(name);
+		let meta = this._attributeMap(scope).get(name);
+		if (!meta) {
+			meta = this._ensureAttributeMetadata(scope, name);
+		}
 		if (!meta || meta.type !== AttributeType.String) {
 			throw new Error(`Attribute "${name}" on ${scope} is not a string attribute`);
 		}

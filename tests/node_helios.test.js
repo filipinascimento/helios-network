@@ -169,6 +169,54 @@ describe('HeliosNetwork (Node runtime)', () => {
 		}
 	});
 
+	test('round-trips .bxnet payloads with string attributes', async () => {
+		const networkInstance = await HeliosNetwork.create({ directed: false, initialNodes: 0, initialEdges: 0 });
+		try {
+			const mod = networkInstance.module;
+			if (typeof mod._CXNetworkWriteBXNet !== 'function' || typeof mod._CXNetworkReadBXNet !== 'function') {
+				await expect(networkInstance.saveBXNet()).rejects.toThrow(/CXNetworkWriteBXNet is not available/);
+				return;
+			}
+
+			const nodes = networkInstance.addNodes(3);
+			const edges = networkInstance.addEdges([
+				{ from: nodes[0], to: nodes[1] },
+				{ from: nodes[1], to: nodes[2] },
+			]);
+			expect(edges.length).toBe(2);
+
+			networkInstance.defineNodeAttribute('label', AttributeType.String, 1);
+			networkInstance.defineEdgeAttribute('kind', AttributeType.String, 1);
+			networkInstance.defineNetworkAttribute('title', AttributeType.String, 1);
+
+			networkInstance.setNodeStringAttribute('label', nodes[0], 'Alpha');
+			networkInstance.setNodeStringAttribute('label', nodes[1], '');
+			networkInstance.setNodeStringAttribute('label', nodes[2], null);
+			networkInstance.setEdgeStringAttribute('kind', 0, 'forward');
+			networkInstance.setEdgeStringAttribute('kind', 1, 'return\ntrip');
+			networkInstance.setNetworkStringAttribute('title', 'BX snapshot');
+
+			const payload = await networkInstance.saveBXNet();
+			expect(payload).toBeInstanceOf(Uint8Array);
+			expect(payload.byteLength).toBeGreaterThan(0);
+
+			const restored = await HeliosNetwork.fromBXNet(payload);
+			try {
+				expect(restored.directed).toBe(false);
+				expect(restored.nodeCount).toBe(3);
+				expect(restored.getNodeStringAttribute('label', 0)).toBe('Alpha');
+				expect(restored.getNodeStringAttribute('label', 1)).toBe('');
+				expect(restored.getNodeStringAttribute('label', 2)).toBeNull();
+				expect(restored.getEdgeStringAttribute('kind', 1)).toBe('return\ntrip');
+				expect(restored.getNetworkStringAttribute('title')).toBe('BX snapshot');
+			} finally {
+				restored.dispose();
+			}
+		} finally {
+			networkInstance.dispose();
+		}
+	});
+
 	test('round-trips .zxnet payloads via filesystem paths and alternate outputs', async () => {
 		const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'helios-'));
 		const targetPath = path.join(tmpDir, `network-${randomUUID()}.zxnet`);
@@ -207,6 +255,48 @@ describe('HeliosNetwork (Node runtime)', () => {
 		} finally {
 			networkInstance.dispose();
 			await fs.rm(tmpDir, { recursive: true, force: true });
+		}
+	});
+
+	test('round-trips .zxnet payloads with string attributes', async () => {
+		const networkInstance = await HeliosNetwork.create({ directed: true, initialNodes: 0, initialEdges: 0 });
+		try {
+			const mod = networkInstance.module;
+			if (typeof mod._CXNetworkWriteZXNet !== 'function' || typeof mod._CXNetworkReadZXNet !== 'function') {
+				await expect(networkInstance.saveZXNet()).rejects.toThrow(/CXNetworkWriteZXNet is not available/);
+				return;
+			}
+
+			const nodes = networkInstance.addNodes(2);
+			const edges = networkInstance.addEdges([{ from: nodes[0], to: nodes[1] }]);
+			expect(edges.length).toBe(1);
+
+			networkInstance.defineNodeAttribute('status', AttributeType.String, 1);
+			networkInstance.defineEdgeAttribute('label', AttributeType.String, 1);
+			networkInstance.defineNetworkAttribute('subtitle', AttributeType.String, 1);
+
+			networkInstance.setNodeStringAttribute('status', nodes[0], 'Delta');
+			networkInstance.setNodeStringAttribute('status', nodes[1], 'line\nbreak');
+			networkInstance.setEdgeStringAttribute('label', 0, '');
+			networkInstance.setNetworkStringAttribute('subtitle', null);
+
+			const payload = await networkInstance.saveZXNet({ compressionLevel: 2 });
+			expect(payload).toBeInstanceOf(Uint8Array);
+			expect(payload.byteLength).toBeGreaterThan(0);
+
+			const restored = await HeliosNetwork.fromZXNet(payload);
+			try {
+				expect(restored.directed).toBe(true);
+				expect(restored.nodeCount).toBe(2);
+				expect(restored.getNodeStringAttribute('status', 0)).toBe('Delta');
+				expect(restored.getNodeStringAttribute('status', 1)).toBe('line\nbreak');
+				expect(restored.getEdgeStringAttribute('label', 0)).toBe('');
+				expect(restored.getNetworkStringAttribute('subtitle')).toBeNull();
+			} finally {
+				restored.dispose();
+			}
+		} finally {
+			networkInstance.dispose();
 		}
 	});
 
