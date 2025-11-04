@@ -210,6 +210,73 @@ describe('HeliosNetwork (Node runtime)', () => {
 		}
 	});
 
+	test('round-trips .xnet payloads with string attributes and compaction', async () => {
+		const networkInstance = await HeliosNetwork.create({ directed: true, initialNodes: 0, initialEdges: 0 });
+		try {
+			const mod = networkInstance.module;
+			if (typeof mod._CXNetworkWriteXNet !== 'function' || typeof mod._CXNetworkReadXNet !== 'function') {
+				await expect(networkInstance.saveXNet()).rejects.toThrow(/CXNetworkWriteXNet is not available/);
+				return;
+			}
+
+			const nodes = networkInstance.addNodes(3);
+			networkInstance.addEdges([
+				{ from: nodes[0], to: nodes[1] },
+				{ from: nodes[1], to: nodes[2] },
+			]);
+
+			networkInstance.defineNodeAttribute('score', AttributeType.Float, 1);
+			networkInstance.defineNodeAttribute('label', AttributeType.String, 1);
+			networkInstance.defineEdgeAttribute('kind', AttributeType.String, 1);
+			networkInstance.defineNetworkAttribute('title', AttributeType.String, 1);
+
+			networkInstance.getNodeAttributeBuffer('score').view[nodes[0]] = 1.25;
+			networkInstance.getNodeAttributeBuffer('score').view[nodes[1]] = 2.5;
+			networkInstance.getNodeAttributeBuffer('score').view[nodes[2]] = 3.75;
+			networkInstance.setNodeStringAttribute('label', nodes[0], 'Alpha');
+			networkInstance.setNodeStringAttribute('label', nodes[1], 'Beta Value');
+			networkInstance.setNodeStringAttribute('label', nodes[2], 'Gamma#Tag');
+			networkInstance.setEdgeStringAttribute('kind', 0, 'forward');
+			networkInstance.setEdgeStringAttribute('kind', 1, 'return\ntrip');
+			networkInstance.setNetworkStringAttribute('title', 'Human Readable XNET');
+
+			const payload = await networkInstance.saveXNet();
+			expect(payload).toBeInstanceOf(Uint8Array);
+			expect(payload.byteLength).toBeGreaterThan(0);
+
+			const restored = await HeliosNetwork.fromXNet(payload);
+			const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'helios-xnet-'));
+			const targetPath = path.join(tmpDir, `graph-${randomUUID()}.xnet`);
+			try {
+				expect(restored.directed).toBe(true);
+				expect(restored.nodeCount).toBe(3);
+				expect(restored.edgeCount).toBe(2);
+				expect(restored.getNodeAttributeBuffer('score').view[1]).toBeCloseTo(2.5);
+				expect(restored.getNodeStringAttribute('label', 2)).toBe('Gamma#Tag');
+				expect(restored.getEdgeStringAttribute('kind', 1)).toBe('return\ntrip');
+				expect(restored.getNetworkStringAttribute('title')).toBe('Human Readable XNET');
+				expect(restored.getNodeStringAttribute('_original_ids_', 0)).toBe('0');
+
+				await restored.saveXNet({ path: targetPath });
+				const stats = await fs.stat(targetPath);
+				expect(stats.size).toBeGreaterThan(0);
+
+				const upgraded = await HeliosNetwork.fromXNet(targetPath);
+				try {
+					expect(upgraded.nodeCount).toBe(3);
+					expect(upgraded.getNodeStringAttribute('_original_ids_', 1)).toBe('1');
+				} finally {
+					upgraded.dispose();
+				}
+			} finally {
+				restored.dispose();
+				await fs.rm(tmpDir, { recursive: true, force: true });
+			}
+		} finally {
+			networkInstance.dispose();
+		}
+	});
+
 	test('compact reindexes networks and preserves attribute stores', async () => {
 		const net = await HeliosNetwork.create({ directed: true, initialNodes: 0, initialEdges: 0 });
 		try {

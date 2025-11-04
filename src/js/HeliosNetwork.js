@@ -1205,6 +1205,18 @@ export class HeliosNetwork {
 	}
 
 	/**
+	 * Hydrates a network instance from a human-readable `.xnet` container.
+	 *
+	 * @param {Uint8Array|ArrayBuffer|string|Blob|Response} source - Serialized payload or Node file path.
+	 * @param {object} [options]
+	 * @param {object} [options.module] - Optional WASM module to reuse.
+	 * @returns {Promise<HeliosNetwork>} Newly constructed network.
+	 */
+	static async fromXNet(source, options = {}) {
+		return HeliosNetwork._fromSerialized(source, 'xnet', options);
+	}
+
+	/**
 	 * Wraps an existing native network pointer.
 	 *
 	 * @param {object} module - Active Helios WASM module.
@@ -1317,6 +1329,18 @@ export class HeliosNetwork {
 	 */
 	async saveBXNet(options = {}) {
 		return this._saveSerialized('bxnet', options);
+	}
+
+	/**
+	 * Serializes the network into the human-readable `.xnet` container format.
+	 *
+	 * @param {object} [options]
+	 * @param {string} [options.path] - Node-only destination path. When omitted the bytes are returned.
+	 * @param {'uint8array'|'arraybuffer'|'base64'|'blob'} [options.format='uint8array'] - Desired return representation.
+	 * @returns {Promise<Uint8Array|ArrayBuffer|string|Blob|undefined>} Serialized payload or void when writing directly to disk.
+	 */
+	async saveXNet(options = {}) {
+		return this._saveSerialized('xnet', options);
 	}
 
 	/**
@@ -2239,10 +2263,34 @@ export class HeliosNetwork {
 		const module = providedModule || await getModule();
 		moduleInstance = module;
 
-		const extension = kind === 'zxnet' ? 'zxnet' : 'bxnet';
-		const readFn = kind === 'zxnet' ? module._CXNetworkReadZXNet : module._CXNetworkReadBXNet;
+		let extension;
+		let readFn;
+		let funcLabel;
+		let humanLabel;
+		switch (kind) {
+			case 'bxnet':
+				extension = 'bxnet';
+				readFn = module._CXNetworkReadBXNet;
+				funcLabel = 'ReadBXNet';
+				humanLabel = '.bxnet';
+				break;
+			case 'zxnet':
+				extension = 'zxnet';
+				readFn = module._CXNetworkReadZXNet;
+				funcLabel = 'ReadZXNet';
+				humanLabel = '.zxnet';
+				break;
+			case 'xnet':
+				extension = 'xnet';
+				readFn = module._CXNetworkReadXNet;
+				funcLabel = 'ReadXNet';
+				humanLabel = '.xnet';
+				break;
+			default:
+				throw new Error(`Unsupported serialization kind: ${kind}`);
+		}
 		if (typeof readFn !== 'function') {
-			throw new Error(`CXNetwork${kind === 'zxnet' ? 'ReadZXNet' : 'ReadBXNet'} is not available in this WASM build. Rebuild the artefacts to enable deserialization helpers.`);
+			throw new Error(`CXNetwork${funcLabel} is not available in this WASM build. Rebuild the artefacts to enable deserialization helpers.`);
 		}
 		const fsApi = getModuleFS(module);
 		const canUseVirtualFS = Boolean(fsApi);
@@ -2294,7 +2342,7 @@ export class HeliosNetwork {
 		}
 
 		if (!networkPtr) {
-			throw new Error(`Failed to read ${kind === 'zxnet' ? '.zxnet' : '.bxnet'} data`);
+			throw new Error(`Failed to read ${humanLabel} data`);
 		}
 		return HeliosNetwork._wrapNative(module, networkPtr);
 	}
@@ -2345,11 +2393,32 @@ export class HeliosNetwork {
 	async _saveSerialized(kind, options) {
 		this._ensureActive();
 		const module = this.module;
-		const extension = kind === 'zxnet' ? 'zxnet' : 'bxnet';
+		const extension = kind;
 		const format = options?.format ?? 'uint8array';
-		const writeFn = kind === 'zxnet' ? module._CXNetworkWriteZXNet : module._CXNetworkWriteBXNet;
+		let writeFn;
+		let funcLabel;
+		let humanLabel;
+		switch (kind) {
+			case 'bxnet':
+				writeFn = module._CXNetworkWriteBXNet;
+				funcLabel = 'WriteBXNet';
+				humanLabel = '.bxnet';
+				break;
+			case 'zxnet':
+				writeFn = module._CXNetworkWriteZXNet;
+				funcLabel = 'WriteZXNet';
+				humanLabel = '.zxnet';
+				break;
+			case 'xnet':
+				writeFn = module._CXNetworkWriteXNet;
+				funcLabel = 'WriteXNet';
+				humanLabel = '.xnet';
+				break;
+			default:
+				throw new Error(`Unsupported serialization kind: ${kind}`);
+		}
 		if (typeof writeFn !== 'function') {
-			throw new Error(`CXNetwork${kind === 'zxnet' ? 'WriteZXNet' : 'WriteBXNet'} is not available in this WASM build. Rebuild the artefacts to use serialization helpers.`);
+			throw new Error(`CXNetwork${funcLabel} is not available in this WASM build. Rebuild the artefacts to use serialization helpers.`);
 		}
 		const fsApi = getModuleFS(module);
 		const canUseVirtualFS = Boolean(fsApi);
@@ -2416,7 +2485,7 @@ export class HeliosNetwork {
 			} else if (cleanupHostFile && fsModule) {
 				await fsModule.rm(pathForNative, { force: true }).catch(() => {});
 			}
-			throw new Error(`Failed to write ${extension === 'zxnet' ? '.zxnet' : '.bxnet'} data`);
+			throw new Error(`Failed to write ${humanLabel} data`);
 		}
 
 		let bytes = null;

@@ -16,6 +16,7 @@ cvnetwork_src = files(
   'src/native/src/CXNeighborStorage.c',
   'src/native/src/CXNetwork.c',
   'src/native/src/CXNetworkSerialization.c',
+  'src/native/src/CXNetworkXNet.c',
   'src/native/src/CXSet.c',
   'src/native/src/CXSimpleQueue.c',
   'src/native/src/fib/fib.c',
@@ -54,7 +55,8 @@ exported_functions = [
   '_CXNodeSelectorCreate','_CXNodeSelectorDestroy','_CXNodeSelectorFillAll','_CXNodeSelectorFillFromArray','_CXNodeSelectorData','_CXNodeSelectorCount',
   '_CXEdgeSelectorCreate','_CXEdgeSelectorDestroy','_CXEdgeSelectorFillAll','_CXEdgeSelectorFillFromArray','_CXEdgeSelectorData','_CXEdgeSelectorCount',
   '_CXNeighborContainerCount','_CXNeighborContainerGetNodes','_CXNeighborContainerGetEdges',
-  '_CXNetworkWriteBXNet','_CXNetworkWriteZXNet','_CXNetworkReadBXNet','_CXNetworkReadZXNet',
+  '_CXNetworkWriteBXNet','_CXNetworkWriteZXNet','_CXNetworkWriteXNet',
+  '_CXNetworkReadBXNet','_CXNetworkReadZXNet','_CXNetworkReadXNet',
   '_CXNetworkCompact'
 ]
 

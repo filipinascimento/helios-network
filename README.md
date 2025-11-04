@@ -238,10 +238,10 @@ Once the WebAssembly module has been initialised (for example by awaiting `Helio
 
 ### Serialization & Persistence
 
-The WASM core exposes the native `.bxnet` (binary) and `.zxnet` (BGZF-compressed) container formats directly to JavaScript.
+The WASM core exposes the human-readable `.xnet` (XNET 1.0.0) format alongside the native `.bxnet` (binary) and `.zxnet` (BGZF-compressed) containers directly to JavaScript.
 
-- `saveBXNet(options?)` / `saveZXNet(options?)` return serialized bytes (default `Uint8Array`). In Node you may also pass `{ path: '/tmp/graph.zxnet' }` to persist the file on disk. Optional `format` values include `'arraybuffer'`, `'base64'`, and `'blob'` (browser-friendly).
-- `HeliosNetwork.fromBXNet(source)` / `HeliosNetwork.fromZXNet(source)` hydrate a new network from a `Uint8Array`, `ArrayBuffer`, `Blob`/`Response` (browser), or filesystem path (Node).
+- `saveBXNet(options?)` / `saveZXNet(options?)` / `saveXNet(options?)` return serialized bytes (default `Uint8Array`). In Node you may also pass `{ path: '/tmp/graph.xnet' }` (or `.bxnet` / `.zxnet`) to persist the file on disk. Optional `format` values include `'arraybuffer'`, `'base64'`, and `'blob'` (browser-friendly).
+- `HeliosNetwork.fromBXNet(source)` / `HeliosNetwork.fromZXNet(source)` / `HeliosNetwork.fromXNet(source)` hydrate a new network from a `Uint8Array`, `ArrayBuffer`, `Blob`/`Response` (browser), or filesystem path (Node).
 - `compact({ nodeOriginalIndexAttribute?, edgeOriginalIndexAttribute? })` rewrites the network so node/edge IDs become contiguous while preserving JavaScript-managed and string attribute stores. When attribute names are provided, the original indices are copied into unsigned integer buffers for audit trails.
 
 #### Node.js example

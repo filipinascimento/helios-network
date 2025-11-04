@@ -1,5 +1,6 @@
 #include <assert.h>
 #include <fcntl.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -7,6 +8,38 @@
 
 #include "CXNetwork.h"
 #include "CXNeighborStorage.h"
+#include "CXNetworkXNet.h"
+
+static void free_attribute_strings(CXAttributeRef attr, CXSize count) {
+	if (!attr || !attr->data || attr->type != CXStringAttributeType) {
+		return;
+	}
+	CXString *values = (CXString *)attr->data;
+	for (CXSize i = 0; i < count; i++) {
+		if (values[i]) {
+			free(values[i]);
+			values[i] = NULL;
+		}
+	}
+}
+
+static void release_all_string_attributes(CXNetworkRef net) {
+	if (!net) {
+		return;
+	}
+	CXStringDictionaryFOR(entry, net->nodeAttributes) {
+		CXAttributeRef attr = (CXAttributeRef)entry->data;
+		free_attribute_strings(attr, attr ? attr->capacity : 0);
+	}
+	CXStringDictionaryFOR(entry, net->edgeAttributes) {
+		CXAttributeRef attr = (CXAttributeRef)entry->data;
+		free_attribute_strings(attr, attr ? attr->capacity : 0);
+	}
+	CXStringDictionaryFOR(entry, net->networkAttributes) {
+		CXAttributeRef attr = (CXAttributeRef)entry->data;
+		free_attribute_strings(attr, attr ? attr->capacity : 0);
+	}
+}
 
 static void test_basic_network(void) {
 	CXNetworkRef net = CXNewNetwork(CXTrue);
@@ -412,6 +445,349 @@ static void verify_round_trip(CXNetworkRef net) {
 	CXFreeNetwork(loadedZx);
 }
 
+static void test_xnet_round_trip(void) {
+	CXNetworkRef net = CXNewNetwork(CXTrue);
+	assert(net);
+
+	CXIndex nodes[3];
+	assert(CXNetworkAddNodes(net, 3, nodes));
+
+	CXEdge edges[2] = {
+		{ .from = nodes[0], .to = nodes[1] },
+		{ .from = nodes[1], .to = nodes[2] },
+	};
+	CXIndex edgeIds[2];
+	assert(CXNetworkAddEdges(net, edges, 2, edgeIds));
+
+	assert(CXNetworkDefineNodeAttribute(net, "score", CXFloatAttributeType, 1));
+	float *scores = (float *)CXNetworkGetNodeAttributeBuffer(net, "score");
+	scores[nodes[0]] = 0.5f;
+	scores[nodes[1]] = 1.5f;
+	scores[nodes[2]] = 2.5f;
+
+	assert(CXNetworkDefineNodeAttribute(net, "label", CXStringAttributeType, 1));
+	CXString *labels = (CXString *)CXNetworkGetNodeAttributeBuffer(net, "label");
+	labels[nodes[0]] = CXNewStringFromString("Alpha");
+	labels[nodes[1]] = CXNewStringFromString("Beta Value");
+	labels[nodes[2]] = CXNewStringFromString("Gamma#Tag");
+
+	assert(CXNetworkDefineNodeAttribute(net, "coord", CXIntegerAttributeType, 3));
+	int64_t *coords = (int64_t *)CXNetworkGetNodeAttributeBuffer(net, "coord");
+	for (int i = 0; i < 3; i++) {
+		coords[nodes[i] * 3 + 0] = i;
+		coords[nodes[i] * 3 + 1] = i + 10;
+		coords[nodes[i] * 3 + 2] = i + 20;
+	}
+
+	assert(CXNetworkDefineEdgeAttribute(net, "weight", CXFloatAttributeType, 1));
+	float *edgeWeights = (float *)CXNetworkGetEdgeAttributeBuffer(net, "weight");
+	edgeWeights[edgeIds[0]] = 3.25f;
+	edgeWeights[edgeIds[1]] = 4.75f;
+
+	assert(CXNetworkDefineEdgeAttribute(net, "tag", CXStringAttributeType, 1));
+	CXString *tags = (CXString *)CXNetworkGetEdgeAttributeBuffer(net, "tag");
+	tags[edgeIds[0]] = CXNewStringFromString("fast");
+	tags[edgeIds[1]] = CXNewStringFromString("slow\npath");
+
+	assert(CXNetworkDefineNetworkAttribute(net, "description", CXStringAttributeType, 1));
+	CXString *desc = (CXString *)CXNetworkGetNetworkAttributeBuffer(net, "description");
+	desc[0] = CXNewStringFromString("Round trip test");
+
+	char xnetTemplate[] = "/tmp/cxnet-xnet-XXXXXX";
+	int xnetFd = mkstemp(xnetTemplate);
+	assert(xnetFd >= 0);
+	close(xnetFd);
+
+	assert(CXNetworkWriteXNet(net, xnetTemplate));
+	release_all_string_attributes(net);
+	CXFreeNetwork(net);
+
+	CXNetworkRef loaded = CXNetworkReadXNet(xnetTemplate);
+	assert(loaded);
+	unlink(xnetTemplate);
+
+	assert(loaded->nodeCount == 3);
+	assert(loaded->edgeCount == 2);
+	assert(CXNetworkIsDirected(loaded));
+
+	float *loadedScores = (float *)CXNetworkGetNodeAttributeBuffer(loaded, "score");
+	assert(loadedScores);
+	assert(fabsf(loadedScores[0] - 0.5f) < 1e-6f);
+	assert(fabsf(loadedScores[1] - 1.5f) < 1e-6f);
+	assert(fabsf(loadedScores[2] - 2.5f) < 1e-6f);
+
+	CXString *loadedLabels = (CXString *)CXNetworkGetNodeAttributeBuffer(loaded, "label");
+	assert(loadedLabels);
+	assert(strcmp(loadedLabels[0], "Alpha") == 0);
+	assert(strcmp(loadedLabels[1], "Beta Value") == 0);
+	assert(strcmp(loadedLabels[2], "Gamma#Tag") == 0);
+
+	int64_t *loadedCoords = (int64_t *)CXNetworkGetNodeAttributeBuffer(loaded, "coord");
+	assert(loadedCoords);
+	for (int i = 0; i < 3; i++) {
+		assert(loadedCoords[i * 3 + 0] == i);
+		assert(loadedCoords[i * 3 + 1] == i + 10);
+		assert(loadedCoords[i * 3 + 2] == i + 20);
+	}
+
+	float *loadedEdgeWeights = (float *)CXNetworkGetEdgeAttributeBuffer(loaded, "weight");
+	assert(loadedEdgeWeights);
+	assert(fabsf(loadedEdgeWeights[0] - 3.25f) < 1e-6f);
+	assert(fabsf(loadedEdgeWeights[1] - 4.75f) < 1e-6f);
+
+	CXString *loadedTags = (CXString *)CXNetworkGetEdgeAttributeBuffer(loaded, "tag");
+	assert(loadedTags);
+	assert(strcmp(loadedTags[0], "fast") == 0);
+	assert(strcmp(loadedTags[1], "slow\npath") == 0);
+
+	CXString *loadedDesc = (CXString *)CXNetworkGetNetworkAttributeBuffer(loaded, "description");
+	assert(loadedDesc && loadedDesc[0]);
+	assert(strcmp(loadedDesc[0], "Round trip test") == 0);
+
+	CXString *originalIds = (CXString *)CXNetworkGetNodeAttributeBuffer(loaded, "_original_ids_");
+	assert(originalIds);
+	assert(strcmp(originalIds[0], "0") == 0);
+	assert(strcmp(originalIds[1], "1") == 0);
+	assert(strcmp(originalIds[2], "2") == 0);
+
+	release_all_string_attributes(loaded);
+	CXFreeNetwork(loaded);
+}
+
+static void test_xnet_legacy_upgrade(void) {
+	const char *legacy =
+		"#vertices 3\n"
+		"First\n"
+		"Second\n"
+		"Third\n"
+		"#edges weighted directed\n"
+		"0 1 1.25\n"
+		"1 2 2.5\n"
+		"#v \"Legacy numeric\" n\n"
+		"1\n"
+		"2\n"
+		"3\n"
+		"#v \"Legacy strings\" s\n"
+		"alpha\n"
+		"beta\n"
+		"gamma\n"
+		"#e \"kind\" s\n"
+		"forward\n"
+		"back\n";
+
+	char legacyPath[] = "/tmp/cxnet-legacy-XXXXXX";
+	int fd = mkstemp(legacyPath);
+	assert(fd >= 0);
+	size_t legacyLen = strlen(legacy);
+	assert(write(fd, legacy, legacyLen) == (ssize_t)legacyLen);
+	close(fd);
+
+	CXNetworkRef net = CXNetworkReadXNet(legacyPath);
+	assert(net);
+	unlink(legacyPath);
+
+	assert(net->nodeCount == 3);
+	assert(net->edgeCount == 2);
+	assert(CXNetworkIsDirected(net));
+
+	CXString *labels = (CXString *)CXNetworkGetNodeAttributeBuffer(net, "Label");
+	assert(labels);
+	assert(strcmp(labels[0], "First") == 0);
+	assert(strcmp(labels[1], "Second") == 0);
+	assert(strcmp(labels[2], "Third") == 0);
+
+	float *weights = (float *)CXNetworkGetEdgeAttributeBuffer(net, "weight");
+	assert(weights);
+	assert(fabsf(weights[0] - 1.25f) < 1e-6f);
+	assert(fabsf(weights[1] - 2.5f) < 1e-6f);
+
+	float *legacyNumeric = (float *)CXNetworkGetNodeAttributeBuffer(net, "Legacy numeric");
+	assert(legacyNumeric);
+	assert(fabsf(legacyNumeric[0] - 1.0f) < 1e-6f);
+	assert(fabsf(legacyNumeric[1] - 2.0f) < 1e-6f);
+	assert(fabsf(legacyNumeric[2] - 3.0f) < 1e-6f);
+
+	CXString *edgeKinds = (CXString *)CXNetworkGetEdgeAttributeBuffer(net, "kind");
+	assert(edgeKinds);
+	assert(strcmp(edgeKinds[0], "forward") == 0);
+	assert(strcmp(edgeKinds[1], "back") == 0);
+
+	char upgradePath[] = "/tmp/cxnet-upgrade-XXXXXX";
+	int upgradeFd = mkstemp(upgradePath);
+	assert(upgradeFd >= 0);
+	close(upgradeFd);
+	assert(CXNetworkWriteXNet(net, upgradePath));
+	unlink(upgradePath);
+
+	release_all_string_attributes(net);
+	CXFreeNetwork(net);
+}
+
+static void test_xnet_string_escaping(void) {
+	const char *content =
+		"#XNET 1.0.0\n"
+		"#vertices 2\n"
+		"#edges undirected\n"
+		"0 1\n"
+		"#v \"Label\" s\n"
+		"\"Line1\\nLine2\"\n"
+		"\"#Hashtag\"\n";
+
+	char path[] = "/tmp/cxnet-escape-XXXXXX";
+	int fd = mkstemp(path);
+	assert(fd >= 0);
+	size_t len = strlen(content);
+	assert(write(fd, content, len) == (ssize_t)len);
+	close(fd);
+
+	CXNetworkRef net = CXNetworkReadXNet(path);
+	assert(net);
+
+	CXString *labels = (CXString *)CXNetworkGetNodeAttributeBuffer(net, "Label");
+	assert(labels);
+	assert(strcmp(labels[0], "Line1\nLine2") == 0);
+	assert(strcmp(labels[1], "#Hashtag") == 0);
+
+	char outPath[] = "/tmp/cxnet-escape-out-XXXXXX";
+	int outFd = mkstemp(outPath);
+	assert(outFd >= 0);
+	close(outFd);
+	assert(CXNetworkWriteXNet(net, outPath));
+
+	FILE *outFile = fopen(outPath, "rb");
+	assert(outFile);
+	fseek(outFile, 0, SEEK_END);
+	long outSize = ftell(outFile);
+	assert(outSize > 0);
+	rewind(outFile);
+	char *buffer = malloc((size_t)outSize + 1);
+	assert(buffer);
+	size_t readBytes = fread(buffer, 1, (size_t)outSize, outFile);
+	assert(readBytes == (size_t)outSize);
+	buffer[outSize] = '\0';
+	fclose(outFile);
+
+	assert(strstr(buffer, "Line1\\nLine2") != NULL);
+	assert(strstr(buffer, "\"#Hashtag\"") != NULL);
+
+	free(buffer);
+	unlink(path);
+	unlink(outPath);
+	release_all_string_attributes(net);
+	CXFreeNetwork(net);
+}
+
+static void test_xnet_invalid_inputs(void) {
+	struct {
+		const char *name;
+		const char *payload;
+	} cases[] = {
+		{
+			"edge out of range",
+			"#XNET 1.0.0\n#vertices 2\n#edges undirected\n0 2\n",
+		},
+		{
+			"vector arity mismatch",
+			"#XNET 1.0.0\n#vertices 2\n#edges undirected\n0 1\n#v \"Vec\" f3\n1 2\n3 4 5\n",
+		},
+		{
+			"attribute count mismatch",
+			"#XNET 1.0.0\n#vertices 2\n#edges undirected\n0 1\n#v \"Value\" f\n1\n",
+		},
+		{
+			"comment inside block",
+			"#XNET 1.0.0\n#vertices 1\n#edges undirected\n#v \"Value\" f\n## nope\n0.5\n",
+		},
+	};
+
+	for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+		char path[] = "/tmp/cxnet-invalid-XXXXXX";
+		int fd = mkstemp(path);
+		assert(fd >= 0);
+		size_t len = strlen(cases[i].payload);
+		assert(write(fd, cases[i].payload, len) == (ssize_t)len);
+		close(fd);
+		CXNetworkRef net = CXNetworkReadXNet(path);
+		unlink(path);
+		if (net) {
+			release_all_string_attributes(net);
+			CXFreeNetwork(net);
+		}
+		assert(net == NULL);
+	}
+}
+
+static void test_xnet_compaction_mapping(void) {
+	CXNetworkRef net = CXNewNetwork(CXFalse);
+	assert(net);
+
+	CXIndex nodes[5];
+	assert(CXNetworkAddNodes(net, 5, nodes));
+
+	CXEdge edges[3] = {
+		{ .from = nodes[0], .to = nodes[2] },
+		{ .from = nodes[2], .to = nodes[4] },
+		{ .from = nodes[4], .to = nodes[0] },
+	};
+	assert(CXNetworkAddEdges(net, edges, 3, NULL));
+
+	assert(CXNetworkDefineNodeAttribute(net, "value", CXIntegerAttributeType, 1));
+	int64_t *values = (int64_t *)CXNetworkGetNodeAttributeBuffer(net, "value");
+	for (int i = 0; i < 5; i++) {
+		values[nodes[i]] = i * 10;
+	}
+
+	CXIndex toRemove[2] = { nodes[1], nodes[3] };
+	assert(CXNetworkRemoveNodes(net, toRemove, 2));
+
+	char path[] = "/tmp/cxnet-compact-XXXXXX";
+	int fd = mkstemp(path);
+	assert(fd >= 0);
+	close(fd);
+	assert(CXNetworkWriteXNet(net, path));
+	release_all_string_attributes(net);
+	CXFreeNetwork(net);
+
+	CXNetworkRef compact = CXNetworkReadXNet(path);
+	assert(compact);
+	unlink(path);
+
+	assert(compact->nodeCount == 3);
+	assert(compact->edgeCount == 3);
+	assert(!CXNetworkIsDirected(compact));
+
+	int64_t *loadedValues = (int64_t *)CXNetworkGetNodeAttributeBuffer(compact, "value");
+	assert(loadedValues);
+	assert(loadedValues[0] == 0);
+	assert(loadedValues[1] == 20);
+	assert(loadedValues[2] == 40);
+
+	CXString *originalIds = (CXString *)CXNetworkGetNodeAttributeBuffer(compact, "_original_ids_");
+	assert(originalIds);
+	assert(strcmp(originalIds[0], "0") == 0);
+	assert(strcmp(originalIds[1], "2") == 0);
+	assert(strcmp(originalIds[2], "4") == 0);
+
+	CXSize observedEdges = 0;
+	for (CXSize i = 0; i < compact->edgeCapacity; i++) {
+		if (compact->edgeActive && compact->edgeActive[i]) {
+			CXEdge e = compact->edges[i];
+			if (observedEdges == 0) {
+				assert(e.from == 0 && e.to == 1);
+			} else if (observedEdges == 1) {
+				assert(e.from == 1 && e.to == 2);
+			} else if (observedEdges == 2) {
+				assert(e.from == 2 && e.to == 0);
+			}
+			observedEdges++;
+		}
+	}
+	assert(observedEdges == 3);
+
+	release_all_string_attributes(compact);
+	CXFreeNetwork(compact);
+}
+
 static void test_serialization_fuzz(void) {
 	srand(42);
 	CXSize sizes[] = {0, 1, 4, 12};
@@ -429,6 +805,11 @@ static void test_serialization_fuzz(void) {
 int main(void) {
 	test_basic_network();
 	test_attributes();
+	test_xnet_round_trip();
+	test_xnet_legacy_upgrade();
+	test_xnet_string_escaping();
+	test_xnet_invalid_inputs();
+	test_xnet_compaction_mapping();
 	test_serialization_fuzz();
 	printf("All native network tests passed.\n");
 	return 0;

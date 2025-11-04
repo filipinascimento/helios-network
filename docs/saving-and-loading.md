@@ -1,15 +1,17 @@
 # File Persistence Guide
 
-Helios exposes high-level helpers for writing and reading the binary `.bxnet` format and its compressed sibling `.zxnet`. The same API works in Node.js and in browsers thanks to the Emscripten virtual filesystem that ships with the WASM build. This guide shows the typical workflows for saving network snapshots and restoring them in both environments, including handling `Uint8Array`, `ArrayBuffer`, `Blob`, `Response`, and Base64 payloads.
+Helios exposes high-level helpers for writing and reading the human-readable `.xnet` format alongside the binary `.bxnet` container and its compressed sibling `.zxnet`. The same API works in Node.js and in browsers thanks to the Emscripten virtual filesystem that ships with the WASM build. This guide shows the typical workflows for saving network snapshots and restoring them in both environments, including handling `Uint8Array`, `ArrayBuffer`, `Blob`, `Response`, and Base64 payloads.
 
 ---
 
 ## Quick Reference
 
-- `saveBXNet(options?)` and `saveZXNet(options?)` serialize the active network. Without a `path`, they resolve to a `Uint8Array` (or another format when you pass `format`).
-- `fromBXNet(source, options?)` and `fromZXNet(source, options?)` hydrate a new `HeliosNetwork` instance from bytes, a browser blob/response, or a Node.js file path.
+- `saveBXNet(options?)`, `saveZXNet(options?)`, and `saveXNet(options?)` serialize the active network. Without a `path`, they resolve to a `Uint8Array` (or another format when you pass `format`).
+- `fromBXNet(source, options?)`, `fromZXNet(source, options?)`, and `fromXNet(source, options?)` hydrate a new `HeliosNetwork` instance from bytes, a browser blob/response, or a Node.js file path.
 - Use `.zxnet` when you want a compressed payload; `.bxnet` stays uncompressed and is cheaper to load.
 - Always call `dispose()` on networks you no longer need to free native memory.
+
+> **Note:** `saveXNet` compacts the network so node identifiers become contiguous (`0..n-1`). The original IDs are preserved in the `_original_ids_` vertex attribute.
 
 When the serialization exports are not present in the current WASM build, the helpers throw with a clear message. Rebuild the artefacts via `npm run build:wasm` if that happens.
 
@@ -41,8 +43,8 @@ Passing `path` skips returning bytes to JavaScript and writes the payload straig
 
 ```js
 const raw = await net.saveBXNet(); // Uint8Array by default
-const asArrayBuffer = await net.saveBXNet({ format: 'arraybuffer' });
-const asBase64 = await net.saveBXNet({ format: 'base64' });
+const asArrayBuffer = await net.saveXNet({ format: 'arraybuffer' });
+const asBase64 = await net.saveZXNet({ format: 'base64' });
 ```
 
 If you need a Node.js `Buffer`, wrap the returned `Uint8Array`:
@@ -175,4 +177,4 @@ const cloned = await HeliosNetwork.fromBXNet(decoded);
 - `.zxnet` files are smaller on disk but take longer to serialize/deserialize because of compression. Use `.bxnet` if you optimize for speed.
 - The helpers run in Web Workers as long as the calling code can `await`. Just ensure you forward the `Blob`/`ArrayBuffer` across the worker boundary.
 - If you are bundling for the browser, keep the `Blob` option handy—it prevents pulling large `Uint8Array` buffers into your main thread.
-- Networks are independent snapshots; remember to call `dispose()` on temporary instances created via `fromBXNet`/`fromZXNet` to avoid leaking linear memory.
+- Networks are independent snapshots; remember to call `dispose()` on temporary instances created via `fromBXNet`/`fromZXNet`/`fromXNet` to avoid leaking linear memory.
