@@ -12,7 +12,11 @@
   },
   "license": "MIT",
   "scripts": {
-    "build": "ROLLUP_SKIP_NATIVE=true FORMAT=esm vite build && ROLLUP_SKIP_NATIVE=true FORMAT=umd vite build --emptyOutDir false",
+    "build": "npm run build:prep && npm run build:es && npm run build:umd && npm run build:inline",
+    "build:prep": "node scripts/generate-inline-wasm.mjs",
+    "build:es": "ROLLUP_SKIP_NATIVE=true FORMAT=es vite build",
+    "build:umd": "ROLLUP_SKIP_NATIVE=true FORMAT=umd vite build --emptyOutDir false",
+    "build:inline": "ROLLUP_SKIP_NATIVE=true FORMAT=inline vite build --emptyOutDir false",
     "build:wasm": "PATH=$PWD/node_modules/.bin:$PATH meson setup builddir --cross-file emscripten-cross.txt || true && PATH=$PWD/node_modules/.bin:$PATH meson compile -C builddir",
     "dev": "vite",
     "test": "vitest --run --exclude tests/browser.spec.js",
@@ -43,8 +47,12 @@
   "module": "./dist//helios-network.js",
   "exports": {
     ".": {
+      "browser": "./dist//helios-network.inline.js",
       "import": "./dist//helios-network.js",
       "require": "./dist//helios-network.umd.cjs"
+    },
+    "./inline": {
+      "import": "./dist//helios-network.inline.js"
     }
   }
 }

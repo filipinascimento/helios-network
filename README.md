@@ -104,8 +104,9 @@ Expected output (abridged):
 
 ```
 vite v6.x building for production...
-dist/helios-network.js         # ESM bundle
-dist/helios-network.umd.cjs    # UMD bundle
+dist/helios-network.js            # ESM bundle
+dist/helios-network.umd.cjs       # UMD bundle
+dist/helios-network.inline.js     # ESM bundle with the WASM inlined as base64
 ```
 
 ### WebAssembly Core
@@ -218,6 +219,43 @@ edgeSelector.dispose();
 
 net.dispose();
 ```
+
+### Browser bundlers & inline WASM
+
+Helios now ships two JavaScript entry points:
+
+- `helios-network` (default) loads the `.wasm` artefact from `dist/compiled/` at runtime. This is ideal for Node.js and environments where you control asset delivery.
+- `helios-network/inline` embeds the WASM bytes in the bundle as a base64 string. This build is exposed through the `browser` export condition, so bundlers such as Vite, Webpack, and Rspack pick it automatically without custom configuration.
+
+Explicitly opt into the inline build if you want to avoid the automatic condition:
+
+```js
+import HeliosNetwork from 'helios-network/inline';
+
+const net = await HeliosNetwork.create();
+```
+
+Both builds export the same API surface. The inline version increases the JS payload slightly but removes the need for `assetsInclude`/`optimizeDeps.exclude` tweaks when consuming the library.
+
+#### Importing the package in different environments
+
+- **Vite / modern ESM bundlers** – Install via npm and import the package normally:
+  ```js
+  import HeliosNetwork from 'helios-network';
+  ```
+  Because the package.json exposes a `browser` condition, Vite automatically switches to the inline build so you do not need extra `assetsInclude` or `optimizeDeps.exclude` configuration. If you explicitly want the inline build (for example to pin the behaviour in a monorepo), import `helios-network/inline`.
+- **Node.js (ESM or CommonJS)** – The default entry reuses the on-disk WASM, so simply `import HeliosNetwork from 'helios-network';` or `const HeliosNetwork = require('helios-network');`. No bundler tweaks are required because Node can read `dist/compiled/CXNetwork.wasm` directly.
+- **UMD/browser scripts** – Use the file exposed through `unpkg`/`jsdelivr` (`dist/helios-network.umd.cjs`). Example:
+  ```html
+  <script src="https://cdn.jsdelivr.net/npm/helios-network/dist/helios-network.umd.cjs"></script>
+  <script>
+    HeliosNetwork.default.create().then((net) => {
+      // …
+      net.dispose();
+    });
+  </script>
+  ```
+  In UMD mode the module exports both named and default exports on the global `HeliosNetwork` object.
 
 Once the WebAssembly module has been initialised (for example by awaiting `HeliosNetwork.create()` or `getHeliosModule()` once), additional networks can be created synchronously through `HeliosNetwork.createSync()` if you prefer to stay in synchronous code.
 

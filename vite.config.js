@@ -2,7 +2,9 @@
 import { execSync } from 'child_process'
 import { viteStaticCopy } from 'vite-plugin-static-copy'
 
-const isUMD = process.env.FORMAT === 'umd';
+const format = process.env.FORMAT ?? 'es';
+const isUMD = format === 'umd';
+const isInline = format === 'inline';
 
 function compileEmscripten() {
 	return {
@@ -31,10 +33,10 @@ export default {
 		target: "esnext",
 		sourcemap: true,
 		lib: {
-			entry: 'src/helios-network.js',
-			name: 'helios-network',
+			entry: isInline ? 'src/helios-network-inline.js' : 'src/helios-network.js',
+			name: isInline ? 'helios-network-inline' : 'helios-network',
 			// the proper extensions will be added
-			fileName: 'helios-network',
+			fileName: isInline ? 'helios-network.inline' : 'helios-network',
 			formats: isUMD ? ['umd'] : ['es'],
 		},
 		minify: "esbuild",

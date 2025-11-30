@@ -1,4 +1,4 @@
-import createHeliosModule from '../../compiled/CXNetwork.mjs';
+import createHeliosModule from './moduleFactory.js';
 
 /**
  * Enumeration of attribute types supported by the WASM network core.
