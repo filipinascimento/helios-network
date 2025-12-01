@@ -1,6 +1,6 @@
 {
   "name": "helios-network",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Helios network representation written using wasm",
   "author": {
     "name": "Filipi N. Silva",
