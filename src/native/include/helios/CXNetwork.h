@@ -91,6 +91,23 @@ typedef struct {
 	CXNeighborContainer outNeighbors;
 } CXNodeRecord;
 
+/**
+ * Describes a reusable view of active node or edge indices. The backing buffer
+ * remains valid until the network grows beyond the stored capacity, at which
+ * point it is resized and the pointer changes.
+ */
+typedef struct {
+	char *name;
+	uint8_t *data;
+	CXSize count;
+	CXSize capacity;
+	CXSize stride;
+	CXSize validStart;
+	CXSize validEnd;
+	CXBool dirty;
+	CXBool isIndexBuffer;
+} CXDenseAttributeBuffer;
+
 typedef struct CXNetwork {
 	CXBool isDirected;
 	CXSize nodeCount;
@@ -109,6 +126,27 @@ typedef struct CXNetwork {
 	CXStringDictionaryRef nodeAttributes;
 	CXStringDictionaryRef edgeAttributes;
 	CXStringDictionaryRef networkAttributes;
+
+	CXDenseAttributeBuffer *nodeDenseBuffers;
+	CXSize nodeDenseBufferCount;
+	CXSize nodeDenseBufferCapacity;
+	CXDenseAttributeBuffer *edgeDenseBuffers;
+	CXSize edgeDenseBufferCount;
+	CXSize edgeDenseBufferCapacity;
+	CXDenseAttributeBuffer nodeIndexDense;
+	CXDenseAttributeBuffer edgeIndexDense;
+	CXIndex *nodeDenseOrder;
+	CXSize nodeDenseOrderCount;
+	CXSize nodeDenseOrderCapacity;
+	CXIndex *edgeDenseOrder;
+	CXSize edgeDenseOrderCount;
+	CXSize edgeDenseOrderCapacity;
+	CXSize nodeValidStart;
+	CXSize nodeValidEnd;
+	CXBool nodeValidRangeDirty;
+	CXSize edgeValidStart;
+	CXSize edgeValidEnd;
+	CXBool edgeValidRangeDirty;
 } CXNetwork;
 
 typedef CXNetwork* CXNetworkRef;
@@ -149,6 +187,30 @@ CX_EXTERN CXSize CXNetworkNodeCapacity(CXNetworkRef network);
 CX_EXTERN CXSize CXNetworkEdgeCapacity(CXNetworkRef network);
 /** Returns CXTrue when the network treats edges as directed. */
 CX_EXTERN CXBool CXNetworkIsDirected(CXNetworkRef network);
+/**
+ * Writes active node indices into caller-provided storage. When `capacity` is
+ * insufficient the required size is returned and no writes occur.
+ */
+CX_EXTERN CXSize CXNetworkWriteActiveNodes(CXNetworkRef network, CXIndex *dst, CXSize capacity);
+/**
+ * Writes active edge indices into caller-provided storage. When `capacity` is
+ * insufficient the required size is returned and no writes occur.
+ */
+CX_EXTERN CXSize CXNetworkWriteActiveEdges(CXNetworkRef network, CXIndex *dst, CXSize capacity);
+/**
+ * Writes two position vectors per active edge directly into the provided
+ * buffer. `componentsPerNode` describes how many floats to copy per endpoint
+ * (commonly 4 for vec4 data). Returns the number of edges that would be
+ * written; when `dstCapacityEdges` is too small, the required count is
+ * returned and no writes occur.
+ */
+CX_EXTERN CXSize CXNetworkWriteActiveEdgeSegments(
+	CXNetworkRef network,
+	const float *positions,
+	CXSize componentsPerNode,
+	float *dstSegments,
+	CXSize dstCapacityEdges
+);
 
 // Node management
 /**
@@ -222,6 +284,36 @@ CX_EXTERN CXBool CXNetworkCompact(
 	const CXString nodeOriginalIndexAttr,
 	const CXString edgeOriginalIndexAttr
 );
+
+// Dense attribute buffers ----------------------------------------------------
+/** Registers a dense node attribute buffer that can be refreshed on demand. */
+CX_EXTERN CXBool CXNetworkAddDenseNodeAttribute(CXNetworkRef network, const CXString name, CXSize initialCapacity);
+/** Registers a dense edge attribute buffer. */
+CX_EXTERN CXBool CXNetworkAddDenseEdgeAttribute(CXNetworkRef network, const CXString name, CXSize initialCapacity);
+/** Removes a previously registered dense node attribute buffer. */
+CX_EXTERN CXBool CXNetworkRemoveDenseNodeAttribute(CXNetworkRef network, const CXString name);
+/** Removes a dense edge attribute buffer. */
+CX_EXTERN CXBool CXNetworkRemoveDenseEdgeAttribute(CXNetworkRef network, const CXString name);
+/** Marks a dense node attribute buffer dirty so it will be repacked. */
+CX_EXTERN CXBool CXNetworkMarkDenseNodeAttributeDirty(CXNetworkRef network, const CXString name);
+/** Marks a dense edge attribute buffer dirty. */
+CX_EXTERN CXBool CXNetworkMarkDenseEdgeAttributeDirty(CXNetworkRef network, const CXString name);
+/** Rebuilds a dense node attribute buffer using the provided order (or active order). */
+CX_EXTERN const CXDenseAttributeBuffer* CXNetworkUpdateDenseNodeAttribute(CXNetworkRef network, const CXString name, const CXIndex *order, CXSize orderCount);
+/** Rebuilds a dense edge attribute buffer. */
+CX_EXTERN const CXDenseAttributeBuffer* CXNetworkUpdateDenseEdgeAttribute(CXNetworkRef network, const CXString name, const CXIndex *order, CXSize orderCount);
+/** Ensures the dense node index buffer exists and returns it refreshed. */
+CX_EXTERN const CXDenseAttributeBuffer* CXNetworkUpdateDenseNodeIndexBuffer(CXNetworkRef network, const CXIndex *order, CXSize orderCount);
+/** Ensures the dense edge index buffer exists and returns it refreshed. */
+CX_EXTERN const CXDenseAttributeBuffer* CXNetworkUpdateDenseEdgeIndexBuffer(CXNetworkRef network, const CXIndex *order, CXSize orderCount);
+/** Sets a default node order for dense packing (applied to all dense buffers when order is omitted). */
+CX_EXTERN CXBool CXNetworkSetDenseNodeOrder(CXNetworkRef network, const CXIndex *order, CXSize count);
+/** Sets a default edge order for dense packing. */
+CX_EXTERN CXBool CXNetworkSetDenseEdgeOrder(CXNetworkRef network, const CXIndex *order, CXSize count);
+/** Returns the min/max active node indices as [start,end). */
+CX_EXTERN CXBool CXNetworkGetNodeValidRange(CXNetworkRef network, CXSize *start, CXSize *end);
+/** Returns the min/max active edge indices as [start,end). */
+CX_EXTERN CXBool CXNetworkGetEdgeValidRange(CXNetworkRef network, CXSize *start, CXSize *end);
 
 // Selector utilities
 /** Creates a selector object for nodes with an optional initial capacity. */

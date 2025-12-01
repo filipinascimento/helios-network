@@ -122,6 +122,9 @@ function setToUint32Array(values) {
 	return result;
 }
 
+const EMPTY_UINT32 = new Uint32Array(0);
+const EMPTY_UINT8 = new Uint8Array(0);
+
 const NODE_RUNTIME = typeof process !== 'undefined' && !!process.versions?.node;
 const VIRTUAL_TEMP_DIR = '/tmp/helios';
 
@@ -1320,6 +1323,351 @@ export class HeliosNetwork {
 	}
 
 	/**
+	 * Registers a dense node attribute buffer that can be refreshed on demand.
+	 *
+	 * @param {string} name - Attribute identifier.
+	 * @param {number} [initialCapacityBytes=0] - Optional initial dense buffer capacity in bytes.
+	 */
+	addDenseNodeAttributeBuffer(name, initialCapacityBytes = 0) {
+		this._ensureActive();
+		const cstr = new CString(this.module, name);
+		try {
+			this.module._CXNetworkAddDenseNodeAttribute(this.ptr, cstr.ptr, initialCapacityBytes);
+		} finally {
+			cstr.dispose();
+		}
+	}
+
+	/**
+	 * Registers a dense edge attribute buffer.
+	 */
+	addDenseEdgeAttributeBuffer(name, initialCapacityBytes = 0) {
+		this._ensureActive();
+		const cstr = new CString(this.module, name);
+		try {
+			this.module._CXNetworkAddDenseEdgeAttribute(this.ptr, cstr.ptr, initialCapacityBytes);
+		} finally {
+			cstr.dispose();
+		}
+	}
+
+	/**
+	 * Removes a dense node attribute buffer.
+	 */
+	removeDenseNodeAttributeBuffer(name) {
+		this._ensureActive();
+		const cstr = new CString(this.module, name);
+		try {
+			this.module._CXNetworkRemoveDenseNodeAttribute(this.ptr, cstr.ptr);
+		} finally {
+			cstr.dispose();
+		}
+	}
+
+	/**
+	 * Removes a dense edge attribute buffer.
+	 */
+	removeDenseEdgeAttributeBuffer(name) {
+		this._ensureActive();
+		const cstr = new CString(this.module, name);
+		try {
+			this.module._CXNetworkRemoveDenseEdgeAttribute(this.ptr, cstr.ptr);
+		} finally {
+			cstr.dispose();
+		}
+	}
+
+	/**
+	 * Marks a dense node attribute buffer dirty, forcing a repack on next update.
+	 */
+	markDenseNodeAttributeDirty(name) {
+		this._ensureActive();
+		const cstr = new CString(this.module, name);
+		try {
+			this.module._CXNetworkMarkDenseNodeAttributeDirty(this.ptr, cstr.ptr);
+		} finally {
+			cstr.dispose();
+		}
+	}
+
+	/**
+	 * Marks a dense edge attribute buffer dirty.
+	 */
+	markDenseEdgeAttributeDirty(name) {
+		this._ensureActive();
+		const cstr = new CString(this.module, name);
+		try {
+			this.module._CXNetworkMarkDenseEdgeAttributeDirty(this.ptr, cstr.ptr);
+		} finally {
+			cstr.dispose();
+		}
+	}
+
+	/**
+	 * Refreshes a dense node attribute buffer and returns its view metadata.
+	 *
+	 * @param {string} name - Attribute identifier.
+	 * @param {Uint32Array|number[]} [order] - Optional index order to pack; defaults to active order.
+	 * @returns {{view:Uint8Array,count:number,capacity:number,stride:number,validStart:number,validEnd:number,pointer:number}}
+	 */
+	updateDenseNodeAttributeBuffer(name, order) {
+		this._ensureActive();
+		const orderInfo = this._copyIndicesToWasm(order);
+		const cstr = new CString(this.module, name);
+		let ptr = 0;
+		try {
+			ptr = this.module._CXNetworkUpdateDenseNodeAttribute(this.ptr, cstr.ptr, orderInfo.ptr, orderInfo.count);
+		} finally {
+			orderInfo.dispose();
+			cstr.dispose();
+		}
+		return this._parseDenseBuffer(ptr);
+	}
+
+	/**
+	 * Refreshes a dense edge attribute buffer.
+	 */
+	updateDenseEdgeAttributeBuffer(name, order) {
+		this._ensureActive();
+		const orderInfo = this._copyIndicesToWasm(order);
+		const cstr = new CString(this.module, name);
+		let ptr = 0;
+		try {
+			ptr = this.module._CXNetworkUpdateDenseEdgeAttribute(this.ptr, cstr.ptr, orderInfo.ptr, orderInfo.count);
+		} finally {
+			orderInfo.dispose();
+			cstr.dispose();
+		}
+		return this._parseDenseBuffer(ptr);
+	}
+
+	/**
+	 * Returns a dense buffer of active node indices in the provided order (or active order).
+	 */
+	updateDenseNodeIndexBuffer(order) {
+		this._ensureActive();
+		const orderInfo = this._copyIndicesToWasm(order);
+		let ptr = 0;
+		try {
+			ptr = this.module._CXNetworkUpdateDenseNodeIndexBuffer(this.ptr, orderInfo.ptr, orderInfo.count);
+		} finally {
+			orderInfo.dispose();
+		}
+		return this._parseDenseBuffer(ptr);
+	}
+
+	/**
+	 * Returns a dense buffer of active edge indices.
+	 */
+	updateDenseEdgeIndexBuffer(order) {
+		this._ensureActive();
+		const orderInfo = this._copyIndicesToWasm(order);
+		let ptr = 0;
+		try {
+			ptr = this.module._CXNetworkUpdateDenseEdgeIndexBuffer(this.ptr, orderInfo.ptr, orderInfo.count);
+		} finally {
+			orderInfo.dispose();
+		}
+		return this._parseDenseBuffer(ptr);
+	}
+
+	/**
+	 * Sets the default dense order for nodes. All dense node buffers and the node index buffer
+	 * will use this order when none is provided explicitly.
+	 *
+	 * @param {Uint32Array|number[]} order - Desired node order.
+	 */
+	setDenseNodeOrder(order) {
+		this._ensureActive();
+		const orderInfo = this._copyIndicesToWasm(order);
+		try {
+			this.module._CXNetworkSetDenseNodeOrder(this.ptr, orderInfo.ptr, orderInfo.count);
+		} finally {
+			orderInfo.dispose();
+		}
+	}
+
+	/**
+	 * Sets the default dense order for edges (applies to edge attributes and edge index buffer).
+	 */
+	setDenseEdgeOrder(order) {
+		this._ensureActive();
+		const orderInfo = this._copyIndicesToWasm(order);
+		try {
+			this.module._CXNetworkSetDenseEdgeOrder(this.ptr, orderInfo.ptr, orderInfo.count);
+		} finally {
+			orderInfo.dispose();
+		}
+	}
+
+	/**
+	 * Returns the min/max active node indices as {start,end}.
+	 */
+	get nodeValidRange() {
+		this._ensureActive();
+		const startPtr = this.module._malloc(8);
+		const endPtr = this.module._malloc(8);
+		try {
+			this.module._CXNetworkGetNodeValidRange(this.ptr, startPtr, endPtr);
+			const start = Number(this.module.HEAPU32[startPtr >>> 2]);
+			const end = Number(this.module.HEAPU32[endPtr >>> 2]);
+			return { start, end };
+		} finally {
+			this.module._free(startPtr);
+			this.module._free(endPtr);
+		}
+	}
+
+	/**
+	 * Returns the min/max active edge indices as {start,end}.
+	 */
+	get edgeValidRange() {
+		this._ensureActive();
+		const startPtr = this.module._malloc(8);
+		const endPtr = this.module._malloc(8);
+		try {
+			this.module._CXNetworkGetEdgeValidRange(this.ptr, startPtr, endPtr);
+			const start = Number(this.module.HEAPU32[startPtr >>> 2]);
+			const end = Number(this.module.HEAPU32[endPtr >>> 2]);
+			return { start, end };
+		} finally {
+			this.module._free(startPtr);
+			this.module._free(endPtr);
+		}
+	}
+
+	/**
+	 * Returns a node attribute buffer slice over the valid node range.
+	 * @param {string} name
+	 * @returns {{view:TypedArray,start:number,end:number,stride:number}}
+	 */
+	getNodeAttributeBufferSlice(name) {
+		const meta = this._ensureAttributeMetadata('node', name);
+		if (!meta) {
+			throw new Error(`Attribute "${name}" not defined on node`);
+		}
+		const { pointer, stride } = this._attributePointers('node', name, meta);
+		const { start, end } = this.nodeValidRange;
+		const capacity = this.nodeCapacity;
+		const ctor = meta.type === AttributeType.String || meta.type === AttributeType.Data || meta.type === AttributeType.Javascript
+			? Uint32Array
+			: TypedArrayForType[meta.type];
+		if (!ctor) {
+			throw new Error('Unsupported attribute type for slicing');
+		}
+		const elementCount = (capacity * meta.dimension);
+		const fullView = new ctor(this.module.HEAPU8.buffer, pointer, elementCount);
+		const sliceStart = start * meta.dimension;
+		const sliceEnd = end * meta.dimension;
+		const view = fullView.subarray(sliceStart, sliceEnd);
+		return { view, start, end, stride };
+	}
+
+	/**
+	 * Returns an edge attribute buffer slice over the valid edge range.
+	 * @param {string} name
+	 * @returns {{view:TypedArray,start:number,end:number,stride:number}}
+	 */
+	getEdgeAttributeBufferSlice(name) {
+		const meta = this._ensureAttributeMetadata('edge', name);
+		if (!meta) {
+			throw new Error(`Attribute "${name}" not defined on edge`);
+		}
+		const { pointer, stride } = this._attributePointers('edge', name, meta);
+		const { start, end } = this.edgeValidRange;
+		const capacity = this.edgeCapacity;
+		const ctor = meta.type === AttributeType.String || meta.type === AttributeType.Data || meta.type === AttributeType.Javascript
+			? Uint32Array
+			: TypedArrayForType[meta.type];
+		if (!ctor) {
+			throw new Error('Unsupported attribute type for slicing');
+		}
+		const elementCount = (capacity * meta.dimension);
+		const fullView = new ctor(this.module.HEAPU8.buffer, pointer, elementCount);
+		const sliceStart = start * meta.dimension;
+		const sliceEnd = end * meta.dimension;
+		const view = fullView.subarray(sliceStart, sliceEnd);
+		return { view, start, end, stride };
+	}
+
+	/**
+	 * @private
+	 * Writes active indices into a caller-provided WASM buffer.
+	 */
+	_writeActiveIndices(target, writer, label) {
+		this._ensureActive();
+		if (typeof writer !== 'function') {
+			throw new Error(`${label} writer is unavailable in this WASM build`);
+		}
+		if (!(target instanceof Uint32Array)) {
+			throw new Error(`${label} buffer must be a Uint32Array`);
+		}
+		if (target.buffer !== this.module.HEAPU32.buffer) {
+			throw new Error(`${label} buffer must live in the WASM heap (module.HEAPU32.buffer)`);
+		}
+		return writer.call(this.module, this.ptr, target.byteOffset, target.length);
+	}
+
+	/**
+	 * Fills a caller-provided buffer with active node indices.
+	 *
+	 * @param {Uint32Array} target - Preallocated Uint32Array backed by WASM memory.
+	 * @returns {number} Number of active nodes (required capacity). When this
+	 *   exceeds `target.length`, no writes occur and the return value indicates
+	 *   the needed length.
+	 */
+	writeActiveNodes(target) {
+		return this._writeActiveIndices(target, this.module._CXNetworkWriteActiveNodes, 'Node');
+	}
+
+	/**
+	 * Fills a caller-provided buffer with active edge indices.
+	 *
+	 * @param {Uint32Array} target - Preallocated Uint32Array backed by WASM memory.
+	 * @returns {number} Number of active edges (required capacity). When this
+	 *   exceeds `target.length`, no writes occur and the return value indicates
+	 *   the needed length.
+	 */
+	writeActiveEdges(target) {
+		return this._writeActiveIndices(target, this.module._CXNetworkWriteActiveEdges, 'Edge');
+	}
+
+	/**
+	 * Writes two vec-like position vectors per active edge directly into the provided buffer.
+	 *
+	 * @param {Float32Array} positions - WASM-backed position buffer (stride = `componentsPerNode`).
+	 * @param {Float32Array} segments - Destination buffer in WASM memory; must have room for `count * componentsPerNode * 2` floats.
+	 * @param {number} [componentsPerNode=4] - Number of floats to copy per node (e.g. 4 for vec4 layouts).
+	 * @returns {number} Number of edges written or required. When this exceeds
+	 *   `Math.floor(segments.length / (componentsPerNode * 2))`, no writes occur.
+	 */
+	writeActiveEdgeSegments(positions, segments, componentsPerNode = 4) {
+		this._ensureActive();
+		if (typeof this.module._CXNetworkWriteActiveEdgeSegments !== 'function') {
+			throw new Error('CXNetworkWriteActiveEdgeSegments is unavailable in this WASM build');
+		}
+		const heapBuffer = this.module.HEAPU8.buffer;
+		if (!(positions instanceof Float32Array) || positions.buffer !== heapBuffer) {
+			throw new Error('positions must be a Float32Array backed by the WASM heap');
+		}
+		if (!(segments instanceof Float32Array) || segments.buffer !== heapBuffer) {
+			throw new Error('segments must be a Float32Array backed by the WASM heap');
+		}
+		const width = Math.trunc(componentsPerNode);
+		if (!Number.isFinite(width) || width <= 0) {
+			throw new Error('componentsPerNode must be a positive integer');
+		}
+		const segmentEdgeCapacity = Math.floor(segments.length / (width * 2));
+		return this.module._CXNetworkWriteActiveEdgeSegments(
+			this.ptr,
+			positions.byteOffset,
+			width,
+			segments.byteOffset,
+			segmentEdgeCapacity
+		);
+	}
+
+	/**
 	 * Serializes the network into the `.bxnet` container format.
 	 *
 	 * @param {object} [options]
@@ -1996,6 +2344,71 @@ export class HeliosNetwork {
 			case 'network': return this._networkAttributes;
 			default: throw new Error(`Unknown attribute scope "${scope}"`);
 		}
+	}
+
+	_copyIndicesToWasm(indices) {
+		if (!indices) {
+			return { ptr: 0, count: 0, dispose: () => {} };
+		}
+		let array = indices;
+		if (!ArrayBuffer.isView(indices)) {
+			array = Uint32Array.from(indices);
+		}
+		const count = array.length >>> 0;
+		if (count === 0) {
+			return { ptr: 0, count: 0, dispose: () => {} };
+		}
+		if (array.buffer === this.module.HEAPU32.buffer) {
+			return {
+				ptr: array.byteOffset,
+				count,
+				dispose: () => {},
+			};
+		}
+		const bytes = count * Uint32Array.BYTES_PER_ELEMENT;
+		const ptr = this.module._malloc(bytes);
+		if (!ptr) {
+			throw new Error('Failed to allocate WASM memory for indices');
+		}
+		this.module.HEAPU32.set(array, ptr >>> 2);
+		return {
+			ptr,
+			count,
+			dispose: () => this.module._free(ptr),
+		};
+	}
+
+	_parseDenseBuffer(ptr) {
+		if (!ptr) {
+			return {
+				view: EMPTY_UINT8,
+				count: 0,
+				capacity: 0,
+				stride: 0,
+				validStart: 0,
+				validEnd: 0,
+				dirty: false,
+			};
+		}
+		const base = ptr >>> 2;
+		const dataPtr = this.module.HEAPU32[base + 1];
+		const count = this.module.HEAPU32[base + 2];
+		const capacityBytes = this.module.HEAPU32[base + 3];
+		const stride = this.module.HEAPU32[base + 4];
+		const validStart = this.module.HEAPU32[base + 5];
+		const validEnd = this.module.HEAPU32[base + 6];
+		const dirty = !!this.module.HEAPU8[(base + 7) * 4];
+		const view = dataPtr ? new Uint8Array(this.module.HEAPU8.buffer, dataPtr, capacityBytes) : EMPTY_UINT8;
+		return {
+			view,
+			count,
+			capacity: capacityBytes,
+			stride,
+			validStart,
+			validEnd,
+			pointer: dataPtr,
+			dirty,
+		};
 	}
 
 	_ensureAttributeMetadata(scope, name) {

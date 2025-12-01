@@ -220,6 +220,33 @@ edgeSelector.dispose();
 net.dispose();
 ```
 
+### Fixed active index buffers
+
+Use the new zero-copy helpers to avoid per-frame allocations when building geometry:
+
+```js
+// Stable view that only reallocates when the native buffer grows
+const { view, count } = net.getActiveEdgeIndexView();
+const activeEdges = view.subarray(0, count);
+
+// Or, fill a caller-managed buffer and grow on demand
+const ptr = net.module._malloc(1024 * Uint32Array.BYTES_PER_ELEMENT);
+const scratch = new Uint32Array(net.module.HEAPU32.buffer, ptr, 1024);
+let needed = net.writeActiveEdges(scratch);
+if (needed > scratch.length) {
+  // reallocate + retry with the reported size
+}
+net.module._free(ptr);
+
+// Move the heavy vec4 copy for active edges into the WASM core
+const segmentPtr = net.module._malloc(8 * 4 * 1024);
+const segmentBuffer = new Float32Array(net.module.HEAPF32.buffer, segmentPtr, 8 * 1024);
+const edgesWritten = net.writeActiveEdgeSegments(net.getNodeAttributeBuffer('position').view, segmentBuffer, 4);
+net.module._free(segmentPtr);
+```
+
+`writeActiveNodes` / `writeActiveEdges` return the required length; nothing is written when the provided buffer is too small. `writeActiveEdgeSegments` writes two vectors per edge into `segments` using the requested stride (`componentsPerNode`).
+
 ### Browser bundlers & inline WASM
 
 Helios now ships two JavaScript entry points:
@@ -362,6 +389,17 @@ The public headers under `src/native/include/helios/` define the C API, intended
 - **`CXDictionary.h`, `CXSet.h`, `CXCommons.h`** – Support utilities (hash tables, sets, inline helpers) used across the codebase.
 
 > **Strings in native code**: string attributes are stored as pointers to null-terminated UTF-8 buffers in the underlying linear memory. When you set a string via JS, the pointer is written into the attribute buffer, so C consumers can access the text directly via `char *`.
+
+### Active index helpers
+
+- **Stable views**: `CXActiveView` (data/count/capacity) is returned by `CXNetworkGetActiveNodesView` and `CXNetworkGetActiveEdgesView`. The backing `CXIndex*` persists until the graph grows past the stored capacity; when resized, the pointer updates. The bitmap is re-scanned only when the view is dirty.
+- **Fill APIs**: `CXNetworkWriteActiveNodes` / `CXNetworkWriteActiveEdges` write active indices into caller-provided `uint32_t*` buffers. If `capacity` is insufficient, the required size is returned and no writes occur.
+- **Edge segments**: `CXNetworkWriteActiveEdgeSegments(network, positions, componentsPerNode, dst, dstCapacityEdges)` copies two position vectors per active edge (`componentsPerNode` floats each, typically vec4) directly into `dst`. A return value larger than `dstCapacityEdges` means the caller must grow the buffer; no out-of-bounds writes are performed.
+- **Threading/lifetime**: Returned pointers remain valid until a network mutation triggers growth; functions are otherwise read-only and safe under the current single-worker model.
+
+### Dense attribute buffers
+
+Advanced usage for render-ready dense buffers (packing, ordering, dirty flags, valid ranges) lives in [`docs/visualization-buffers.md`](docs/visualization-buffers.md).
 
 ---
 

@@ -169,6 +169,169 @@ describe('HeliosNetwork (Node runtime)', () => {
 		}
 	});
 
+	test('fills active index buffers for sparse networks and segments', async () => {
+		const net = await HeliosNetwork.create({ directed: true, initialNodes: 0, initialEdges: 0 });
+		try {
+			const nodes = net.addNodes(8);
+			net.removeNodes([nodes[1], nodes[6]]);
+			const edgeSpecs = [
+				{ from: nodes[0], to: nodes[2] },
+				{ from: nodes[3], to: nodes[4] },
+				{ from: nodes[4], to: nodes[5] },
+			];
+			const edges = net.addEdges(edgeSpecs);
+			net.removeEdges([edges[1]]);
+
+			const mod = net.module;
+
+			const tinyNodePtr = mod._malloc(Uint32Array.BYTES_PER_ELEMENT);
+			const tinyNodeBuf = new Uint32Array(mod.HEAPU32.buffer, tinyNodePtr, 1);
+			tinyNodeBuf[0] = 0xdeadbeef;
+			const requiredNodes = net.writeActiveNodes(tinyNodeBuf);
+			expect(requiredNodes).toBe(net.nodeCount);
+			expect(tinyNodeBuf[0]).toBe(0xdeadbeef);
+			mod._free(tinyNodePtr);
+
+			const nodePtr = mod._malloc(requiredNodes * Uint32Array.BYTES_PER_ELEMENT);
+			const nodeBuf = new Uint32Array(mod.HEAPU32.buffer, nodePtr, requiredNodes);
+			const writtenNodes = net.writeActiveNodes(nodeBuf);
+			expect(writtenNodes).toBe(requiredNodes);
+			expect(writtenNodes).toBe(net.nodeCount);
+			mod._free(nodePtr);
+
+			const tinyEdgePtr = mod._malloc(Uint32Array.BYTES_PER_ELEMENT);
+			const tinyEdgeBuf = new Uint32Array(mod.HEAPU32.buffer, tinyEdgePtr, 1);
+			const requiredEdges = net.writeActiveEdges(tinyEdgeBuf);
+			expect(requiredEdges).toBe(net.edgeCount);
+			mod._free(tinyEdgePtr);
+
+			const edgePtr = mod._malloc(requiredEdges * Uint32Array.BYTES_PER_ELEMENT);
+			const edgeBuf = new Uint32Array(mod.HEAPU32.buffer, edgePtr, requiredEdges);
+			const writtenEdges = net.writeActiveEdges(edgeBuf);
+			expect(writtenEdges).toBe(requiredEdges);
+			expect(writtenEdges).toBe(net.edgeCount);
+			mod._free(edgePtr);
+
+			net.defineNodeAttribute('position', AttributeType.Float, 4);
+			const posBuf = net.getNodeAttributeBuffer('position').view;
+			for (let i = 0; i < nodes.length; i++) {
+				const base = nodes[i] * 4;
+				posBuf[base + 0] = i + 0.1;
+				posBuf[base + 1] = i + 0.2;
+				posBuf[base + 2] = i + 0.3;
+				posBuf[base + 3] = 1.0;
+			}
+
+			const segPtr = mod._malloc(Float32Array.BYTES_PER_ELEMENT * requiredEdges * 8);
+			const segments = new Float32Array(mod.HEAPF32.buffer, segPtr, requiredEdges * 8);
+			const segEdges = net.writeActiveEdgeSegments(posBuf, segments, 4);
+			expect(segEdges).toBe(requiredEdges);
+
+			const packedEdges = edgeSpecs.filter((_, idx) => idx !== 1);
+			for (let i = 0; i < requiredEdges; i++) {
+				const edge = packedEdges[i];
+				const fromBase = edge.from * 4;
+				const toBase = edge.to * 4;
+				const outBase = i * 8;
+				expect(Array.from(segments.slice(outBase, outBase + 4))).toEqual([
+					posBuf[fromBase + 0],
+					posBuf[fromBase + 1],
+					posBuf[fromBase + 2],
+					posBuf[fromBase + 3],
+				]);
+				expect(Array.from(segments.slice(outBase + 4, outBase + 8))).toEqual([
+					posBuf[toBase + 0],
+					posBuf[toBase + 1],
+					posBuf[toBase + 2],
+					posBuf[toBase + 3],
+				]);
+			}
+			mod._free(segPtr);
+		} finally {
+			net.dispose();
+		}
+	});
+
+	test('packs dense attribute and index buffers with dirty tracking', async () => {
+		const net = await HeliosNetwork.create({ directed: true, initialNodes: 0, initialEdges: 0 });
+		try {
+			const nodes = net.addNodes(4);
+			net.defineNodeAttribute('weight', AttributeType.Float, 1);
+			const weights = net.getNodeAttributeBuffer('weight').view;
+			for (let i = 0; i < nodes.length; i++) {
+				weights[nodes[i]] = (i + 1) * 10;
+			}
+
+			net.addDenseNodeAttributeBuffer('weight');
+			const reverseOrder = Uint32Array.from([...nodes].reverse());
+			let dense = net.updateDenseNodeAttributeBuffer('weight', reverseOrder);
+			expect(dense.count).toBe(reverseOrder.length);
+			expect(dense.stride).toBe(Float32Array.BYTES_PER_ELEMENT);
+			expect(dense.validStart).toBe(0);
+			expect(dense.validEnd).toBe(nodes[nodes.length - 1] + 1);
+			const denseFloats = new Float32Array(dense.view.buffer, dense.pointer, dense.view.byteLength / Float32Array.BYTES_PER_ELEMENT);
+			expect(Array.from(denseFloats.slice(0, reverseOrder.length))).toEqual([40, 30, 20, 10]);
+
+			weights[nodes[0]] = 99;
+			net.markDenseNodeAttributeDirty('weight');
+			dense = net.updateDenseNodeAttributeBuffer('weight', reverseOrder);
+			const refreshedFloats = new Float32Array(dense.view.buffer, dense.pointer, dense.view.byteLength / Float32Array.BYTES_PER_ELEMENT);
+			expect(refreshedFloats[0]).toBeCloseTo(40);
+			expect(refreshedFloats[reverseOrder.length - 1]).toBeCloseTo(99);
+
+			const indexDense = net.updateDenseNodeIndexBuffer();
+			expect(indexDense.count).toBe(net.nodeCount);
+			const indexView = new Uint32Array(indexDense.view.buffer, indexDense.pointer, indexDense.count);
+			expect(Array.from(indexView.slice(0, net.nodeCount))).toEqual(expect.arrayContaining(Array.from(nodes)));
+
+			const edges = net.addEdges([
+				{ from: nodes[0], to: nodes[1] },
+				{ from: nodes[2], to: nodes[3] },
+			]);
+			net.defineEdgeAttribute('capacity', AttributeType.Float, 1);
+			const capView = net.getEdgeAttributeBuffer('capacity').view;
+			capView[edges[0]] = 1.5;
+			capView[edges[1]] = 2.5;
+
+			net.addDenseEdgeAttributeBuffer('capacity');
+			const denseEdge = net.updateDenseEdgeAttributeBuffer('capacity');
+			const denseEdgeFloats = new Float32Array(denseEdge.view.buffer, denseEdge.pointer, denseEdge.view.byteLength / Float32Array.BYTES_PER_ELEMENT);
+			expect(Array.from(denseEdgeFloats.slice(0, denseEdge.count))).toEqual(expect.arrayContaining([1.5, 2.5]));
+			const denseEdgeIndex = net.updateDenseEdgeIndexBuffer();
+			expect(denseEdgeIndex.count).toBe(net.edgeCount);
+		} finally {
+			net.dispose();
+		}
+	});
+
+	test('tracks valid ranges and slices sparse buffers', async () => {
+		const net = await HeliosNetwork.create({ directed: true, initialNodes: 0, initialEdges: 0 });
+		try {
+			expect(net.nodeValidRange).toEqual({ start: 0, end: 0 });
+			const nodes = net.addNodes(3);
+			net.defineNodeAttribute('value', AttributeType.Float, 1);
+			const valView = net.getNodeAttributeBuffer('value').view;
+			valView[nodes[0]] = 1;
+			valView[nodes[1]] = 2;
+			valView[nodes[2]] = 3;
+
+			expect(net.nodeValidRange.start).toBe(0);
+			expect(net.nodeValidRange.end).toBeGreaterThanOrEqual(nodes[2] + 1);
+
+			net.removeNodes([nodes[0]]);
+			const rangeAfterRemove = net.nodeValidRange;
+			expect(rangeAfterRemove.start).toBe(nodes[1]);
+			expect(rangeAfterRemove.end).toBeGreaterThan(rangeAfterRemove.start);
+
+			const slice = net.getNodeAttributeBufferSlice('value');
+			expect(slice.start).toBe(rangeAfterRemove.start);
+			expect(slice.end).toBe(rangeAfterRemove.end);
+			expect(Array.from(slice.view)).toEqual([2, 3]);
+		} finally {
+			net.dispose();
+		}
+	});
+
 	test('round-trips .bxnet payloads with string attributes', async () => {
 		const networkInstance = await HeliosNetwork.create({ directed: false, initialNodes: 0, initialEdges: 0 });
 		try {
