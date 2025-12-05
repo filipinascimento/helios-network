@@ -222,6 +222,12 @@ describe('HeliosNetwork (Node runtime)', () => {
 				posBuf[base + 3] = 1.0;
 			}
 
+			net.defineNodeAttribute('size', AttributeType.Float, 1);
+			const sizeBuf = net.getNodeAttributeBuffer('size').view;
+			for (let i = 0; i < nodes.length; i++) {
+				sizeBuf[nodes[i]] = i + 10;
+			}
+
 			const segPtr = mod._malloc(Float32Array.BYTES_PER_ELEMENT * requiredEdges * 8);
 			const segments = new Float32Array(mod.HEAPF32.buffer, segPtr, requiredEdges * 8);
 			const segEdges = net.writeActiveEdgeSegments(posBuf, segments, 4);
@@ -247,6 +253,21 @@ describe('HeliosNetwork (Node runtime)', () => {
 				]);
 			}
 			mod._free(segPtr);
+
+			net.addDenseNodeToEdgeAttributeBuffer('size');
+			const denseSize = net.updateDenseNodeToEdgeAttributeBuffer('size');
+			expect(denseSize.count).toBe(requiredEdges);
+			expect(denseSize.stride).toBe(Float32Array.BYTES_PER_ELEMENT * 2);
+			expect(denseSize.validStart).toBe(net.edgeValidRange.start);
+			const denseView = new Float32Array(denseSize.view.buffer, denseSize.pointer, denseSize.count * 2);
+			const peekSize = net.peekDenseNodeToEdgeAttributeBuffer('size');
+			expect(peekSize.pointer).toBe(denseSize.pointer);
+			for (let i = 0; i < requiredEdges; i++) {
+				const edge = packedEdges[i];
+				const outBase = i * 2;
+				expect(denseView[outBase + 0]).toBeCloseTo(sizeBuf[edge.from]);
+				expect(denseView[outBase + 1]).toBeCloseTo(sizeBuf[edge.to]);
+			}
 		} finally {
 			net.dispose();
 		}

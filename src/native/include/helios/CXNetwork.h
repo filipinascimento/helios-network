@@ -211,6 +211,38 @@ CX_EXTERN CXSize CXNetworkWriteActiveEdgeSegments(
 	float *dstSegments,
 	CXSize dstCapacityEdges
 );
+/**
+ * Writes `componentsPerNode` values for each endpoint of active edges from the
+ * provided node attribute buffer into a caller-managed destination. Values are
+ * copied verbatim; the caller controls element width (`componentSizeBytes`)
+ * and must ensure the typed views line up with the provided byte offsets.
+ *
+ * Returns the number of edges that would be written; when `dstCapacityEdges`
+ * is too small, the required count is returned and no writes occur.
+ */
+CX_EXTERN CXSize CXNetworkWriteActiveEdgeNodeAttributes(
+	CXNetworkRef network,
+	const uint8_t *nodeAttributes,
+	CXSize componentsPerNode,
+	CXSize componentSizeBytes,
+	uint8_t *dst,
+	CXSize dstCapacityEdges
+);
+/**
+ * Writes node attribute spans for each edge following the provided order (or
+ * the active edge order when no order is supplied). Layout matches
+ * `CXNetworkWriteActiveEdgeNodeAttributes` but honours custom edge ordering.
+ */
+CX_EXTERN CXSize CXNetworkWriteEdgeNodeAttributesInOrder(
+	CXNetworkRef network,
+	const CXIndex *order,
+	CXSize orderCount,
+	const uint8_t *nodeAttributes,
+	CXSize componentsPerNode,
+	CXSize componentSizeBytes,
+	uint8_t *dst,
+	CXSize dstCapacityEdges
+);
 
 // Node management
 /**

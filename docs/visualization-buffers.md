@@ -89,6 +89,25 @@ const edgeIds = new Uint32Array(denseEdgeIds.view.buffer, denseEdgeIds.pointer, 
 console.log(edgeIds); // ids in the packed order (aligned with denseCap)
 ```
 
+## Propagate node attributes to edges
+
+When edge shaders need endpoint data (positions, sizes, colors, etc.), register a dense node→edge buffer and pack it alongside your edge index buffer:
+
+```js
+net.defineNodeAttribute('size', AttributeType.Float, 1);
+// ...write sizes into the sparse node buffer...
+
+net.addDenseNodeToEdgeAttributeBuffer('size');
+const denseSizes = net.updateDenseNodeToEdgeAttributeBuffer('size'); // respects setDenseEdgeOrder
+const edgeIndices = net.updateDenseEdgeIndexBuffer();               // same order as denseSizes
+
+const sizes = new Float32Array(denseSizes.view.buffer, denseSizes.pointer, denseSizes.count * 2);
+const indices = new Uint32Array(edgeIndices.view.buffer, edgeIndices.pointer, edgeIndices.count);
+// sizes is [fromSize, toSize, ...] aligned with indices
+```
+
+`updateDenseNodeToEdgeAttributeBuffer` returns a descriptor with `dirty` status; use `peekDenseNodeToEdgeAttributeBuffer` / `peekDenseEdgeIndexBuffer` when you just need the last-packed views without forcing an update.
+
 ## Source slicing via valid ranges
 
 If you want a view over the original sparse buffer without walking full capacity, use the network-level valid range:

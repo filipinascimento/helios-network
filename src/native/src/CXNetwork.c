@@ -929,6 +929,112 @@ CXSize CXNetworkWriteActiveEdgeSegments(
 	return written;
 }
 
+/** Writes paired node attribute spans for each active edge into caller storage. */
+CXSize CXNetworkWriteActiveEdgeNodeAttributes(
+	CXNetworkRef network,
+	const uint8_t *nodeAttributes,
+	CXSize componentsPerNode,
+	CXSize componentSizeBytes,
+	uint8_t *dst,
+	CXSize dstCapacityEdges
+) {
+	if (!network || !nodeAttributes || !network->edgeActive || componentsPerNode == 0 || componentSizeBytes == 0) {
+		return 0;
+	}
+	CXSize required = 0;
+	for (CXSize idx = 0; idx < network->edgeCapacity; idx++) {
+		if (network->edgeActive[idx]) {
+			required++;
+		}
+	}
+	if (!dst || dstCapacityEdges < required) {
+		return required;
+	}
+	const size_t spanBytes = (size_t)componentsPerNode * componentSizeBytes;
+	CXSize written = 0;
+	for (CXSize idx = 0; idx < network->edgeCapacity; idx++) {
+		if (!network->edgeActive[idx]) {
+			continue;
+		}
+		const CXEdge edge = network->edges[idx];
+		if (edge.from >= network->nodeCapacity || edge.to >= network->nodeCapacity) {
+			continue;
+		}
+		uint8_t *out = dst + ((size_t)written * spanBytes * 2);
+		memcpy(out, nodeAttributes + ((size_t)edge.from * spanBytes), spanBytes);
+		memcpy(out + spanBytes, nodeAttributes + ((size_t)edge.to * spanBytes), spanBytes);
+		written++;
+	}
+	return written;
+}
+
+/** Writes node attribute spans for each edge in the provided order (or active order). */
+CXSize CXNetworkWriteEdgeNodeAttributesInOrder(
+	CXNetworkRef network,
+	const CXIndex *order,
+	CXSize orderCount,
+	const uint8_t *nodeAttributes,
+	CXSize componentsPerNode,
+	CXSize componentSizeBytes,
+	uint8_t *dst,
+	CXSize dstCapacityEdges
+) {
+	if (!network || !nodeAttributes || !network->edgeActive || componentsPerNode == 0 || componentSizeBytes == 0) {
+		return 0;
+	}
+	const size_t spanBytes = (size_t)componentsPerNode * componentSizeBytes;
+	CXSize required = 0;
+	if (order && orderCount > 0) {
+		for (CXSize i = 0; i < orderCount; i++) {
+			CXIndex edgeIdx = order[i];
+			if (edgeIdx < network->edgeCapacity && network->edgeActive[edgeIdx]) {
+				required++;
+			}
+		}
+	} else {
+		for (CXSize idx = 0; idx < network->edgeCapacity; idx++) {
+			if (network->edgeActive[idx]) {
+				required++;
+			}
+		}
+	}
+	if (!dst || dstCapacityEdges < required) {
+		return required;
+	}
+	CXSize written = 0;
+	if (order && orderCount > 0) {
+		for (CXSize i = 0; i < orderCount; i++) {
+			CXIndex edgeIdx = order[i];
+			if (edgeIdx >= network->edgeCapacity || !network->edgeActive[edgeIdx]) {
+				continue;
+			}
+			const CXEdge edge = network->edges[edgeIdx];
+			if (edge.from >= network->nodeCapacity || edge.to >= network->nodeCapacity) {
+				continue;
+			}
+			uint8_t *out = dst + ((size_t)written * spanBytes * 2);
+			memcpy(out, nodeAttributes + ((size_t)edge.from * spanBytes), spanBytes);
+			memcpy(out + spanBytes, nodeAttributes + ((size_t)edge.to * spanBytes), spanBytes);
+			written++;
+		}
+		return written;
+	}
+	for (CXSize idx = 0; idx < network->edgeCapacity; idx++) {
+		if (!network->edgeActive[idx]) {
+			continue;
+		}
+		const CXEdge edge = network->edges[idx];
+		if (edge.from >= network->nodeCapacity || edge.to >= network->nodeCapacity) {
+			continue;
+		}
+		uint8_t *out = dst + ((size_t)written * spanBytes * 2);
+		memcpy(out, nodeAttributes + ((size_t)edge.from * spanBytes), spanBytes);
+		memcpy(out + spanBytes, nodeAttributes + ((size_t)edge.to * spanBytes), spanBytes);
+		written++;
+	}
+	return written;
+}
+
 // -----------------------------------------------------------------------------
 // Node management
 // -----------------------------------------------------------------------------

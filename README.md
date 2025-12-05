@@ -243,9 +243,14 @@ const segmentPtr = net.module._malloc(8 * 4 * 1024);
 const segmentBuffer = new Float32Array(net.module.HEAPF32.buffer, segmentPtr, 8 * 1024);
 const edgesWritten = net.writeActiveEdgeSegments(net.getNodeAttributeBuffer('position').view, segmentBuffer, 4);
 net.module._free(segmentPtr);
+
+// Or use dense packing to propagate node attributes to edges without manual copies
+net.addDenseNodeToEdgeAttributeBuffer('position');
+const denseEdgePositions = net.updateDenseNodeToEdgeAttributeBuffer('position'); // aligned with updateDenseEdgeIndexBuffer
+const posPairs = new Float32Array(denseEdgePositions.view.buffer, denseEdgePositions.pointer, denseEdgePositions.count * 8);
 ```
 
-`writeActiveNodes` / `writeActiveEdges` return the required length; nothing is written when the provided buffer is too small. `writeActiveEdgeSegments` writes two vectors per edge into `segments` using the requested stride (`componentsPerNode`).
+`writeActiveNodes` / `writeActiveEdges` return the required length; nothing is written when the provided buffer is too small. `writeActiveEdgeSegments` writes two vectors per edge into `segments` using the requested stride (`componentsPerNode`). For dense workflows, `addDenseNodeToEdgeAttributeBuffer` + `updateDenseNodeToEdgeAttributeBuffer` pack any numeric node attribute into `[from,to]` pairs in edge order (honouring `setDenseEdgeOrder`) so you can feed positions/sizes/colors straight to the GPU without extra JS loops.
 
 ### Browser bundlers & inline WASM
 

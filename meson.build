@@ -45,7 +45,7 @@ exported_functions = [
   '_CXNetworkAddNodes','_CXNetworkRemoveNodes','_CXNetworkAddEdges','_CXNetworkRemoveEdges',
   '_CXNetworkNodeCount','_CXNetworkEdgeCount','_CXNetworkNodeCapacity','_CXNetworkEdgeCapacity',
   '_CXNetworkNodeActivityBuffer','_CXNetworkEdgeActivityBuffer','_CXNetworkEdgesBuffer',
-  '_CXNetworkWriteActiveNodes','_CXNetworkWriteActiveEdges','_CXNetworkWriteActiveEdgeSegments',
+  '_CXNetworkWriteActiveNodes','_CXNetworkWriteActiveEdges','_CXNetworkWriteActiveEdgeSegments','_CXNetworkWriteActiveEdgeNodeAttributes','_CXNetworkWriteEdgeNodeAttributesInOrder',
   '_CXNetworkAddDenseNodeAttribute','_CXNetworkAddDenseEdgeAttribute','_CXNetworkRemoveDenseNodeAttribute','_CXNetworkRemoveDenseEdgeAttribute',
   '_CXNetworkMarkDenseNodeAttributeDirty','_CXNetworkMarkDenseEdgeAttributeDirty',
   '_CXNetworkUpdateDenseNodeAttribute','_CXNetworkUpdateDenseEdgeAttribute','_CXNetworkUpdateDenseNodeIndexBuffer','_CXNetworkUpdateDenseEdgeIndexBuffer',

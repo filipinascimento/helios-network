@@ -1235,6 +1235,11 @@ export class HeliosNetwork {
 		this._nodeAttributes = new Map();
 		this._edgeAttributes = new Map();
 		this._networkAttributes = new Map();
+		this._denseNodeAttributeCache = new Map();
+		this._denseEdgeAttributeCache = new Map();
+		this._denseNodeIndexCache = null;
+		this._denseEdgeIndexCache = null;
+		this._nodeToEdgeDenseBuffers = new Map();
 	}
 
 	/**
@@ -1243,6 +1248,12 @@ export class HeliosNetwork {
 	 */
 	dispose() {
 		if (!this._disposed && this.ptr) {
+			for (const buffer of this._nodeToEdgeDenseBuffers.values()) {
+				if (buffer.pointer) {
+					this.module._free(buffer.pointer);
+				}
+			}
+			this._nodeToEdgeDenseBuffers.clear();
 			this._releaseStringAttributes(this._nodeAttributes);
 			this._releaseStringAttributes(this._edgeAttributes);
 			this._releaseStringAttributes(this._networkAttributes);
@@ -1339,6 +1350,44 @@ export class HeliosNetwork {
 	}
 
 	/**
+	 * Registers a dense edge buffer that packs node attributes as `[from,to]` pairs for each edge.
+	 *
+	 * @param {string} name - Node attribute identifier.
+	 * @param {number} [initialCapacityBytes=0] - Optional initial capacity in bytes.
+	 */
+	addDenseNodeToEdgeAttributeBuffer(name, initialCapacityBytes = 0) {
+		this._ensureActive();
+		if (!this._nodeAttributes.has(name)) {
+			throw new Error(`Node attribute "${name}" is not defined`);
+		}
+		const existing = this._nodeToEdgeDenseBuffers.get(name);
+		if (existing) {
+			return;
+		}
+		const meta = this._ensureAttributeMetadata('node', name);
+		if (meta.complex || POINTER_ATTRIBUTE_TYPES.has(meta.type)) {
+			throw new Error('Dense node-to-edge buffers only support primitive numeric attributes');
+		}
+		const { stride } = this._attributePointers('node', name, meta);
+		let pointer = 0;
+		let capacity = 0;
+		if (initialCapacityBytes > 0) {
+			pointer = this.module._malloc(initialCapacityBytes);
+			if (!pointer) {
+				throw new Error('Failed to allocate initial dense node-to-edge buffer');
+			}
+			capacity = initialCapacityBytes;
+		}
+		this._nodeToEdgeDenseBuffers.set(name, {
+			pointer,
+			capacity,
+			stride: stride * 2,
+			dirty: true,
+			last: null,
+		});
+	}
+
+	/**
 	 * Registers a dense edge attribute buffer.
 	 */
 	addDenseEdgeAttributeBuffer(name, initialCapacityBytes = 0) {
@@ -1421,7 +1470,9 @@ export class HeliosNetwork {
 			orderInfo.dispose();
 			cstr.dispose();
 		}
-		return this._parseDenseBuffer(ptr);
+		const parsed = this._parseDenseBuffer(ptr);
+		this._denseNodeAttributeCache.set(name, parsed);
+		return parsed;
 	}
 
 	/**
@@ -1438,7 +1489,9 @@ export class HeliosNetwork {
 			orderInfo.dispose();
 			cstr.dispose();
 		}
-		return this._parseDenseBuffer(ptr);
+		const parsed = this._parseDenseBuffer(ptr);
+		this._denseEdgeAttributeCache.set(name, parsed);
+		return parsed;
 	}
 
 	/**
@@ -1453,7 +1506,9 @@ export class HeliosNetwork {
 		} finally {
 			orderInfo.dispose();
 		}
-		return this._parseDenseBuffer(ptr);
+		const parsed = this._parseDenseBuffer(ptr);
+		this._denseNodeIndexCache = parsed;
+		return parsed;
 	}
 
 	/**
@@ -1468,7 +1523,48 @@ export class HeliosNetwork {
 		} finally {
 			orderInfo.dispose();
 		}
-		return this._parseDenseBuffer(ptr);
+		const parsed = this._parseDenseBuffer(ptr);
+		this._denseEdgeIndexCache = parsed;
+		return parsed;
+	}
+
+	/**
+	 * Returns the most recent dense node attribute buffer descriptor without triggering an update.
+	 */
+	peekDenseNodeAttributeBuffer(name) {
+		return this._denseNodeAttributeCache.get(name) ?? this._parseDenseBuffer(0);
+	}
+
+	/**
+	 * Returns the most recent dense edge attribute buffer descriptor without triggering an update.
+	 */
+	peekDenseEdgeAttributeBuffer(name) {
+		return this._denseEdgeAttributeCache.get(name) ?? this._parseDenseBuffer(0);
+	}
+
+	/**
+	 * Returns the most recent dense node index buffer descriptor without triggering an update.
+	 */
+	peekDenseNodeIndexBuffer() {
+		return this._denseNodeIndexCache ?? this._parseDenseBuffer(0);
+	}
+
+	/**
+	 * Returns the most recent dense edge index buffer descriptor without triggering an update.
+	 */
+	peekDenseEdgeIndexBuffer() {
+		return this._denseEdgeIndexCache ?? this._parseDenseBuffer(0);
+	}
+
+	/**
+	 * Returns the most recent dense node-to-edge buffer descriptor without recomputing.
+	 */
+	peekDenseNodeToEdgeAttributeBuffer(name) {
+		const entry = this._nodeToEdgeDenseBuffers.get(name);
+		if (!entry || !entry.last) {
+			return this._parseDenseBuffer(0);
+		}
+		return entry.last;
 	}
 
 	/**
@@ -1668,6 +1764,116 @@ export class HeliosNetwork {
 	}
 
 	/**
+	 * Writes node attribute spans for both endpoints of each active edge into a caller-managed buffer.
+	 *
+	 * @param {TypedArray} source - WASM-backed node attribute view; element size drives copy width.
+	 * @param {TypedArray} target - Destination buffer in WASM memory sized for `count * componentsPerNode * 2` elements.
+	 * @param {number} [componentsPerNode=1] - Number of components to copy per node.
+	 * @returns {number} Number of edges written or required. When this exceeds
+	 *   `Math.floor(target.byteLength / (componentsPerNode * elementSize * 2))`, no writes occur.
+	 */
+	writeActiveEdgeAttributePairs(source, target, componentsPerNode = 1) {
+		this._ensureActive();
+		if (typeof this.module._CXNetworkWriteActiveEdgeNodeAttributes !== 'function') {
+			throw new Error('CXNetworkWriteActiveEdgeNodeAttributes is unavailable in this WASM build');
+		}
+		const heapBuffer = this.module.HEAPU8.buffer;
+		if (!ArrayBuffer.isView(source) || source.buffer !== heapBuffer) {
+			throw new Error('source must be a typed array backed by the WASM heap');
+		}
+		if (!ArrayBuffer.isView(target) || target.buffer !== heapBuffer) {
+			throw new Error('target must be a typed array backed by the WASM heap');
+		}
+		const componentWidth = Math.trunc(componentsPerNode);
+		if (!Number.isFinite(componentWidth) || componentWidth <= 0) {
+			throw new Error('componentsPerNode must be a positive integer');
+		}
+		const elementSize = source.BYTES_PER_ELEMENT;
+		if (!Number.isFinite(elementSize) || elementSize <= 0) {
+			throw new Error('source must expose a valid BYTES_PER_ELEMENT');
+		}
+		if (target.BYTES_PER_ELEMENT !== elementSize) {
+			throw new Error('target element size must match source element size');
+		}
+		const edgeCapacity = Math.floor(target.byteLength / (elementSize * componentWidth * 2));
+		return this.module._CXNetworkWriteActiveEdgeNodeAttributes(
+			this.ptr,
+			source.byteOffset,
+			componentWidth,
+			elementSize,
+			target.byteOffset,
+			edgeCapacity
+		);
+	}
+
+	/**
+	 * Packs a node attribute into a dense edge buffer using the dense edge order.
+	 *
+	 * @param {string} name - Node attribute identifier.
+	 * @param {Uint32Array|number[]} [order] - Optional edge order; defaults to the stored dense edge order.
+	 * @returns {{view:TypedArray,pointer:number,count:number,capacity:number,stride:number,validStart:number,validEnd:number}}
+	 */
+	updateDenseNodeToEdgeAttributeBuffer(name, order) {
+		this._ensureActive();
+		if (!this._nodeToEdgeDenseBuffers.has(name)) {
+			throw new Error(`Dense node-to-edge buffer for "${name}" is not registered. Call addDenseNodeToEdgeAttributeBuffer first.`);
+		}
+		if (typeof this.module._CXNetworkWriteEdgeNodeAttributesInOrder !== 'function') {
+			throw new Error('CXNetworkWriteEdgeNodeAttributesInOrder is unavailable in this WASM build');
+		}
+		const meta = this._ensureAttributeMetadata('node', name);
+		if (meta.complex || POINTER_ATTRIBUTE_TYPES.has(meta.type)) {
+			throw new Error('Dense node-to-edge buffers only support primitive numeric attributes');
+		}
+		const { pointer: sourcePtr, stride: sourceStride } = this._attributePointers('node', name, meta);
+		const elementSize = TYPE_ELEMENT_SIZE[meta.type];
+		const componentsPerNode = Math.max(1, Math.floor(sourceStride / elementSize));
+		const indexDense = this.updateDenseEdgeIndexBuffer(order);
+		const count = indexDense.count;
+		const entry = this._nodeToEdgeDenseBuffers.get(name);
+		const requiredBytes = count * (sourceStride * 2);
+		if (entry.capacity < requiredBytes) {
+			if (entry.pointer) {
+				this.module._free(entry.pointer);
+			}
+			entry.pointer = this.module._malloc(requiredBytes);
+			if (!entry.pointer) {
+				throw new Error('Failed to allocate dense node-to-edge buffer');
+			}
+			entry.capacity = requiredBytes;
+		}
+		const edgeCapacity = Math.floor(entry.capacity / (sourceStride * 2));
+		this.module._CXNetworkWriteEdgeNodeAttributesInOrder(
+			this.ptr,
+			indexDense.pointer,
+			indexDense.count,
+			sourcePtr,
+			componentsPerNode,
+			elementSize,
+			entry.pointer,
+			edgeCapacity
+		);
+		const TypedArrayCtor = TypedArrayForType[meta.type];
+		const view = new TypedArrayCtor(
+			this.module.HEAPU8.buffer,
+			entry.pointer,
+			entry.capacity / TypedArrayCtor.BYTES_PER_ELEMENT
+		);
+		const descriptor = {
+			view,
+			pointer: entry.pointer,
+			count,
+			capacity: entry.capacity,
+			stride: sourceStride * 2,
+			validStart: indexDense.validStart,
+			validEnd: indexDense.validEnd,
+		};
+		entry.dirty = false;
+		entry.last = descriptor;
+		return descriptor;
+	}
+
+	/**
 	 * Serializes the network into the `.bxnet` container format.
 	 *
 	 * @param {object} [options]
@@ -1730,6 +1936,7 @@ export class HeliosNetwork {
 		}
 		const indices = new Uint32Array(this.module.HEAPU32.buffer, ptr, count).slice();
 		this.module._free(ptr);
+		this._markNodeToEdgeDenseBuffersDirty();
 		return indices;
 	}
 
@@ -1777,6 +1984,7 @@ export class HeliosNetwork {
 				}
 			}
 		}
+		this._markNodeToEdgeDenseBuffersDirty();
 	}
 
 	/**
@@ -1858,6 +2066,7 @@ export class HeliosNetwork {
 		}
 		const indices = new Uint32Array(this.module.HEAPU32.buffer, outPtr, edgeCount).slice();
 		this.module._free(outPtr);
+		this._markNodeToEdgeDenseBuffersDirty();
 		return indices;
 	}
 
@@ -1906,6 +2115,7 @@ export class HeliosNetwork {
 				}
 			}
 		}
+		this._markNodeToEdgeDenseBuffersDirty();
 	}
 
 	/**
@@ -2330,6 +2540,12 @@ export class HeliosNetwork {
 		if (scope === 'node') return this.nodeCapacity;
 		if (scope === 'edge') return this.edgeCapacity;
 		return 1;
+	}
+
+	_markNodeToEdgeDenseBuffersDirty() {
+		for (const entry of this._nodeToEdgeDenseBuffers.values()) {
+			entry.dirty = true;
+		}
 	}
 
 	/**
