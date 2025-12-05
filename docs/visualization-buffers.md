@@ -94,12 +94,8 @@ console.log(edgeIds); // ids in the packed order (aligned with denseCap)
 If you want a view over the original sparse buffer without walking full capacity, use the network-level valid range:
 
 ```js
-const srcView = net.getNodeAttributeBuffer('position').view; // Float32Array over capacity
-const floatsPerEntry = 4;
-const { start, end } = net.nodeValidRange;
-const sliceStart = start * floatsPerEntry;
-const sliceEnd = end * floatsPerEntry;
-const activeSlice = srcView.subarray(sliceStart, sliceEnd);
+const { view: activeSlice, start, end } = net.getNodeAttributeBufferSlice('position');
+// activeSlice is already trimmed to the valid range; use start/end for ids if needed
 ```
 
 `start`/`end` are always in source index space (original node/edge ids), independent of dense position.
