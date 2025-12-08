@@ -168,3 +168,4 @@ compiled
 # Playwright artifacts
 test-results/
 playwright-report/
+.emscripten_cache

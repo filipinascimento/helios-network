@@ -38,21 +38,21 @@
     "vitest": "^4.0.5"
   },
   "type": "module",
-  "jsdelivr": "./dist//helios-network.js",
-  "unpkg": "./dist//helios-network.js",
+  "jsdelivr": "./dist/helios-network.js",
+  "unpkg": "./dist/helios-network.js",
   "files": [
     "dist"
   ],
   "main": "./dist/helios-network.umd.cjs",
-  "module": "./dist//helios-network.js",
+  "module": "./dist/helios-network.js",
   "exports": {
     ".": {
-      "browser": "./dist//helios-network.inline.js",
-      "import": "./dist//helios-network.js",
-      "require": "./dist//helios-network.umd.cjs"
+      "browser": "./dist/helios-network.inline.js",
+      "import": "./dist/helios-network.js",
+      "require": "./dist/helios-network.umd.cjs"
     },
     "./inline": {
-      "import": "./dist//helios-network.inline.js"
+      "import": "./dist/helios-network.inline.js"
     }
   }
 }

@@ -7,13 +7,13 @@ Dense buffers give WebGL/WebGPU a tightly packed snapshot of attributes and ids 
 - **Registration**: declare which attributes you want dense snapshots of.
   - C: `CXNetworkAddDenseNodeAttribute`, `CXNetworkAddDenseEdgeAttribute`
   - JS: `addDenseNodeAttributeBuffer(name)`, `addDenseEdgeAttributeBuffer(name)`
-- **Ordering**: set one order per scope (nodes/edges). All dense attributes + the index buffer use the same order unless you override per-call.
+- **Ordering**: set one order per scope (nodes/edges). All dense attributes + the index buffer use the same order.
   - C: `CXNetworkSetDenseNodeOrder(order,count)`, `CXNetworkSetDenseEdgeOrder(...)`
   - JS: `setDenseNodeOrder(order)`, `setDenseEdgeOrder(order)`
 - **Packing**: refresh dense buffers on demand; returns metadata.
   - C: `CXNetworkUpdateDenseNodeAttribute`, `CXNetworkUpdateDenseEdgeAttribute`
-  - JS: `updateDenseNodeAttributeBuffer(name[, order])`, `updateDenseEdgeAttributeBuffer(...)`
-  - Index buffers: `updateDenseNodeIndexBuffer([order])`, `updateDenseEdgeIndexBuffer([order])`
+  - JS: `updateDenseNodeAttributeBuffer(name)`, `updateDenseEdgeAttributeBuffer(name)`
+  - Index buffers: `updateDenseNodeIndexBuffer()`, `updateDenseEdgeIndexBuffer()`
 - **Dirty tracking**: dense buffers are auto-marked dirty on structural edits. Mark them yourself after attribute writes:
   - JS: `markDenseNodeAttributeDirty(name)`, `markDenseEdgeAttributeDirty(name)`
 - **Valid ranges** (network-level): `network.nodeValidRange` / `network.edgeValidRange` return `{start,end}` based on active ids. Use these to slice original sparse attribute buffers when you want to avoid unused capacity. Dense descriptors keep `count`/`stride` for packed views; valid ranges refer to source indices.
@@ -87,26 +87,46 @@ const denseEdgeIds = net.updateDenseEdgeIndexBuffer();
 const capFloats = new Float32Array(denseCap.view.buffer, denseCap.pointer, denseCap.count);
 const edgeIds = new Uint32Array(denseEdgeIds.view.buffer, denseEdgeIds.pointer, denseEdgeIds.count);
 console.log(edgeIds); // ids in the packed order (aligned with denseCap)
+
+// Peek at the last-packed versions without repacking
+const lastCap = net.peekDenseEdgeAttributeBuffer('capacity');
+const lastEdgeIds = net.peekDenseEdgeIndexBuffer();
 ```
 
 ## Propagate node attributes to edges
 
-When edge shaders need endpoint data (positions, sizes, colors, etc.), register a dense node→edge buffer and pack it alongside your edge index buffer:
+When edge shaders need endpoint data (positions, sizes, colors, etc.), use a **passthrough edge attribute** (recommended) or the legacy dedicated dense buffer.
+
+### Recommended: passthrough edge attribute (no sparse edge buffer required)
 
 ```js
 net.defineNodeAttribute('size', AttributeType.Float, 1);
 // ...write sizes into the sparse node buffer...
 
-net.addDenseNodeToEdgeAttributeBuffer('size');
-const denseSizes = net.updateDenseNodeToEdgeAttributeBuffer('size'); // respects setDenseEdgeOrder
-const edgeIndices = net.updateDenseEdgeIndexBuffer();               // same order as denseSizes
+net.defineNodeToEdgeAttribute('size', 'size_passthrough', 'both'); // defines edge attr + dense buffer
+const denseSizes = net.updateDenseEdgeAttributeBuffer('size_passthrough'); // copies from nodes into edge attr, then packs; respects setDenseEdgeOrder
+const edgeIndices = net.updateDenseEdgeIndexBuffer();                      // same order as denseSizes
 
 const sizes = new Float32Array(denseSizes.view.buffer, denseSizes.pointer, denseSizes.count * 2);
 const indices = new Uint32Array(edgeIndices.view.buffer, edgeIndices.pointer, edgeIndices.count);
 // sizes is [fromSize, toSize, ...] aligned with indices
+
+// Reuse the last-packed views if nothing changed
+const lastSizes = net.peekDenseEdgeAttributeBuffer('size_passthrough');
+const lastEdgeIndex = net.peekDenseEdgeIndexBuffer();
 ```
 
-`updateDenseNodeToEdgeAttributeBuffer` returns a descriptor with `dirty` status; use `peekDenseNodeToEdgeAttributeBuffer` / `peekDenseEdgeIndexBuffer` when you just need the last-packed views without forcing an update.
+`endpoints`: `"both"`/`-1` copies `[from,to]`; `"source"`/`0` or `"destination"`/`1` copies one endpoint. `doubleWidth` (default `true`) duplicates a single endpoint into a double-width layout. Dirtying the source node attribute via `markDenseNodeAttributeDirty` auto-dirties all dependent passthrough edge attributes; structural edits also mark them dirty. Passthrough edge names must be unused edge attributes; remove an existing edge attribute first if you want to reuse the name. Cleanup options: `removeNodeToEdgeAttribute(edgeAttr)` unregisters a passthrough; `removeEdgeAttribute`/`removeNodeAttribute`/`removeNetworkAttribute` drop sparse attributes (and associated dense tracking); `removeDense*` calls remove only dense registrations.
+
+If you want a sparse edge buffer seeded from nodes (to tweak afterward), call:
+
+```js
+net.copyNodeAttributeToEdgeAttribute('size', 'size_edge', 'destination', /* doubleWidth */ false);
+// ... mutate edge attribute if desired ...
+const dense = net.updateDenseEdgeAttributeBuffer('size_edge');
+```
+
+Both helpers use the native copy path; dense packing still honours `setDenseEdgeOrder`.
 
 ## Source slicing via valid ranges
 

@@ -244,13 +244,24 @@ const segmentBuffer = new Float32Array(net.module.HEAPF32.buffer, segmentPtr, 8 
 const edgesWritten = net.writeActiveEdgeSegments(net.getNodeAttributeBuffer('position').view, segmentBuffer, 4);
 net.module._free(segmentPtr);
 
-// Or use dense packing to propagate node attributes to edges without manual copies
-net.addDenseNodeToEdgeAttributeBuffer('position');
-const denseEdgePositions = net.updateDenseNodeToEdgeAttributeBuffer('position'); // aligned with updateDenseEdgeIndexBuffer
+// Or use dense packing to propagate node attributes to edges without manual copies (passthrough)
+net.defineNodeToEdgeAttribute('position', 'position_endpoints', 'both');
+const denseEdgePositions = net.updateDenseEdgeAttributeBuffer('position_endpoints'); // aligned with updateDenseEdgeIndexBuffer
 const posPairs = new Float32Array(denseEdgePositions.view.buffer, denseEdgePositions.pointer, denseEdgePositions.count * 8);
+
+// Peek without repacking if you just need the last views
+const lastEdgeIds = net.peekDenseEdgeIndexBuffer();
+const lastPosPairs = net.peekDenseEdgeAttributeBuffer('position_endpoints');
 ```
 
-`writeActiveNodes` / `writeActiveEdges` return the required length; nothing is written when the provided buffer is too small. `writeActiveEdgeSegments` writes two vectors per edge into `segments` using the requested stride (`componentsPerNode`). For dense workflows, `addDenseNodeToEdgeAttributeBuffer` + `updateDenseNodeToEdgeAttributeBuffer` pack any numeric node attribute into `[from,to]` pairs in edge order (honouring `setDenseEdgeOrder`) so you can feed positions/sizes/colors straight to the GPU without extra JS loops.
+`writeActiveNodes` / `writeActiveEdges` return the required length; nothing is written when the provided buffer is too small. `writeActiveEdgeSegments` writes two vectors per edge into `segments` using the requested stride (`componentsPerNode`). For dense workflows you now have two paths:
+
+- **Passthrough edges (recommended for render data)**: `defineNodeToEdgeAttribute(sourceNodeAttr, edgeAttr, endpoints='both', doubleWidth=true)` declares an edge attribute derived from nodes. Calling `updateDenseEdgeAttributeBuffer(edgeAttr)` will copy from nodes into the edge buffer (using native code) and then pack it densely. Dirtying the node attribute (via `markDenseNodeAttributeDirty`) automatically dirties dependent passthrough edges.
+- **Manual sparse copy**: `copyNodeAttributeToEdgeAttribute(sourceNodeAttr, edgeAttr, endpoints='both', doubleWidth=true)` fills the sparse edge attribute once (honouring endpoint/duplication), then you can mutate it further and call `updateDenseEdgeAttributeBuffer` yourself.
+
+Cleanup: remove dense tracking with `removeDenseNodeAttributeBuffer` / `removeDenseEdgeAttributeBuffer` or unregister a passthrough via `removeNodeToEdgeAttribute(edgeAttr)`. To delete sparse attributes entirely (and their dense buffers), call `removeNodeAttribute`, `removeEdgeAttribute`, or `removeNetworkAttribute`. A passthrough edge name must not already exist as a defined edge attribute.
+
+Prefer the dense APIs for render paths; the `writeActive*` helpers remain available for low-level, caller-managed buffers when you need direct WASM writes without packing.
 
 ### Browser bundlers & inline WASM
 
@@ -397,10 +408,9 @@ The public headers under `src/native/include/helios/` define the C API, intended
 
 ### Active index helpers
 
-- **Stable views**: `CXActiveView` (data/count/capacity) is returned by `CXNetworkGetActiveNodesView` and `CXNetworkGetActiveEdgesView`. The backing `CXIndex*` persists until the graph grows past the stored capacity; when resized, the pointer updates. The bitmap is re-scanned only when the view is dirty.
 - **Fill APIs**: `CXNetworkWriteActiveNodes` / `CXNetworkWriteActiveEdges` write active indices into caller-provided `uint32_t*` buffers. If `capacity` is insufficient, the required size is returned and no writes occur.
-- **Edge segments**: `CXNetworkWriteActiveEdgeSegments(network, positions, componentsPerNode, dst, dstCapacityEdges)` copies two position vectors per active edge (`componentsPerNode` floats each, typically vec4) directly into `dst`. A return value larger than `dstCapacityEdges` means the caller must grow the buffer; no out-of-bounds writes are performed.
-- **Threading/lifetime**: Returned pointers remain valid until a network mutation triggers growth; functions are otherwise read-only and safe under the current single-worker model.
+- **Edge copies**: `CXNetworkWriteActiveEdgeSegments(network, positions, componentsPerNode, dst, dstCapacityEdges)` copies two position vectors per active edge (`componentsPerNode` floats each, typically vec4) directly into `dst`. `CXNetworkWriteEdgeNodeAttributesInOrder` mirrors this for arbitrary node attributes and follows the stored dense edge order.
+- **Lifetime**: Buffers you supply remain under your control; the functions are read-only over the network state and will not resize your allocations.
 
 ### Dense attribute buffers
 

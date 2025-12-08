@@ -229,19 +229,32 @@ CX_EXTERN CXSize CXNetworkWriteActiveEdgeNodeAttributes(
 	CXSize dstCapacityEdges
 );
 /**
- * Writes node attribute spans for each edge following the provided order (or
- * the active edge order when no order is supplied). Layout matches
- * `CXNetworkWriteActiveEdgeNodeAttributes` but honours custom edge ordering.
+ * Writes node attribute spans for each edge following the stored dense edge
+ * order. Layout matches `CXNetworkWriteActiveEdgeNodeAttributes`.
  */
 CX_EXTERN CXSize CXNetworkWriteEdgeNodeAttributesInOrder(
 	CXNetworkRef network,
-	const CXIndex *order,
-	CXSize orderCount,
 	const uint8_t *nodeAttributes,
 	CXSize componentsPerNode,
 	CXSize componentSizeBytes,
 	uint8_t *dst,
 	CXSize dstCapacityEdges
+);
+/**
+ * Copies node attributes into an edge attribute buffer using the network's
+ * topology. `endpointMode` controls which endpoint is copied: -1 = both,
+ * 0 = source only, 1 = destination only. When copying a single endpoint and
+ * `duplicateSingleEndpoint` is true, the chosen endpoint is written twice
+ * sequentially (for double-width edge attributes).
+ */
+CX_EXTERN CXSize CXNetworkCopyNodeAttributesToEdgeAttributes(
+	CXNetworkRef network,
+	const uint8_t *nodeAttributes,
+	CXSize nodeStrideBytes,
+	uint8_t *edgeAttributes,
+	CXSize edgeStrideBytes,
+	int endpointMode,
+	CXBool duplicateSingleEndpoint
 );
 
 // Node management
@@ -330,14 +343,20 @@ CX_EXTERN CXBool CXNetworkRemoveDenseEdgeAttribute(CXNetworkRef network, const C
 CX_EXTERN CXBool CXNetworkMarkDenseNodeAttributeDirty(CXNetworkRef network, const CXString name);
 /** Marks a dense edge attribute buffer dirty. */
 CX_EXTERN CXBool CXNetworkMarkDenseEdgeAttributeDirty(CXNetworkRef network, const CXString name);
+/** Removes a sparse node attribute and its storage. */
+CX_EXTERN CXBool CXNetworkRemoveNodeAttribute(CXNetworkRef network, const CXString name);
+/** Removes a sparse edge attribute and its storage. */
+CX_EXTERN CXBool CXNetworkRemoveEdgeAttribute(CXNetworkRef network, const CXString name);
+/** Removes a sparse network attribute and its storage. */
+CX_EXTERN CXBool CXNetworkRemoveNetworkAttribute(CXNetworkRef network, const CXString name);
 /** Rebuilds a dense node attribute buffer using the provided order (or active order). */
-CX_EXTERN const CXDenseAttributeBuffer* CXNetworkUpdateDenseNodeAttribute(CXNetworkRef network, const CXString name, const CXIndex *order, CXSize orderCount);
+CX_EXTERN const CXDenseAttributeBuffer* CXNetworkUpdateDenseNodeAttribute(CXNetworkRef network, const CXString name);
 /** Rebuilds a dense edge attribute buffer. */
-CX_EXTERN const CXDenseAttributeBuffer* CXNetworkUpdateDenseEdgeAttribute(CXNetworkRef network, const CXString name, const CXIndex *order, CXSize orderCount);
+CX_EXTERN const CXDenseAttributeBuffer* CXNetworkUpdateDenseEdgeAttribute(CXNetworkRef network, const CXString name);
 /** Ensures the dense node index buffer exists and returns it refreshed. */
-CX_EXTERN const CXDenseAttributeBuffer* CXNetworkUpdateDenseNodeIndexBuffer(CXNetworkRef network, const CXIndex *order, CXSize orderCount);
+CX_EXTERN const CXDenseAttributeBuffer* CXNetworkUpdateDenseNodeIndexBuffer(CXNetworkRef network);
 /** Ensures the dense edge index buffer exists and returns it refreshed. */
-CX_EXTERN const CXDenseAttributeBuffer* CXNetworkUpdateDenseEdgeIndexBuffer(CXNetworkRef network, const CXIndex *order, CXSize orderCount);
+CX_EXTERN const CXDenseAttributeBuffer* CXNetworkUpdateDenseEdgeIndexBuffer(CXNetworkRef network);
 /** Sets a default node order for dense packing (applied to all dense buffers when order is omitted). */
 CX_EXTERN CXBool CXNetworkSetDenseNodeOrder(CXNetworkRef network, const CXIndex *order, CXSize count);
 /** Sets a default edge order for dense packing. */
