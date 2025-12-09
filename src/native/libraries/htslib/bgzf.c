@@ -195,6 +195,7 @@ struct bgzidx_t
  * Returns 0 on success,
  *        -1 on failure
  */
+#ifdef BGZF_MT
 int bgzf_idx_push(BGZF *fp, hts_idx_t *hidx, int tid, hts_pos_t beg, hts_pos_t end, uint64_t offset, int is_mapped) {
     hts_idx_cache_entry *e;
     mtaux_t *mt = fp->mt;
@@ -297,10 +298,26 @@ static int bgzf_idx_flush(BGZF *fp,
     pthread_mutex_unlock(&mt->idx_m);
     return 0;
 }
+#else
+int bgzf_idx_push(BGZF *fp, hts_idx_t *hidx, int tid, hts_pos_t beg, hts_pos_t end, uint64_t offset, int is_mapped) {
+    (void) fp;
+    return hts_idx_push(hidx, tid, beg, end, offset, is_mapped);
+}
+
+static int bgzf_idx_flush(BGZF *fp,
+                          size_t block_uncomp_len, size_t block_comp_len) {
+    (void) fp;
+    (void) block_uncomp_len;
+    (void) block_comp_len;
+    return 0;
+}
+#endif
 
 void bgzf_index_destroy(BGZF *fp);
 int bgzf_index_add_block(BGZF *fp);
+#ifdef BGZF_MT
 static int mt_destroy(mtaux_t *mt);
+#endif
 
 static inline void packInt16(uint8_t *buffer, uint16_t value)
 {
@@ -993,22 +1010,27 @@ static void cache_block(BGZF *fp, int size) {}
  * offset.
  */
 static off_t bgzf_htell(BGZF *fp) {
+#ifdef BGZF_MT
     if (fp->mt) {
         pthread_mutex_lock(&fp->mt->job_pool_m);
         off_t pos = fp->block_address + fp->block_clength;
         pthread_mutex_unlock(&fp->mt->job_pool_m);
         return pos;
-    } else {
-        return htell(fp->fp);
     }
+#endif
+
+    return htell(fp->fp);
 }
 
 int bgzf_read_block(BGZF *fp)
 {
+#ifdef BGZF_MT
     hts_tpool_result *r;
+#endif
 
     if (fp->errcode) return -1;
 
+#ifdef BGZF_MT
     if (fp->mt) {
     again:
         if (fp->mt->hit_eof) {
@@ -1094,10 +1116,15 @@ int bgzf_read_block(BGZF *fp)
         return 0;
     }
 
+    goto single_threaded;
+#endif
+
     uint8_t header[BLOCK_HEADER_LENGTH], *compressed_block;
     int count, size, block_length, remaining;
 
+#ifdef BGZF_MT
  single_threaded:
+#endif
     size = 0;
 
     int64_t block_address;
@@ -1540,6 +1567,7 @@ int bgzf_mt_read_block(BGZF *fp, bgzf_job *j)
     return 0;
 }
 
+#endif
 
 static int bgzf_check_EOF_common(BGZF *fp)
 {
@@ -1565,6 +1593,7 @@ static int bgzf_check_EOF_common(BGZF *fp)
 /*
  * Checks EOF from the reader thread.
  */
+#ifdef BGZF_MT
 static void bgzf_mt_eof(BGZF *fp) {
     mtaux_t *mt = fp->mt;
 
@@ -2067,6 +2096,7 @@ ssize_t bgzf_raw_write(BGZF *fp, const void *data, size_t length)
 }
 
 // Helper function for tidying up fp->mt and setting errcode
+#ifdef BGZF_MT
 static void bgzf_close_mt(BGZF *fp) {
     if (fp->mt) {
         if (!fp->mt->free_block)
@@ -2075,6 +2105,9 @@ static void bgzf_close_mt(BGZF *fp) {
             fp->errcode = BGZF_ERR_IO;
     }
 }
+#else
+static inline void bgzf_close_mt(BGZF *fp) { (void) fp; }
+#endif
 
 int bgzf_close(BGZF* fp)
 {
@@ -2124,13 +2157,16 @@ int bgzf_close(BGZF* fp)
 
 void bgzf_set_cache_size(BGZF *fp, int cache_size)
 {
+#ifdef BGZF_MT
     if (fp && fp->mt) return; // Not appropriate when multi-threading
+#endif
     if (fp && fp->cache) fp->cache_size = cache_size;
 }
 
 int bgzf_check_EOF(BGZF *fp) {
     int has_eof;
 
+#ifdef BGZF_MT
     if (fp->mt) {
         pthread_mutex_lock(&fp->mt->command_m);
         // fp->mt->command state transitions should be:
@@ -2162,7 +2198,9 @@ int bgzf_check_EOF(BGZF *fp) {
         fp->mt->command = NONE;
         has_eof = fp->mt->eof;
         pthread_mutex_unlock(&fp->mt->command_m);
-    } else {
+    } else
+#endif
+    {
         has_eof = bgzf_check_EOF_common(fp);
     }
 
@@ -2174,6 +2212,7 @@ int bgzf_check_EOF(BGZF *fp) {
 static inline int64_t bgzf_seek_common(BGZF* fp,
                                        int64_t block_address, int block_offset)
 {
+#ifdef BGZF_MT
     if (fp->mt) {
         // The reader runs asynchronous and does loops of:
         //    Read block
@@ -2224,7 +2263,9 @@ static inline int64_t bgzf_seek_common(BGZF* fp,
         fp->block_offset = block_offset;
 
         pthread_mutex_unlock(&fp->mt->command_m);
-    } else {
+    } else
+#endif
+    {
         if (hseek(fp->fp, block_address, SEEK_SET) < 0) {
             fp->errcode |= BGZF_ERR_IO;
             return -1;
