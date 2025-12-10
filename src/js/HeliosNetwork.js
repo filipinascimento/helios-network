@@ -619,7 +619,7 @@ class NodeSelector extends Selector {
 	 * @returns {boolean} Whether the network defines the specified attribute.
 	 */
 	hasAttribute(name) {
-		return Boolean(this.network?._nodeAttributes?.has(name));
+		return this.network?.hasNodeAttribute(name) ?? false;
 	}
 	/**
 	 * Resolves attribute values for the selected nodes.
@@ -1369,6 +1369,9 @@ export class HeliosNetwork {
 	 * @param {boolean} [doubleWidth=true] - When copying a single endpoint, duplicate it to fill a double-width layout.
 	 */
 	defineNodeToEdgeAttribute(sourceName, edgeName, endpoints = 'both', doubleWidth = true) {
+		if (!this.hasNodeAttribute(sourceName)) {
+			throw new Error(`Unknown node attribute "${sourceName}"`);
+		}
 		this._ensureActive();
 		const endpointMode = this._normalizeEndpointMode(endpoints);
 		const sourceMeta = this._ensureAttributeMetadata('node', sourceName);
@@ -1394,6 +1397,25 @@ export class HeliosNetwork {
 			dirty: true,
 		});
 		this._registerNodeToEdgeDependency(sourceName, edgeName);
+	}
+
+	/**
+	 * Returns a snapshot of node-to-edge passthrough registrations.
+	 * Each entry describes the node source, the derived edge attribute, and the endpoint policy.
+	 * @returns {Array<{edgeName:string,sourceName:string,endpoints:'source'|'destination'|'both',doubleWidth:boolean}>}
+	 */
+	getNodeToEdgePassthroughs() {
+		this._ensureActive();
+		const results = [];
+		for (const [edgeName, entry] of this._nodeToEdgePassthrough.entries()) {
+			results.push({
+				edgeName,
+				sourceName: entry.sourceName,
+				endpoints: this._denormalizeEndpointMode(entry.endpointMode),
+				doubleWidth: Boolean(entry.doubleWidth),
+			});
+		}
+		return results;
 	}
 
 	/**
@@ -1493,12 +1515,17 @@ export class HeliosNetwork {
 	 * @returns {{view:Uint8Array,count:number,capacity:number,stride:number,validStart:number,validEnd:number,pointer:number}}
 	 */
 	updateDenseNodeAttributeBuffer(name) {
+		if (!this.hasNodeAttribute(name)) {
+			throw new Error(`Unknown node attribute "${name}"`);
+		}
 		this._ensureActive();
 		const cstr = new CString(this.module, name);
 		let ptr = 0;
 		try {
+			// console.log('TRYING: updateDenseNodeAttributeBuffer', name, ptr);
 			ptr = this.module._CXNetworkUpdateDenseNodeAttribute(this.ptr, cstr.ptr);
-		} finally {
+			// console.log('SUCCESS: updateDenseNodeAttributeBuffer', name, ptr);
+		}finally {
 			cstr.dispose();
 		}
 		const parsed = this._parseDenseBuffer(ptr);
@@ -1510,6 +1537,9 @@ export class HeliosNetwork {
 	 * Refreshes a dense edge attribute buffer.
 	 */
 	updateDenseEdgeAttributeBuffer(name) {
+		if (!this.hasEdgeAttribute(name)) {
+			throw new Error(`Unknown edge attribute "${name}"`);
+		}
 		this._ensureActive();
 		const passthrough = this._nodeToEdgePassthrough.get(name);
 		if (passthrough) {
@@ -2202,6 +2232,103 @@ export class HeliosNetwork {
 	}
 
 	/**
+	 * Lists all node attribute names currently registered on the network.
+	 * @returns {string[]} Node attribute identifiers.
+	 */
+	getNodeAttributeNames() {
+		return this._attributeNames('node');
+	}
+
+	/**
+	 * Lists all edge attribute names currently registered on the network.
+	 * @returns {string[]} Edge attribute identifiers.
+	 */
+	getEdgeAttributeNames() {
+		return this._attributeNames('edge');
+	}
+
+	/**
+	 * Lists all network-level attribute names currently registered.
+	 * @returns {string[]} Network attribute identifiers.
+	 */
+	getNetworkAttributeNames() {
+		return this._attributeNames('network');
+	}
+
+	/**
+	 * Returns the stored type metadata for a node attribute.
+	 * @param {string} name - Attribute identifier.
+	 * @returns {{type:number, dimension:number, complex:boolean}|null}
+	 */
+	getNodeAttributeInfo(name) {
+		return this._attributeInfo('node', name);
+	}
+
+	/**
+	 * Returns the stored type metadata for an edge attribute.
+	 * @param {string} name - Attribute identifier.
+	 * @returns {{type:number, dimension:number, complex:boolean}|null}
+	 */
+	getEdgeAttributeInfo(name) {
+		return this._attributeInfo('edge', name);
+	}
+
+	/**
+	 * Returns the stored type metadata for a network attribute.
+	 * @param {string} name - Attribute identifier.
+	 * @returns {{type:number, dimension:number, complex:boolean}|null}
+	 */
+	getNetworkAttributeInfo(name) {
+		return this._attributeInfo('network', name);
+	}
+
+	/**
+	 * Checks whether a node-to-edge passthrough is registered for a given edge attribute.
+	 * @param {string} edgeName - Edge attribute identifier.
+	 * @returns {boolean}
+	 */
+	hasNodeToEdgeAttribute(edgeName) {
+		this._ensureActive();
+		return this._nodeToEdgePassthrough.has(edgeName);
+	}
+
+	/**
+	 * Checks whether a node attribute is present.
+	 * @param {string} name - Attribute identifier.
+	 * @returns {boolean}
+	 */
+	hasNodeAttribute(name) {
+		return this._hasAttribute('node', name);
+	}
+
+	/**
+	 * Checks whether an edge attribute is present.
+	 * @param {string} name - Attribute identifier.
+	 * @returns {boolean}
+	 */
+	/**
+	 * Checks whether an edge attribute is present.
+	 * @param {string} name - Attribute identifier.
+	 * @param {boolean} [pure=false] - When true, only considers native edge attributes and ignores passthroughs.
+	 * @returns {boolean}
+	 */
+	hasEdgeAttribute(name, pure = false) {
+		if (pure) {
+			return this._hasAttribute('edge', name) && !this._nodeToEdgePassthrough.has(name);
+		}
+		return this._hasAttribute('edge', name) || this._nodeToEdgePassthrough.has(name);
+	}
+
+	/**
+	 * Checks whether a network attribute is present.
+	 * @param {string} name - Attribute identifier.
+	 * @returns {boolean}
+	 */
+	hasNetworkAttribute(name) {
+		return this._hasAttribute('network', name);
+	}
+
+	/**
 	 * Internal helper used to register attributes with the native layer.
 	 * @private
 	 *
@@ -2502,6 +2629,33 @@ export class HeliosNetwork {
 		if (scope === 'node') return this.nodeCapacity;
 		if (scope === 'edge') return this.edgeCapacity;
 		return 1;
+	}
+
+	_attributeNames(scope) {
+		this._ensureActive();
+		return Array.from(this._attributeMap(scope).keys());
+	}
+
+	_attributeInfo(scope, name) {
+		this._ensureActive();
+		const meta = this._ensureAttributeMetadata(scope, name);
+		if (!meta) {
+			return null;
+		}
+		return {
+			type: meta.type,
+			dimension: meta.dimension,
+			complex: meta.complex,
+		};
+	}
+
+	_hasAttribute(scope, name) {
+		this._ensureActive();
+		const metaMap = this._attributeMap(scope);
+		if (metaMap.has(name)) {
+			return true;
+		}
+		return Boolean(this._ensureAttributeMetadata(scope, name));
 	}
 
 	/**
@@ -2840,6 +2994,12 @@ export class HeliosNetwork {
 		if (endpoints === 1 || endpoints === 'destination') return 1;
 		if (endpoints === -1 || endpoints === 'both' || endpoints === undefined || endpoints === null) return -1;
 		throw new Error('endpoints must be "source", "destination", "both", 0, 1, or -1');
+	}
+
+	_denormalizeEndpointMode(mode) {
+		if (mode === 0) return 'source';
+		if (mode === 1) return 'destination';
+		return 'both';
 	}
 
 	_copyNodeToEdgeAttribute(sourceName, destinationName, endpointMode, doubleWidth, cachedMeta = null, cachedPointers = null) {

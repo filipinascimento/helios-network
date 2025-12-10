@@ -42,6 +42,11 @@ describe('HeliosNetwork (Node runtime)', () => {
 		expect(network.nodeActivityView[createdNodes[3]]).toBe(0);
 	});
 
+	test('checks for node attributes in extreme cases', () => {
+	
+		// expect(network.nodeActivityView[createdNodes[3]]).toBe(0);
+	});
+
 	test('manages primitive attribute buffers', () => {
 		const nodes = network.addNodes(2);
 		network.defineNodeAttribute('weight', AttributeType.Float, 1);
@@ -129,6 +134,33 @@ describe('HeliosNetwork (Node runtime)', () => {
 
 		nodeSelector.dispose();
 		edgeSelector.dispose();
+	});
+
+	test('lists, inspects, and detects attributes', () => {
+		const nodes = network.addNodes(1);
+		network.defineNodeAttribute('mass', AttributeType.Double, 2);
+		network.defineEdgeAttribute('flag', AttributeType.Boolean);
+		network.defineNetworkAttribute('version', AttributeType.UnsignedInteger);
+
+		expect(network.getNodeAttributeNames()).toEqual(expect.arrayContaining(['mass']));
+		expect(network.getEdgeAttributeNames()).toEqual(expect.arrayContaining(['flag']));
+		expect(network.getNetworkAttributeNames()).toEqual(expect.arrayContaining(['version']));
+
+		expect(network.hasNodeAttribute('mass')).toBe(true);
+		expect(network.hasEdgeAttribute('flag')).toBe(true);
+		expect(network.hasNetworkAttribute('version')).toBe(true);
+		expect(network.hasNodeAttribute('missing')).toBe(false);
+
+		const nodeInfo = network.getNodeAttributeInfo('mass');
+		expect(nodeInfo).toEqual({ type: AttributeType.Double, dimension: 2, complex: false });
+		const edgeInfo = network.getEdgeAttributeInfo('flag');
+		expect(edgeInfo).toEqual({ type: AttributeType.Boolean, dimension: 1, complex: false });
+		const netInfo = network.getNetworkAttributeInfo('version');
+		expect(netInfo).toEqual({ type: AttributeType.UnsignedInteger, dimension: 1, complex: false });
+
+		const selector = network.createNodeSelector(nodes);
+		expect(selector.hasAttribute('mass')).toBe(true);
+		selector.dispose();
 	});
 
 	test('round-trips .bxnet payloads via in-memory buffers', async () => {

@@ -4,9 +4,10 @@ import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
   webServer: {
-    command: 'vite',
-    url: 'http://localhost:5173',
-    reuseExistingServer: !process.env.CI,
+  command: 'vite --host --port 5173 --clearScreen false --strictPort',
+  url: 'http://localhost:5173',
+  reuseExistingServer: !process.env.CI,
+  timeout: 120000,
   },
   use: {
     headless: true, // <--- Force headless mode

@@ -4,6 +4,7 @@ VERSION ?=
 TAG ?= v$(VERSION)
 MSG ?= Release $(TAG)
 TAG_MSG ?= Release $(TAG)
+MODE ?= release   # or debug
 
 CC ?= cc
 AR ?= ar
@@ -33,13 +34,29 @@ SHARED_EXT := so
 SHARED_LDFLAGS := -shared
 endif
 
+
+ifeq ($(MODE),debug)
+  # print that debug mode is enabled
+  $(info Building in debug mode with debug symbols)
+  EMCC_OPT_FLAGS := -O0 -gsource-map --profiling
+  EMCC_DEBUG_FLAGS := \
+      -s ASSERTIONS=2 \
+      -s STACK_OVERFLOW_CHECK=2 \
+      -s SAFE_HEAP=1 \
+      --source-map-base=compiled/ \
+      --emit-symbol-map
+else
+  EMCC_OPT_FLAGS := -O3
+  EMCC_DEBUG_FLAGS :=
+endif
+
 NATIVE_CFLAGS := -std=c17 -O3 -Wall -Wextra -pedantic -DNDEBUG -fPIC \
 	-Isrc/native/include -Isrc/native/include/helios -Isrc/native/libraries/htslib
 LIBS := -lz
 
 EXPORTED_FUNCS := [_malloc,_free,_calloc,_CXNetworkVersionString,_CXNewNetwork,_CXNewNetworkWithCapacity,_CXFreeNetwork,_CXNetworkAddNodes,_CXNetworkRemoveNodes,_CXNetworkAddEdges,_CXNetworkRemoveEdges,_CXNetworkNodeCount,_CXNetworkEdgeCount,_CXNetworkNodeCapacity,_CXNetworkEdgeCapacity,_CXNetworkNodeActivityBuffer,_CXNetworkEdgeActivityBuffer,_CXNetworkEdgesBuffer,_CXNetworkWriteActiveNodes,_CXNetworkWriteActiveEdges,_CXNetworkWriteActiveEdgeSegments,_CXNetworkWriteActiveEdgeNodeAttributes,_CXNetworkWriteEdgeNodeAttributesInOrder,_CXNetworkCopyNodeAttributesToEdgeAttributes,_CXNetworkAddDenseNodeAttribute,_CXNetworkAddDenseEdgeAttribute,_CXNetworkRemoveDenseNodeAttribute,_CXNetworkRemoveDenseEdgeAttribute,_CXNetworkMarkDenseNodeAttributeDirty,_CXNetworkMarkDenseEdgeAttributeDirty,_CXNetworkRemoveNodeAttribute,_CXNetworkRemoveEdgeAttribute,_CXNetworkRemoveNetworkAttribute,_CXNetworkUpdateDenseNodeAttribute,_CXNetworkUpdateDenseEdgeAttribute,_CXNetworkUpdateDenseNodeIndexBuffer,_CXNetworkUpdateDenseEdgeIndexBuffer,_CXNetworkSetDenseNodeOrder,_CXNetworkSetDenseEdgeOrder,_CXNetworkGetNodeValidRange,_CXNetworkGetEdgeValidRange,_CXNetworkIsDirected,_CXNetworkOutNeighbors,_CXNetworkInNeighbors,_CXNetworkIsNodeActive,_CXNetworkIsEdgeActive,_CXNetworkDefineNodeAttribute,_CXNetworkDefineEdgeAttribute,_CXNetworkDefineNetworkAttribute,_CXNetworkGetNodeAttribute,_CXNetworkGetEdgeAttribute,_CXNetworkGetNetworkAttribute,_CXNetworkGetNodeAttributeBuffer,_CXNetworkGetEdgeAttributeBuffer,_CXNetworkGetNetworkAttributeBuffer,_CXAttributeStride,_CXNodeSelectorCreate,_CXNodeSelectorDestroy,_CXNodeSelectorFillAll,_CXNodeSelectorFillFromArray,_CXNodeSelectorData,_CXNodeSelectorCount,_CXEdgeSelectorCreate,_CXEdgeSelectorDestroy,_CXEdgeSelectorFillAll,_CXEdgeSelectorFillFromArray,_CXEdgeSelectorData,_CXEdgeSelectorCount,_CXNeighborContainerCount,_CXNeighborContainerGetNodes,_CXNeighborContainerGetEdges,_CXNetworkWriteBXNet,_CXNetworkWriteZXNet,_CXNetworkWriteXNet,_CXNetworkReadBXNet,_CXNetworkReadZXNet,_CXNetworkReadXNet,_CXNetworkCompact]
 EMCC_FLAGS := \
-	-O3 \
+    $(EMCC_OPT_FLAGS) \
 	--std=c17 \
 	-Wall \
 	-Isrc/native/include/helios \
@@ -54,7 +71,8 @@ EMCC_FLAGS := \
 	-s EXPORTED_RUNTIME_METHODS='["cwrap","ccall","getValue","setValue","UTF8ToString","stringToUTF8","lengthBytesUTF8","HEAP8","HEAPU8","HEAP32","HEAPU32","HEAPF32","HEAPF64","FS"]' \
 	-s ASSERTIONS=1 \
 	-s USE_ZLIB=1 \
-	-s MAXIMUM_MEMORY=4gb
+	-s MAXIMUM_MEMORY=4gb \
+    $(EMCC_DEBUG_FLAGS)
 
 main:
 	npm run build

@@ -6,18 +6,29 @@ const format = process.env.FORMAT ?? 'es';
 const isUMD = format === 'umd';
 const isInline = format === 'inline';
 
+const debugSymbols = process.env.DEBUG_SYMBOLS === '1';
+
 function compileEmscripten() {
 	return {
 		name: 'compile-emscripten',
 		configResolved(config) {
 			if (config.command === 'serve' || config.command === 'build') {
-				execSync('make compile', { stdio: 'inherit' });
+				// You can also pass MODE=debug/release to make here if you want
+				const mode = debugSymbols ? 'debug' : 'release';
+				execSync(`make compile MODE=${mode}`, { stdio: 'inherit' });
 			}
 		},
 	}
 }
 
 export default {
+	publicDir: 'docs',
+	appType: 'mpa',
+	server: {
+		fs: {
+			allow: ['.', 'docs'],
+		},
+	},
 	plugins: [
     viteStaticCopy({
       targets: [
@@ -39,7 +50,7 @@ export default {
 			fileName: isInline ? 'helios-network.inline' : 'helios-network',
 			formats: isUMD ? ['umd'] : ['es'],
 		},
-		minify: "esbuild",
+		minify: debugSymbols ? false : "esbuild",
 		rollupOptions: {
 			external: ['module', 'node:module'],
 		},
