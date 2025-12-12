@@ -287,12 +287,13 @@ describe('HeliosNetwork (Node runtime)', () => {
 			}
 			mod._free(segPtr);
 
-			const denseSize = net.updateDenseEdgeAttributeBuffer('size_endpoints');
+			net.updateDenseEdgeAttributeBuffer('size_endpoints');
+			const denseSize = net.getDenseEdgeAttributeView('size_endpoints');
 			expect(denseSize.count).toBe(requiredEdges);
 			expect(denseSize.stride).toBe(Float32Array.BYTES_PER_ELEMENT * 2);
 			expect(denseSize.validStart).toBe(net.edgeValidRange.start);
-			const denseView = new Float32Array(denseSize.view.buffer, denseSize.pointer, denseSize.count * 2);
-			const peekSize = net.peekDenseEdgeAttributeBuffer('size_endpoints');
+			const denseView = denseSize.view;
+			const peekSize = net.getDenseEdgeAttributeView('size_endpoints');
 			expect(peekSize.pointer).toBe(denseSize.pointer);
 			const edgeSizeView = net.getEdgeAttributeBuffer('size_endpoints').view;
 			const activeEdgeIndices = Array.from(edges).filter((_, idx) => idx !== 1);
@@ -333,11 +334,17 @@ describe('HeliosNetwork (Node runtime)', () => {
 			net.defineNodeToEdgeAttribute('vec', 'from_only_double', 'source', true);
 			net.defineNodeToEdgeAttribute('vec', 'to_only_double', 'destination', true);
 
-			const fromDense = net.updateDenseEdgeAttributeBuffer('from_only');
-			const toDense = net.updateDenseEdgeAttributeBuffer('to_only');
-			const bothDense = net.updateDenseEdgeAttributeBuffer('both_vec');
-			const fromDoubleDense = net.updateDenseEdgeAttributeBuffer('from_only_double');
-			const toDoubleDense = net.updateDenseEdgeAttributeBuffer('to_only_double');
+			net.updateDenseEdgeAttributeBuffer('from_only');
+			net.updateDenseEdgeAttributeBuffer('to_only');
+			net.updateDenseEdgeAttributeBuffer('both_vec');
+			net.updateDenseEdgeAttributeBuffer('from_only_double');
+			net.updateDenseEdgeAttributeBuffer('to_only_double');
+
+			const fromDense = net.getDenseEdgeAttributeView('from_only');
+			const toDense = net.getDenseEdgeAttributeView('to_only');
+			const bothDense = net.getDenseEdgeAttributeView('both_vec');
+			const fromDoubleDense = net.getDenseEdgeAttributeView('from_only_double');
+			const toDoubleDense = net.getDenseEdgeAttributeView('to_only_double');
 
 			expect(fromDense.count).toBe(edges.length);
 			expect(toDense.count).toBe(edges.length);
@@ -350,14 +357,15 @@ describe('HeliosNetwork (Node runtime)', () => {
 			expect(fromDoubleDense.stride).toBe(Float32Array.BYTES_PER_ELEMENT * 4);
 			expect(toDoubleDense.stride).toBe(Float32Array.BYTES_PER_ELEMENT * 4);
 
-			const edgeOrder = net.updateDenseEdgeIndexBuffer();
-			const denseEdges = new Uint32Array(edgeOrder.view.buffer, edgeOrder.pointer, edgeOrder.count);
+			net.updateDenseEdgeIndexBuffer();
+			const edgeOrder = net.getDenseEdgeIndexView();
+			const denseEdges = edgeOrder.view;
 
-			const fromView = new Float32Array(fromDense.view.buffer, fromDense.pointer, fromDense.count * 2);
-			const toView = new Float32Array(toDense.view.buffer, toDense.pointer, toDense.count * 2);
-			const bothView = new Float32Array(bothDense.view.buffer, bothDense.pointer, bothDense.count * 4);
-			const fromDoubleView = new Float32Array(fromDoubleDense.view.buffer, fromDoubleDense.pointer, fromDoubleDense.count * 4);
-			const toDoubleView = new Float32Array(toDoubleDense.view.buffer, toDoubleDense.pointer, toDoubleDense.count * 4);
+			const fromView = fromDense.view;
+			const toView = toDense.view;
+			const bothView = bothDense.view;
+			const fromDoubleView = fromDoubleDense.view;
+			const toDoubleView = toDoubleDense.view;
 
 			for (let i = 0; i < denseEdges.length; i++) {
 				const edgeIdx = denseEdges[i];
@@ -404,18 +412,20 @@ describe('HeliosNetwork (Node runtime)', () => {
 			sizes[nodes[1]] = 2.5;
 
 			net.defineNodeToEdgeAttribute('size', 'size_passthrough', 'both');
-			const dense = net.updateDenseEdgeAttributeBuffer('size_passthrough');
+			net.updateDenseEdgeAttributeBuffer('size_passthrough');
+			const dense = net.getDenseEdgeAttributeView('size_passthrough');
 			expect(dense.count).toBe(edges.length);
 			expect(dense.stride).toBe(Float32Array.BYTES_PER_ELEMENT * 2);
-			const denseView = new Float32Array(dense.view.buffer, dense.pointer, dense.count * 2);
+			const denseView = dense.view;
 			expect(denseView[0]).toBeCloseTo(1.25);
 			expect(denseView[1]).toBeCloseTo(2.5);
 
 			sizes[nodes[0]] = 9;
 			sizes[nodes[1]] = 10;
 			net.markDenseNodeAttributeDirty('size');
-			const refreshed = net.updateDenseEdgeAttributeBuffer('size_passthrough');
-			const refreshedView = new Float32Array(refreshed.view.buffer, refreshed.pointer, refreshed.count * 2);
+			net.updateDenseEdgeAttributeBuffer('size_passthrough');
+			const refreshed = net.getDenseEdgeAttributeView('size_passthrough');
+			const refreshedView = refreshed.view;
 			expect(refreshedView[0]).toBeCloseTo(9);
 			expect(refreshedView[1]).toBeCloseTo(10);
 
@@ -424,8 +434,9 @@ describe('HeliosNetwork (Node runtime)', () => {
 			sizes[nodes[0]] = 100;
 			sizes[nodes[1]] = 200;
 			net.markDenseNodeAttributeDirty('size');
-			const afterRemoval = net.updateDenseEdgeAttributeBuffer('size_passthrough');
-			const afterRemovalView = new Float32Array(afterRemoval.view.buffer, afterRemoval.pointer, afterRemoval.count * 2);
+			net.updateDenseEdgeAttributeBuffer('size_passthrough');
+			const afterRemoval = net.getDenseEdgeAttributeView('size_passthrough');
+			const afterRemovalView = afterRemoval.view;
 			expect(afterRemovalView[0]).toBeCloseTo(9);
 			expect(afterRemovalView[1]).toBeCloseTo(10);
 		} finally {
@@ -443,8 +454,9 @@ describe('HeliosNetwork (Node runtime)', () => {
 			const sizeBuf = net.getNodeAttributeBuffer('size').view;
 			sizeBuf[nodes[0]] = 1;
 			sizeBuf[nodes[1]] = 2;
-			const initialDense = net.updateDenseEdgeAttributeBuffer('size_passthrough');
-			const initView = new Float32Array(initialDense.view.buffer, initialDense.pointer, initialDense.count * 2);
+			net.updateDenseEdgeAttributeBuffer('size_passthrough');
+			const initialDense = net.getDenseEdgeAttributeView('size_passthrough');
+			const initView = initialDense.view;
 			expect(initView[0]).toBeCloseTo(1);
 			expect(initView[1]).toBeCloseTo(2);
 
@@ -456,15 +468,17 @@ describe('HeliosNetwork (Node runtime)', () => {
 			net.defineNodeToEdgeAttribute('size', 'size_passthrough', 'both');
 			sizeBuf[nodes[0]] = 5;
 			sizeBuf[nodes[1]] = 6;
-			const recreatedDense = net.updateDenseEdgeAttributeBuffer('size_passthrough');
-			const recView = new Float32Array(recreatedDense.view.buffer, recreatedDense.pointer, recreatedDense.count * 2);
+			net.updateDenseEdgeAttributeBuffer('size_passthrough');
+			const recreatedDense = net.getDenseEdgeAttributeView('size_passthrough');
+			const recView = recreatedDense.view;
 			expect(recView[0]).toBeCloseTo(5);
 			expect(recView[1]).toBeCloseTo(6);
 
 			// Removing the source node attribute breaks passthrough until redefined
 			net.removeNodeAttribute('size');
-			const afterNodeRemoval = net.updateDenseEdgeAttributeBuffer('size_passthrough');
-			const afterNodeRemovalView = new Float32Array(afterNodeRemoval.view.buffer, afterNodeRemoval.pointer, afterNodeRemoval.count * 2);
+			net.updateDenseEdgeAttributeBuffer('size_passthrough');
+			const afterNodeRemoval = net.getDenseEdgeAttributeView('size_passthrough');
+			const afterNodeRemovalView = afterNodeRemoval.view;
 			expect(afterNodeRemovalView[0]).toBeCloseTo(5);
 			expect(afterNodeRemovalView[1]).toBeCloseTo(6);
 			net.defineNodeAttribute('size', AttributeType.Float, 1);
@@ -472,8 +486,9 @@ describe('HeliosNetwork (Node runtime)', () => {
 			net.defineNodeToEdgeAttribute('size', 'size_passthrough', 'both');
 			net.getNodeAttributeBuffer('size').view[nodes[0]] = 7;
 			net.getNodeAttributeBuffer('size').view[nodes[1]] = 8;
-			const finalDense = net.updateDenseEdgeAttributeBuffer('size_passthrough');
-			const finalView = new Float32Array(finalDense.view.buffer, finalDense.pointer, finalDense.count * 2);
+			net.updateDenseEdgeAttributeBuffer('size_passthrough');
+			const finalDense = net.getDenseEdgeAttributeView('size_passthrough');
+			const finalView = finalDense.view;
 			expect(finalView[0]).toBeCloseTo(7);
 			expect(finalView[1]).toBeCloseTo(8);
 		} finally {
@@ -551,24 +566,27 @@ describe('HeliosNetwork (Node runtime)', () => {
 			net.addDenseNodeAttributeBuffer('weight');
 			const reverseOrder = Uint32Array.from([...nodes].reverse());
 			net.setDenseNodeOrder(reverseOrder);
-			let dense = net.updateDenseNodeAttributeBuffer('weight');
+			net.updateDenseNodeAttributeBuffer('weight');
+			let dense = net.getDenseNodeAttributeView('weight');
 			expect(dense.count).toBe(reverseOrder.length);
 			expect(dense.stride).toBe(Float32Array.BYTES_PER_ELEMENT);
 			expect(dense.validStart).toBe(0);
 			expect(dense.validEnd).toBe(nodes[nodes.length - 1] + 1);
-			const denseFloats = new Float32Array(dense.view.buffer, dense.pointer, dense.view.byteLength / Float32Array.BYTES_PER_ELEMENT);
+			const denseFloats = dense.view;
 			expect(Array.from(denseFloats.slice(0, reverseOrder.length))).toEqual([40, 30, 20, 10]);
 
 			weights[nodes[0]] = 99;
 			net.markDenseNodeAttributeDirty('weight');
-			dense = net.updateDenseNodeAttributeBuffer('weight');
-			const refreshedFloats = new Float32Array(dense.view.buffer, dense.pointer, dense.view.byteLength / Float32Array.BYTES_PER_ELEMENT);
+			net.updateDenseNodeAttributeBuffer('weight');
+			dense = net.getDenseNodeAttributeView('weight');
+			const refreshedFloats = dense.view;
 			expect(refreshedFloats[0]).toBeCloseTo(40);
 			expect(refreshedFloats[reverseOrder.length - 1]).toBeCloseTo(99);
 
-			const indexDense = net.updateDenseNodeIndexBuffer();
+			net.updateDenseNodeIndexBuffer();
+			const indexDense = net.getDenseNodeIndexView();
 			expect(indexDense.count).toBe(net.nodeCount);
-			const indexView = new Uint32Array(indexDense.view.buffer, indexDense.pointer, indexDense.count);
+			const indexView = indexDense.view;
 			expect(Array.from(indexView.slice(0, net.nodeCount))).toEqual(expect.arrayContaining(Array.from(nodes)));
 
 			const edges = net.addEdges([
@@ -581,11 +599,93 @@ describe('HeliosNetwork (Node runtime)', () => {
 			capView[edges[1]] = 2.5;
 
 			net.addDenseEdgeAttributeBuffer('capacity');
-			const denseEdge = net.updateDenseEdgeAttributeBuffer('capacity');
-			const denseEdgeFloats = new Float32Array(denseEdge.view.buffer, denseEdge.pointer, denseEdge.view.byteLength / Float32Array.BYTES_PER_ELEMENT);
+			net.updateDenseEdgeAttributeBuffer('capacity');
+			const denseEdge = net.getDenseEdgeAttributeView('capacity');
+			const denseEdgeFloats = denseEdge.view;
 			expect(Array.from(denseEdgeFloats.slice(0, denseEdge.count))).toEqual(expect.arrayContaining([1.5, 2.5]));
-			const denseEdgeIndex = net.updateDenseEdgeIndexBuffer();
+			net.updateDenseEdgeIndexBuffer();
+			const denseEdgeIndex = net.getDenseEdgeIndexView();
 			expect(denseEdgeIndex.count).toBe(net.edgeCount);
+		} finally {
+			net.dispose();
+		}
+	});
+
+	test('buffer access guards block allocation-prone calls and expose typed dense views', async () => {
+		const net = await HeliosNetwork.create({ directed: false, initialNodes: 0, initialEdges: 0 });
+		try {
+			const nodes = net.addNodes(2);
+			net.defineNodeAttribute('size', AttributeType.Float, 1);
+			const sizeBuf = net.getNodeAttributeBuffer('size').view;
+			sizeBuf[nodes[0]] = 1.5;
+			sizeBuf[nodes[1]] = 2.5;
+			net.addDenseNodeAttributeBuffer('size');
+			net.updateDenseNodeAttributeBuffer('size');
+			net.updateDenseNodeIndexBuffer();
+
+			const buffers = net.withDenseBufferViews([['node', 'size'], ['node', 'index']], (views) => {
+				const sizeView = views.node.size.view;
+				const indexView = views.node.index.view;
+				expect(sizeView instanceof Float32Array).toBe(true);
+				expect(indexView instanceof Uint32Array).toBe(true);
+				expect(Array.from(sizeView.slice(0, 2))).toEqual([1.5, 2.5]);
+				expect(Array.from(indexView.slice(0, 2))).toEqual(expect.arrayContaining(Array.from(nodes)));
+				expect(() => net.updateDenseNodeAttributeBuffer('size')).toThrow(/buffer access/);
+				expect(() => net.addNodes(1)).toThrow(/buffer access/);
+				return views;
+			});
+			expect(buffers.node.size.pointer).toBeGreaterThan(0);
+		} finally {
+			net.dispose();
+		}
+	});
+
+	test('batch update and fetch dense buffers returns typed views', async () => {
+		const net = await HeliosNetwork.create({ directed: false, initialNodes: 0, initialEdges: 0 });
+		try {
+			const nodes = net.addNodes(3);
+			const edges = net.addEdges([{ from: nodes[0], to: nodes[1] }, { from: nodes[1], to: nodes[2] }]);
+			net.defineNodeAttribute('pos', AttributeType.Float, 2);
+			net.defineEdgeAttribute('weight', AttributeType.Float, 1);
+			const pos = net.getNodeAttributeBuffer('pos').view;
+			pos[nodes[0] * 2 + 0] = 1;
+			pos[nodes[0] * 2 + 1] = 2;
+			pos[nodes[1] * 2 + 0] = 3;
+			pos[nodes[1] * 2 + 1] = 4;
+			pos[nodes[2] * 2 + 0] = 5;
+			pos[nodes[2] * 2 + 1] = 6;
+			const weight = net.getEdgeAttributeBuffer('weight').view;
+			weight[edges[0]] = 7;
+			weight[edges[1]] = 8;
+			net.addDenseNodeAttributeBuffer('pos');
+			net.addDenseEdgeAttributeBuffer('weight');
+
+			const views = net.updateAndGetDenseBufferViews([
+				['node', 'pos'],
+				['edge', 'weight'],
+				['node', 'index'],
+				['edge', 'index'],
+			]);
+
+			expect(views.node.pos.view instanceof Float32Array).toBe(true);
+			expect(views.edge.weight.view instanceof Float32Array).toBe(true);
+			expect(views.node.index.view instanceof Uint32Array).toBe(true);
+			expect(views.edge.index.view instanceof Uint32Array).toBe(true);
+			const densePos = views.node.pos.view;
+			const denseNodeIds = views.node.index.view;
+			for (let i = 0; i < denseNodeIds.length; i++) {
+				const nodeId = denseNodeIds[i];
+				const base = nodeId * 2;
+				const denseBase = i * 2;
+				expect(densePos[denseBase + 0]).toBeCloseTo(pos[base + 0]);
+				expect(densePos[denseBase + 1]).toBeCloseTo(pos[base + 1]);
+			}
+			const denseEdgeWeights = views.edge.weight.view;
+			const denseEdgeIds = views.edge.index.view;
+			for (let i = 0; i < denseEdgeIds.length; i++) {
+				const edgeId = denseEdgeIds[i];
+				expect(denseEdgeWeights[i]).toBeCloseTo(weight[edgeId]);
+			}
 		} finally {
 			net.dispose();
 		}

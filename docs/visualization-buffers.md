@@ -10,10 +10,10 @@ Dense buffers give WebGL/WebGPU a tightly packed snapshot of attributes and ids 
 - **Ordering**: set one order per scope (nodes/edges). All dense attributes + the index buffer use the same order.
   - C: `CXNetworkSetDenseNodeOrder(order,count)`, `CXNetworkSetDenseEdgeOrder(...)`
   - JS: `setDenseNodeOrder(order)`, `setDenseEdgeOrder(order)`
-- **Packing**: refresh dense buffers on demand; returns metadata.
+- **Packing**: refresh dense buffers on demand, then read typed views.
   - C: `CXNetworkUpdateDenseNodeAttribute`, `CXNetworkUpdateDenseEdgeAttribute`
-  - JS: `updateDenseNodeAttributeBuffer(name)`, `updateDenseEdgeAttributeBuffer(name)`
-  - Index buffers: `updateDenseNodeIndexBuffer()`, `updateDenseEdgeIndexBuffer()`
+  - JS: `updateDenseNodeAttributeBuffer(name)`, `updateDenseEdgeAttributeBuffer(name)` + `getDenseNodeAttributeView(name)` / `getDenseEdgeAttributeView(name)`
+  - Index buffers: `updateDenseNodeIndexBuffer()`, `updateDenseEdgeIndexBuffer()` + `getDenseNodeIndexView()` / `getDenseEdgeIndexView()`
 - **Dirty tracking**: dense buffers are auto-marked dirty on structural edits. Mark them yourself after attribute writes:
   - JS: `markDenseNodeAttributeDirty(name)`, `markDenseEdgeAttributeDirty(name)`
 - **Valid ranges** (network-level): `network.nodeValidRange` / `network.edgeValidRange` return `{start,end}` based on active ids. Use these to slice original sparse attribute buffers when you want to avoid unused capacity. Dense descriptors keep `count`/`stride` for packed views; valid ranges refer to source indices.
@@ -40,14 +40,16 @@ import HeliosNetwork, { AttributeType } from 'helios-network';
 const net = await HeliosNetwork.create({ directed: false });
 const nodes = net.addNodes(3);
 net.defineNodeAttribute('position', AttributeType.Float, 4);
-const pos = net.getNodeAttributeBuffer('position').view;
-for (let i = 0; i < nodes.length; i++) {
-  const base = nodes[i] * 4;
-  pos[base + 0] = i;
-  pos[base + 1] = i + 0.5;
-  pos[base + 2] = 0;
-  pos[base + 3] = 1;
-}
+net.withBufferAccess(() => {
+  const pos = net.getNodeAttributeBuffer('position').view;
+  for (let i = 0; i < nodes.length; i++) {
+    const base = nodes[i] * 4;
+    pos[base + 0] = i;
+    pos[base + 1] = i + 0.5;
+    pos[base + 2] = 0;
+    pos[base + 3] = 1;
+  }
+});
 
 net.addDenseNodeAttributeBuffer('position');
 
@@ -55,18 +57,19 @@ net.addDenseNodeAttributeBuffer('position');
 const order = Uint32Array.from(nodes).reverse();
 net.setDenseNodeOrder(order);
 
-const densePos = net.updateDenseNodeAttributeBuffer('position'); // uses setDenseNodeOrder
-const denseIds = net.updateDenseNodeIndexBuffer();               // same order
+net.updateDenseNodeAttributeBuffer('position'); // may allocate/grow
+net.updateDenseNodeIndexBuffer();               // same order
 
-const posFloats = new Float32Array(
-  densePos.view.buffer,
-  densePos.pointer,
-  densePos.count * 4
-);
-const ids = new Uint32Array(denseIds.view.buffer, denseIds.pointer, denseIds.count);
+net.withBufferAccess(() => {
+  const densePos = net.getDenseNodeAttributeView('position'); // typed view
+  const denseIds = net.getDenseNodeIndexView();
 
-// valid range of source indices (original ids)
-console.log(net.nodeValidRange); // { start: 0, end: 3 }
+  const posFloats = densePos.view; // Float32Array sized to active count
+  const ids = denseIds.view;       // Uint32Array of packed ids
+
+  // valid range of source indices (original ids)
+  console.log(net.nodeValidRange); // { start: 0, end: 3 }
+});
 ```
 
 ## Edge example (capacities + ids + index buffer)
@@ -74,23 +77,23 @@ console.log(net.nodeValidRange); // { start: 0, end: 3 }
 ```js
 net.defineEdgeAttribute('capacity', AttributeType.Float, 1);
 const edges = net.addEdges([{ from: nodes[0], to: nodes[1] }, { from: nodes[1], to: nodes[2] }]);
-const cap = net.getEdgeAttributeBuffer('capacity').view;
-cap[edges[0]] = 1.5;
-cap[edges[1]] = 2.5;
+net.withBufferAccess(() => {
+  const cap = net.getEdgeAttributeBuffer('capacity').view;
+  cap[edges[0]] = 1.5;
+  cap[edges[1]] = 2.5;
+});
 
 net.addDenseEdgeAttributeBuffer('capacity');
 net.setDenseEdgeOrder(edges); // optional
 
-const denseCap = net.updateDenseEdgeAttributeBuffer('capacity'); // respects edge order
-const denseEdgeIds = net.updateDenseEdgeIndexBuffer();
+net.updateDenseEdgeAttributeBuffer('capacity'); // may allocate/grow
+net.updateDenseEdgeIndexBuffer();
+const denseCap = net.getDenseEdgeAttributeView('capacity'); // typed view
+const denseEdgeIds = net.getDenseEdgeIndexView();
 
-const capFloats = new Float32Array(denseCap.view.buffer, denseCap.pointer, denseCap.count);
-const edgeIds = new Uint32Array(denseEdgeIds.view.buffer, denseEdgeIds.pointer, denseEdgeIds.count);
+const capFloats = denseCap.view;
+const edgeIds = denseEdgeIds.view;
 console.log(edgeIds); // ids in the packed order (aligned with denseCap)
-
-// Peek at the last-packed versions without repacking
-const lastCap = net.peekDenseEdgeAttributeBuffer('capacity');
-const lastEdgeIds = net.peekDenseEdgeIndexBuffer();
 ```
 
 ## Propagate node attributes to edges
@@ -104,16 +107,14 @@ net.defineNodeAttribute('size', AttributeType.Float, 1);
 // ...write sizes into the sparse node buffer...
 
 net.defineNodeToEdgeAttribute('size', 'size_passthrough', 'both'); // defines edge attr + dense buffer
-const denseSizes = net.updateDenseEdgeAttributeBuffer('size_passthrough'); // copies from nodes into edge attr, then packs; respects setDenseEdgeOrder
-const edgeIndices = net.updateDenseEdgeIndexBuffer();                      // same order as denseSizes
+net.updateDenseEdgeAttributeBuffer('size_passthrough'); // copies from nodes into edge attr, then packs; respects setDenseEdgeOrder
+net.updateDenseEdgeIndexBuffer();                      // same order as denseSizes
+const denseSizes = net.getDenseEdgeAttributeView('size_passthrough');
+const edgeIndices = net.getDenseEdgeIndexView();
 
-const sizes = new Float32Array(denseSizes.view.buffer, denseSizes.pointer, denseSizes.count * 2);
-const indices = new Uint32Array(edgeIndices.view.buffer, edgeIndices.pointer, edgeIndices.count);
+const sizes = denseSizes.view; // Float32Array [from,to,from,to...]
+const indices = edgeIndices.view;
 // sizes is [fromSize, toSize, ...] aligned with indices
-
-// Reuse the last-packed views if nothing changed
-const lastSizes = net.peekDenseEdgeAttributeBuffer('size_passthrough');
-const lastEdgeIndex = net.peekDenseEdgeIndexBuffer();
 ```
 
 `endpoints`: `"both"`/`-1` copies `[from,to]`; `"source"`/`0` or `"destination"`/`1` copies one endpoint. `doubleWidth` (default `true`) duplicates a single endpoint into a double-width layout. Dirtying the source node attribute via `markDenseNodeAttributeDirty` auto-dirties all dependent passthrough edge attributes; structural edits also mark them dirty. Passthrough edge names must be unused edge attributes; remove an existing edge attribute first if you want to reuse the name. Cleanup options: `removeNodeToEdgeAttribute(edgeAttr)` unregisters a passthrough; `removeEdgeAttribute`/`removeNodeAttribute`/`removeNetworkAttribute` drop sparse attributes (and associated dense tracking); `removeDense*` calls remove only dense registrations.
@@ -123,10 +124,34 @@ If you want a sparse edge buffer seeded from nodes (to tweak afterward), call:
 ```js
 net.copyNodeAttributeToEdgeAttribute('size', 'size_edge', 'destination', /* doubleWidth */ false);
 // ... mutate edge attribute if desired ...
-const dense = net.updateDenseEdgeAttributeBuffer('size_edge');
+net.updateDenseEdgeAttributeBuffer('size_edge');
+const dense = net.getDenseEdgeAttributeView('size_edge');
 ```
 
 Both helpers use the native copy path; dense packing still honours `setDenseEdgeOrder`.
+
+## Stable buffer access
+
+- `updateDense*` methods may grow memory; call them **before** grabbing views.
+- Use `getDense*View` (or `withDenseBufferViews`) to materialize typed views without repacking. Sparse attribute views (`getNodeAttributeBuffer`, `getEdgeAttributeBuffer`) are WASM-backed too; if you need them stable during a render/update, obtain them inside a buffer access block as well.
+- Wrap render-time access in `withBufferAccess`/`startBufferAccess` + `endBufferAccess` to block accidental allocations. Allocation-prone calls inside the block throw immediately. This protects both dense and sparse views from being invalidated by heap growth mid-use.
+
+Example:
+
+```js
+net.updateDenseNodeAttributeBuffer('position');
+net.updateDenseEdgeAttributeBuffer('capacity');
+net.updateDenseNodeIndexBuffer();
+
+net.withDenseBufferViews([['node', 'position'], ['edge', 'capacity'], ['node', 'index']], (buffers) => {
+  // Safe: any allocation attempt here throws.
+  const positions = buffers.node.position.view;
+  const capacities = buffers.edge.capacity.view;
+  const nodeIndices = buffers.node.index.view;
+  const posSparse = net.getNodeAttributeBuffer('position').view; // also safe here
+  // ...upload to GPU...
+});
+```
 
 ## Source slicing via valid ranges
 

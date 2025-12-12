@@ -246,12 +246,10 @@ net.module._free(segmentPtr);
 
 // Or use dense packing to propagate node attributes to edges without manual copies (passthrough)
 net.defineNodeToEdgeAttribute('position', 'position_endpoints', 'both');
-const denseEdgePositions = net.updateDenseEdgeAttributeBuffer('position_endpoints'); // aligned with updateDenseEdgeIndexBuffer
-const posPairs = new Float32Array(denseEdgePositions.view.buffer, denseEdgePositions.pointer, denseEdgePositions.count * 8);
-
-// Peek without repacking if you just need the last views
-const lastEdgeIds = net.peekDenseEdgeIndexBuffer();
-const lastPosPairs = net.peekDenseEdgeAttributeBuffer('position_endpoints');
+net.updateDenseEdgeAttributeBuffer('position_endpoints'); // aligned with updateDenseEdgeIndexBuffer
+const denseEdgePositions = net.getDenseEdgeAttributeView('position_endpoints');
+const posPairs = denseEdgePositions.view;
+const lastEdgeIds = net.getDenseEdgeIndexView();
 ```
 
 `writeActiveNodes` / `writeActiveEdges` return the required length; nothing is written when the provided buffer is too small. `writeActiveEdgeSegments` writes two vectors per edge into `segments` using the requested stride (`componentsPerNode`). For dense workflows you now have two paths:
