@@ -64,7 +64,7 @@ test('handles batched high-volume network operations', async () => {
 		const nodesToRemove = sampledNodes.slice(0, 50);
 		network.removeNodes(nodesToRemove);
 		for (const nodeId of nodesToRemove) {
-			expect(network.nodeActivityView[nodeId]).toBe(0);
+			expect(Array.from(network.nodeIndices)).not.toContain(nodeId);
 		}
 
 		// Query neighbours from a mid-stream node after removals to ensure adjacency is consistent.

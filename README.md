@@ -379,6 +379,8 @@ For full Node.js and browser walkthroughs—saving to disk, generating downloads
 
 Full JSDoc comments inside `src/js/HeliosNetwork.js` describe signatures and behaviours. You can generate HTML docs as shown below.
 
+Selectors, traversal helpers, and dense index conveniences are covered in [`docs/selectors.md`](docs/selectors.md).
+
 ---
 
 ## Examples

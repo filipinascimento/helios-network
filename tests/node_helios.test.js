@@ -39,12 +39,11 @@ describe('HeliosNetwork (Node runtime)', () => {
 		expect(network.edgeCount).toBeGreaterThanOrEqual(2);
 
 		network.removeNodes([createdNodes[3]]);
-		expect(network.nodeActivityView[createdNodes[3]]).toBe(0);
+		expect(Array.from(network.nodeIndices)).not.toContain(createdNodes[3]);
 	});
 
 	test('checks for node attributes in extreme cases', () => {
 	
-		// expect(network.nodeActivityView[createdNodes[3]]).toBe(0);
 	});
 
 	test('manages primitive attribute buffers', () => {
@@ -88,6 +87,80 @@ describe('HeliosNetwork (Node runtime)', () => {
 		nodeSelector.dispose();
 		edgeSelector.dispose();
 		customSelector.dispose();
+	});
+
+	test('checks active index membership', async () => {
+		const net = await HeliosNetwork.create({ directed: true, initialNodes: 0, initialEdges: 0 });
+		try {
+			const nodes = net.addNodes(3);
+			const edges = net.addEdges([
+				{ from: nodes[0], to: nodes[1] },
+				{ from: nodes[1], to: nodes[2] },
+			]);
+
+			expect(net.hasNodeIndex(nodes[0])).toBe(true);
+			expect(net.hasEdgeIndex(edges[0])).toBe(true);
+			expect(net.hasNodeIndex(9999)).toBe(false);
+			expect(net.hasEdgeIndex(9999)).toBe(false);
+
+			expect(net.hasNodeIndices(nodes)).toEqual([true, true, true]);
+			expect(net.hasEdgeIndices(edges)).toEqual([true, true]);
+
+			net.removeNodes([nodes[1]]);
+			net.removeEdges([edges[1]]);
+			expect(net.hasNodeIndex(nodes[1])).toBe(false);
+			expect(net.hasEdgeIndex(edges[1])).toBe(false);
+
+			expect(net.hasNodeIndices(nodes)).toEqual([true, false, true]);
+			expect(net.hasEdgeIndices(edges)).toEqual([false, false]); // node removal clears incident edges
+
+			const mixedNodes = [nodes[0], -1, 1.5, 9999];
+			expect(net.hasNodeIndices(mixedNodes)).toEqual([true, false, false, false]);
+		} finally {
+			net.dispose();
+		}
+	});
+
+	test('exposes dense index copies and full-coverage selectors', async () => {
+		const net = await HeliosNetwork.create({ directed: true, initialNodes: 0, initialEdges: 0 });
+		try {
+			const nodes = net.addNodes(4);
+			const edges = net.addEdges([
+				{ from: nodes[0], to: nodes[1] },
+				{ from: nodes[2], to: nodes[3] },
+			]);
+
+			const nodeOrder = Uint32Array.from(nodes).reverse();
+			net.setDenseNodeOrder(nodeOrder);
+			expect(Array.from(net.nodeIndices)).toEqual(Array.from(nodes)); // native order, not dense
+			net.updateDenseNodeIndexBuffer();
+			expect(Array.from(net.getDenseNodeIndexView().view)).toEqual(Array.from(nodeOrder));
+
+			const edgeOrder = Uint32Array.from(edges).reverse();
+			net.setDenseEdgeOrder(edgeOrder);
+			expect(Array.from(net.edgeIndices)).toEqual(Array.from(edges)); // native order, not dense
+			net.updateDenseEdgeIndexBuffer();
+			expect(Array.from(net.getDenseEdgeIndexView().view)).toEqual(Array.from(edgeOrder));
+
+			expect(() => net.withBufferAccess(() => net.nodeIndices)).toThrow(/nodeIndices/);
+			expect(() => net.withBufferAccess(() => net.edgeIndices)).toThrow(/edgeIndices/);
+
+			const allNodes = net.nodes;
+			const allEdges = net.edges;
+			expect(allNodes.count).toBe(net.nodeCount);
+			expect(allEdges.count).toBe(net.edgeCount);
+			expect(new Set(allNodes)).toEqual(new Set(nodes));
+			expect(new Set(allEdges)).toEqual(new Set(edges));
+			expect(() => net.withBufferAccess(() => [...net.nodes])).toThrow(/nodeIndices/);
+
+			const edgeIndicesCopy = net.edgeIndices;
+			edgeIndicesCopy[0] = 123456;
+			expect(net.edgeIndices[0]).toBe(123456); // cached snapshot reused until topology changes
+			const next = net.addEdges([{ from: nodes[0], to: nodes[2] }]);
+			expect(net.edgeIndices[0]).not.toBe(123456); // cache invalidated on topology change
+		} finally {
+			net.dispose();
+		}
 	});
 
 	test('selector proxies expose attributes and topology helpers', () => {

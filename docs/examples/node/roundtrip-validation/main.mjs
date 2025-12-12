@@ -9,16 +9,6 @@ const log = (step, payload) => {
 
 const EPSILON = 1e-6;
 
-function listActiveIndices(view) {
-	const indices = [];
-	for (let i = 0; i < view.length; i += 1) {
-		if (view[i]) {
-			indices.push(i);
-		}
-	}
-	return indices;
-}
-
 function approxEqual(actual, expected, label) {
 	const delta = Math.abs(Number(actual) - Number(expected));
 	if (delta > EPSILON) {
@@ -33,8 +23,8 @@ function expect(condition, message) {
 }
 
 function captureExpectedState(network) {
-	const nodeIndices = listActiveIndices(network.nodeActivityView);
-	const edgeIndices = listActiveIndices(network.edgeActivityView);
+	const nodeIndices = Array.from(network.nodeIndices);
+	const edgeIndices = Array.from(network.edgeIndices);
 
 	const rankView = network.getNodeAttributeBuffer('rank').view;
 	const scoreView = network.getNodeAttributeBuffer('score').view;
@@ -67,7 +57,6 @@ async function validateSnapshot(label, network, expected) {
 		const weightView = network.getEdgeAttributeBuffer('weight').view;
 
 		expected.nodeIndices.forEach((nodeIndex, order) => {
-			expect(network.nodeActivityView[nodeIndex] === 1, `${label}: node ${nodeIndex} inactive`);
 			expect(rankView[nodeIndex] === expected.nodeRanks[order], `${label}: rank mismatch for node ${nodeIndex}`);
 			approxEqual(scoreView[nodeIndex], expected.nodeScores[order], `${label}: score mismatch for node ${nodeIndex}`);
 			expect(
@@ -77,7 +66,6 @@ async function validateSnapshot(label, network, expected) {
 		});
 
 		expected.edgeIndices.forEach((edgeIndex, order) => {
-			expect(network.edgeActivityView[edgeIndex] === 1, `${label}: edge ${edgeIndex} inactive`);
 			approxEqual(weightView[edgeIndex], expected.edgeWeights[order], `${label}: weight mismatch for edge ${edgeIndex}`);
 			expect(
 				network.getEdgeStringAttribute('status', edgeIndex) === expected.edgeStatuses[order],
@@ -163,8 +151,8 @@ async function main() {
 		log('after-removals', {
 			nodeCount: network.nodeCount,
 			edgeCount: network.edgeCount,
-			activeNodes: listActiveIndices(network.nodeActivityView),
-			activeEdges: listActiveIndices(network.edgeActivityView),
+			activeNodes: Array.from(network.nodeIndices),
+			activeEdges: Array.from(network.edgeIndices),
 		});
 
 		const expected = captureExpectedState(network);

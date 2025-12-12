@@ -420,20 +420,26 @@ class Selector {
 	 * @param {HeliosNetwork} network - Owning Helios network wrapper.
 	 * @param {number} ptr - Pointer to the native selector.
 	 * @param {{destroyFn:function(number):void,countFn:function(number):number,dataFn:function(number):number}} fns - Selector function table.
+	 * @param {{scope?: 'node'|'edge', fullCoverage?: boolean}} [options] - Selector options.
 	 */
-	constructor(module, network, ptr, fns) {
+	constructor(module, network, ptr, fns, options = {}) {
 		this.module = module;
 		this.network = network;
 		this.ptr = ptr;
 		this._destroyFn = fns.destroyFn;
 		this._countFn = fns.countFn;
 		this._dataFn = fns.dataFn;
+		this._scope = options.scope || null;
+		this._fullCoverage = Boolean(options.fullCoverage);
 	}
 
 	/**
 	 * @returns {number} Number of stored indices.
 	 */
 	get count() {
+		if (this._fullCoverage) {
+			return this._fullCount();
+		}
 		return this._countFn(this.ptr);
 	}
 
@@ -441,6 +447,9 @@ class Selector {
 	 * @returns {number} Pointer to the selector data buffer.
 	 */
 	get dataPointer() {
+		if (this._fullCoverage) {
+			return 0;
+		}
 		return this._dataFn(this.ptr);
 	}
 
@@ -450,6 +459,9 @@ class Selector {
 	 * @returns {Uint32Array} Copied selection.
 	 */
 	toTypedArray() {
+		if (this._fullCoverage) {
+			return this._materializeFullIndexArray();
+		}
 		const count = this.count;
 		const ptr = this.dataPointer;
 		if (!ptr || count === 0) {
@@ -464,6 +476,13 @@ class Selector {
 	 * @returns {IterableIterator<number>} Generator yielding each index.
 	 */
 	*[Symbol.iterator]() {
+		if (this._fullCoverage) {
+			const indices = this._materializeFullIndexArray();
+			for (let i = 0; i < indices.length; i += 1) {
+				yield indices[i];
+			}
+			return;
+		}
 		const count = this.count;
 		const ptr = this.dataPointer;
 		if (!ptr || count === 0) {
@@ -532,6 +551,36 @@ class Selector {
 			this.ptr = 0;
 		}
 	}
+
+	_fullCount() {
+		if (!this.network) {
+			return 0;
+		}
+		if (this._scope === 'node') {
+			return this.network.nodeCount;
+		}
+		if (this._scope === 'edge') {
+			return this.network.edgeCount;
+		}
+		return 0;
+	}
+
+	_materializeFullIndexArray() {
+		if (!this.network) {
+			return new Uint32Array();
+		}
+		if (this._scope === 'node') {
+			return this.network.nodeIndices;
+		}
+		if (this._scope === 'edge') {
+			return this.network.edgeIndices;
+		}
+		return new Uint32Array();
+	}
+
+	_setFullCoverage(enabled) {
+		this._fullCoverage = Boolean(enabled);
+	}
 }
 
 /**
@@ -552,6 +601,18 @@ class NodeSelector extends Selector {
 			throw new Error('Failed to create node selector');
 		}
 		return new NodeSelector(module, network, ptr);
+	}
+
+	/**
+	 * Allocates a selector representing all nodes without materializing the ids in WASM.
+	 *
+	 * @param {HeliosNetwork} network - Owning network instance.
+	 * @returns {NodeSelector} Proxy-backed selector.
+	 */
+	static createAll(network) {
+		const selector = NodeSelector.create(network.module, network);
+		selector._setFullCoverage(true);
+		return selector._asProxy();
 	}
 
 	/**
@@ -576,7 +637,7 @@ class NodeSelector extends Selector {
 			destroyFn: module._CXNodeSelectorDestroy,
 			countFn: module._CXNodeSelectorCount,
 			dataFn: module._CXNodeSelectorData,
-		});
+		}, { scope: 'node' });
 		this._proxy = null;
 		this._attributeProxy = null;
 	}
@@ -853,6 +914,18 @@ class EdgeSelector extends Selector {
 	}
 
 	/**
+	 * Allocates a selector representing all edges without materializing the ids in WASM.
+	 *
+	 * @param {HeliosNetwork} network - Owning network instance.
+	 * @returns {EdgeSelector} Proxy-backed selector.
+	 */
+	static createAll(network) {
+		const selector = EdgeSelector.create(network.module, network);
+		selector._setFullCoverage(true);
+		return selector._asProxy();
+	}
+
+	/**
 	 * Instantiates a selector populated with the provided edge indices.
 	 *
 	 * @param {HeliosNetwork} network - Owning network instance.
@@ -874,7 +947,7 @@ class EdgeSelector extends Selector {
 			destroyFn: module._CXEdgeSelectorDestroy,
 			countFn: module._CXEdgeSelectorCount,
 			dataFn: module._CXEdgeSelectorData,
-		});
+		}, { scope: 'edge' });
 		this._proxy = null;
 		this._attributeProxy = null;
 	}
@@ -916,6 +989,11 @@ class EdgeSelector extends Selector {
 		this.module.HEAPU32.set(array, ptr / 4);
 		this.module._CXEdgeSelectorFillFromArray(this.ptr, ptr, array.length);
 		this.module._free(ptr);
+		return this;
+	}
+
+	_setFullCoverage(enabled) {
+		super._setFullCoverage(enabled);
 		return this;
 	}
 
@@ -1248,6 +1326,10 @@ export class HeliosNetwork {
 		this._bufferSessionDepth = 0;
 		this._nodeToEdgePassthrough = new Map();
 		this._nodeAttributeDependents = new Map();
+		this._nodeTopologyVersion = 0;
+		this._edgeTopologyVersion = 0;
+		this._nodeIndexCache = null;
+		this._edgeIndexCache = null;
 	}
 
 	/**
@@ -1259,6 +1341,14 @@ export class HeliosNetwork {
 			this._releaseStringAttributes(this._nodeAttributes);
 			this._releaseStringAttributes(this._edgeAttributes);
 			this._releaseStringAttributes(this._networkAttributes);
+			if (this._allNodesSelector) {
+				this._allNodesSelector.dispose();
+				this._allNodesSelector = null;
+			}
+			if (this._allEdgesSelector) {
+				this._allEdgesSelector.dispose();
+				this._allEdgesSelector = null;
+			}
 			this.module._CXFreeNetwork(this.ptr);
 			this.ptr = 0;
 			this._disposed = true;
@@ -1322,6 +1412,20 @@ export class HeliosNetwork {
 		}
 	}
 
+	_bumpTopology(scope, cascadeEdges = false) {
+		if (scope === 'node') {
+			this._nodeTopologyVersion += 1;
+			this._nodeIndexCache = null;
+			if (cascadeEdges) {
+				this._edgeTopologyVersion += 1;
+				this._edgeIndexCache = null;
+			}
+		} else if (scope === 'edge') {
+			this._edgeTopologyVersion += 1;
+			this._edgeIndexCache = null;
+		}
+	}
+
 	/**
 	 * @returns {number} Total number of active nodes.
 	 */
@@ -1331,11 +1435,104 @@ export class HeliosNetwork {
 	}
 
 	/**
+	 * Returns whether the provided node index is active.
+	 *
+	 * @param {number} index - Node index to check.
+	 * @returns {boolean}
+	 */
+	hasNodeIndex(index) {
+		this._ensureActive();
+		if (typeof index !== 'number' || index < 0) {
+			return false;
+		}
+		return !!this.module._CXNetworkIsNodeActive(this.ptr, index);
+	}
+
+	/**
+	 * Batch version of {@link hasNodeIndex}. Returns booleans aligned with the input order.
+	 *
+	 * @param {Iterable<number>|Uint32Array} indices - Node indices to check.
+	 * @returns {boolean[]}
+	 */
+	hasNodeIndices(indices) {
+		this._ensureActive();
+		const list = Array.from(indices || []);
+		const result = new Array(list.length);
+		for (let i = 0; i < list.length; i += 1) {
+			result[i] = this.hasNodeIndex(list[i]);
+		}
+		return result;
+	}
+
+	/**
+	 * Selector representing all active nodes (no indices stored).
+	 */
+	get nodes() {
+		this._ensureActive();
+		if (!this._allNodesSelector) {
+			this._allNodesSelector = NodeSelector.createAll(this);
+		}
+		return this._allNodesSelector;
+	}
+
+	/**
 	 * @returns {number} Total number of active edges.
 	 */
 	get edgeCount() {
 		this._ensureActive();
 		return this.module._CXNetworkEdgeCount(this.ptr);
+	}
+
+	/**
+	 * Returns whether the provided edge index is active.
+	 *
+	 * @param {number} index - Edge index to check.
+	 * @returns {boolean}
+	 */
+	hasEdgeIndex(index) {
+		this._ensureActive();
+		if (typeof index !== 'number' || index < 0) {
+			return false;
+		}
+		return !!this.module._CXNetworkIsEdgeActive(this.ptr, index);
+	}
+
+	/**
+	 * Batch version of {@link hasEdgeIndex}. Returns booleans aligned with the input order.
+	 *
+	 * @param {Iterable<number>|Uint32Array} indices - Edge indices to check.
+	 * @returns {boolean[]}
+	 */
+	hasEdgeIndices(indices) {
+		this._ensureActive();
+		const list = Array.from(indices || []);
+		const result = new Array(list.length);
+		for (let i = 0; i < list.length; i += 1) {
+			result[i] = this.hasEdgeIndex(list[i]);
+		}
+		return result;
+	}
+
+	/**
+	 * Returns a copy of active node indices (native order, independent of dense order).
+	 * Not allowed during buffer access because it may allocate.
+	 *
+	 * @returns {Uint32Array}
+	 */
+	get nodeIndices() {
+		this._assertCanAllocate('nodeIndices');
+		return this._materializeActiveIndexCopy('node');
+	}
+
+	/**
+	 * Selector representing all active edges (no indices stored).
+	 */
+	get edges() {
+		this._ensureActive();
+		if (!this._allEdgesSelector) {
+			this._allEdgesSelector = EdgeSelector.createAll(this);
+		}
+		return this._allEdgesSelector;
 	}
 
 	/**
@@ -1355,21 +1552,14 @@ export class HeliosNetwork {
 	}
 
 	/**
-	 * @returns {Uint8Array} Bitmask view describing active nodes.
+	 * Returns a copy of active edge indices (native order, independent of dense order).
+	 * Not allowed during buffer access because it may allocate.
+	 *
+	 * @returns {Uint32Array}
 	 */
-	get nodeActivityView() {
-		this._ensureActive();
-		const ptr = this.module._CXNetworkNodeActivityBuffer(this.ptr);
-		return new Uint8Array(this.module.HEAPU8.buffer, ptr, this.nodeCapacity);
-	}
-
-	/**
-	 * @returns {Uint8Array} Bitmask view describing active edges.
-	 */
-	get edgeActivityView() {
-		this._ensureActive();
-		const ptr = this.module._CXNetworkEdgeActivityBuffer(this.ptr);
-		return new Uint8Array(this.module.HEAPU8.buffer, ptr, this.edgeCapacity);
+	get edgeIndices() {
+		this._assertCanAllocate('edgeIndices');
+		return this._materializeActiveIndexCopy('edge');
 	}
 
 	/**
@@ -2053,6 +2243,7 @@ export class HeliosNetwork {
 		const indices = new Uint32Array(this.module.HEAPU32.buffer, ptr, count).slice();
 		this.module._free(ptr);
 		this._markAllPassthroughEdgesDirty();
+		this._bumpTopology('node');
 		return indices;
 	}
 
@@ -2102,6 +2293,7 @@ export class HeliosNetwork {
 			}
 		}
 		this._markAllPassthroughEdgesDirty();
+		this._bumpTopology('node', true); // removing nodes also removes incident edges
 	}
 
 	/**
@@ -2185,6 +2377,7 @@ export class HeliosNetwork {
 		const indices = new Uint32Array(this.module.HEAPU32.buffer, outPtr, edgeCount).slice();
 		this.module._free(outPtr);
 		this._markAllPassthroughEdgesDirty();
+		this._bumpTopology('edge');
 		return indices;
 	}
 
@@ -2235,6 +2428,7 @@ export class HeliosNetwork {
 			}
 		}
 		this._markAllPassthroughEdgesDirty();
+		this._bumpTopology('edge');
 	}
 
 	/**
@@ -2887,6 +3081,68 @@ export class HeliosNetwork {
 		return { ...descriptor, view };
 	}
 
+	_materializeActiveIndexCopy(scope) {
+		const cache = scope === 'node' ? this._nodeIndexCache : this._edgeIndexCache;
+		const version = scope === 'node' ? this._nodeTopologyVersion : this._edgeTopologyVersion;
+		if (cache && cache.version === version) {
+			return cache.data;
+		}
+
+		this._ensureActive();
+		const count = scope === 'node' ? this.nodeCount : this.edgeCount;
+		if (count === 0) {
+			const empty = new Uint32Array();
+			if (scope === 'node') {
+				this._nodeIndexCache = { version, data: empty };
+			} else {
+				this._edgeIndexCache = { version, data: empty };
+			}
+			return empty;
+		}
+		const bytes = count * Uint32Array.BYTES_PER_ELEMENT;
+		const ptr = this.module._malloc(bytes);
+		if (!ptr) {
+			throw new Error('Failed to allocate WASM memory for indices');
+		}
+		try {
+			const view = new Uint32Array(this.module.HEAPU32.buffer, ptr, count);
+			const writer = scope === 'node' ? this.writeActiveNodes.bind(this) : this.writeActiveEdges.bind(this);
+			let written = writer(view);
+			if (written > count) {
+				// structure changed between count and write; retry with larger buffer
+				this.module._free(ptr);
+				const retryPtr = this.module._malloc(written * Uint32Array.BYTES_PER_ELEMENT);
+				if (!retryPtr) {
+					throw new Error('Failed to allocate WASM memory for indices');
+				}
+				try {
+					const retryView = new Uint32Array(this.module.HEAPU32.buffer, retryPtr, written);
+					written = writer(retryView);
+					const data = retryView.slice(0, written);
+					if (scope === 'node') {
+						this._nodeIndexCache = { version: this._nodeTopologyVersion, data };
+					} else {
+						this._edgeIndexCache = { version: this._edgeTopologyVersion, data };
+					}
+					return data;
+				} finally {
+					this.module._free(retryPtr);
+				}
+			}
+			const data = view.slice(0, written);
+			if (scope === 'node') {
+				this._nodeIndexCache = { version: this._nodeTopologyVersion, data };
+			} else {
+				this._edgeIndexCache = { version: this._edgeTopologyVersion, data };
+			}
+			return data;
+		} finally {
+			if (ptr) {
+				this.module._free(ptr);
+			}
+		}
+	}
+
 	_ensureAttributeMetadata(scope, name) {
 		const metaMap = this._attributeMap(scope);
 		let meta = metaMap.get(name);
@@ -3264,10 +3520,10 @@ export class HeliosNetwork {
 			throw new Error('CXNetworkCompact is not available in this WASM build. Rebuild the module to enable compact().');
 		}
 
-		const nodeActivity = this.nodeActivityView.slice();
-		const edgeActivity = this.edgeActivityView.slice();
-		const nodeRemap = this._buildRemap(nodeActivity);
-		const edgeRemap = this._buildRemap(edgeActivity);
+		const nodeIndices = this.nodeIndices;
+		const edgeIndices = this.edgeIndices;
+		const nodeRemap = this._buildRemapFromIndices(nodeIndices);
+		const edgeRemap = this._buildRemapFromIndices(edgeIndices);
 
 		const nodeName = nodeOriginalIndexAttribute ? new CString(this.module, nodeOriginalIndexAttribute) : null;
 		const edgeName = edgeOriginalIndexAttribute ? new CString(this.module, edgeOriginalIndexAttribute) : null;
@@ -3315,6 +3571,7 @@ export class HeliosNetwork {
 
 		this._remapAttributeStores(this._nodeAttributes, nodeRemap);
 		this._remapAttributeStores(this._edgeAttributes, edgeRemap);
+		this._bumpTopology('node', true);
 		return this;
 	}
 
@@ -3432,14 +3689,10 @@ export class HeliosNetwork {
 		return HeliosNetwork._wrapNative(module, networkPtr);
 	}
 
-	_buildRemap(activity) {
+	_buildRemapFromIndices(indices) {
 		const remap = new Map();
-		let next = 0;
-		for (let idx = 0; idx < activity.length; idx += 1) {
-			if (activity[idx]) {
-				remap.set(idx, next);
-				next += 1;
-			}
+		for (let i = 0; i < indices.length; i += 1) {
+			remap.set(indices[i], i);
 		}
 		return remap;
 	}

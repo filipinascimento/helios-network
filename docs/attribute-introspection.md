@@ -55,3 +55,4 @@ if (info) {
 ## Tips
 - These helpers require an active network instance; they call into the same metadata that backs attribute buffers.
 - Edge passthroughs (node-to-edge copies) count as attributes; use `hasEdgeAttribute(name, true)` to check only native edge definitions.
+- For iterating or projecting attributes across subsets/all ids, see the selector guide: `docs/selectors.md`.

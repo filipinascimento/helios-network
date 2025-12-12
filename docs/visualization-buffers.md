@@ -14,6 +14,7 @@ Dense buffers give WebGL/WebGPU a tightly packed snapshot of attributes and ids 
   - C: `CXNetworkUpdateDenseNodeAttribute`, `CXNetworkUpdateDenseEdgeAttribute`
   - JS: `updateDenseNodeAttributeBuffer(name)`, `updateDenseEdgeAttributeBuffer(name)` + `getDenseNodeAttributeView(name)` / `getDenseEdgeAttributeView(name)`
   - Index buffers: `updateDenseNodeIndexBuffer()`, `updateDenseEdgeIndexBuffer()` + `getDenseNodeIndexView()` / `getDenseEdgeIndexView()`
+  - Convenience: `network.nodeIndices` / `network.edgeIndices` return copied `Uint32Array`s of active ids in native order (cached until topology changes; independent of dense ordering; cannot be called inside `withBufferAccess` because they allocate).
 - **Dirty tracking**: dense buffers are auto-marked dirty on structural edits. Mark them yourself after attribute writes:
   - JS: `markDenseNodeAttributeDirty(name)`, `markDenseEdgeAttributeDirty(name)`
 - **Valid ranges** (network-level): `network.nodeValidRange` / `network.edgeValidRange` return `{start,end}` based on active ids. Use these to slice original sparse attribute buffers when you want to avoid unused capacity. Dense descriptors keep `count`/`stride` for packed views; valid ranges refer to source indices.
@@ -135,6 +136,8 @@ Both helpers use the native copy path; dense packing still honours `setDenseEdge
 - `updateDense*` methods may grow memory; call them **before** grabbing views.
 - Use `getDense*View` (or `withDenseBufferViews`) to materialize typed views without repacking. Sparse attribute views (`getNodeAttributeBuffer`, `getEdgeAttributeBuffer`) are WASM-backed too; if you need them stable during a render/update, obtain them inside a buffer access block as well.
 - Wrap render-time access in `withBufferAccess`/`startBufferAccess` + `endBufferAccess` to block accidental allocations. Allocation-prone calls inside the block throw immediately. This protects both dense and sparse views from being invalidated by heap growth mid-use.
+- `withDenseBufferViews` does **not** repack; call `updateDense*` (or `updateAndGetDenseBufferViews`) first if you need fresh data. This keeps the buffer-access block allocation-free.
+- `nodeIndices` / `edgeIndices` allocate cached copies from the native active-index writers; call them outside buffer access blocks and use dense index buffers directly if you need ordered packing.
 
 Example:
 
