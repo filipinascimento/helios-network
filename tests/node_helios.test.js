@@ -42,8 +42,57 @@ describe('HeliosNetwork (Node runtime)', () => {
 		expect(Array.from(network.nodeIndices)).not.toContain(createdNodes[3]);
 	});
 
-	test('checks for node attributes in extreme cases', () => {
-	
+	test('handles attributes before and after adding nodes/edges', async () => {
+		const net = await HeliosNetwork.create({ directed: true, initialNodes: 0, initialEdges: 0 });
+		try {
+			expect(net.nodeCount).toBe(0);
+			expect(net.edgeCount).toBe(0);
+
+			net.defineNodeAttribute('pre_node_weight', AttributeType.Float, 1);
+			net.defineEdgeAttribute('pre_edge_flag', AttributeType.Boolean, 1);
+			expect(() => net.getNodeAttributeBuffer('pre_node_weight')).toThrow(/not available/);
+			expect(() => net.getEdgeAttributeBuffer('pre_edge_flag')).toThrow(/not available/);
+
+			const nodes = net.addNodes(3);
+			const edges = net.addEdges([
+				{ from: nodes[0], to: nodes[1] },
+				{ from: nodes[1], to: nodes[2] },
+			]);
+
+			let nodeWeights = net.getNodeAttributeBuffer('pre_node_weight').view;
+			let edgeFlags = net.getEdgeAttributeBuffer('pre_edge_flag').view;
+			nodeWeights[nodes[0]] = 1.5;
+			nodeWeights[nodes[1]] = 2.5;
+			nodeWeights[nodes[2]] = 3.5;
+			edgeFlags[edges[0]] = 1;
+			edgeFlags[edges[1]] = 0;
+
+			net.defineNodeAttribute('label', AttributeType.String, 1);
+			net.defineEdgeAttribute('capacity', AttributeType.Double, 1);
+			net.setNodeStringAttribute('label', nodes[0], 'alpha');
+			net.setNodeStringAttribute('label', nodes[1], 'beta');
+			net.setNodeStringAttribute('label', nodes[2], 'gamma');
+			const capacity = net.getEdgeAttributeBuffer('capacity').view;
+			capacity[edges[0]] = 10.5;
+			capacity[edges[1]] = 20.25;
+
+			nodeWeights[nodes[1]] = 4.75;
+			net.setNodeStringAttribute('label', nodes[2], 'gamma-updated');
+			capacity[edges[1]] = 30;
+
+			expect(nodeWeights[nodes[0]]).toBeCloseTo(1.5);
+			expect(nodeWeights[nodes[1]]).toBeCloseTo(4.75);
+			expect(nodeWeights[nodes[2]]).toBeCloseTo(3.5);
+			expect(edgeFlags[edges[0]]).toBe(1);
+			expect(edgeFlags[edges[1]]).toBe(0);
+			expect(net.getNodeStringAttribute('label', nodes[0])).toBe('alpha');
+			expect(net.getNodeStringAttribute('label', nodes[1])).toBe('beta');
+			expect(net.getNodeStringAttribute('label', nodes[2])).toBe('gamma-updated');
+			expect(capacity[edges[0]]).toBeCloseTo(10.5);
+			expect(capacity[edges[1]]).toBeCloseTo(30);
+		} finally {
+			net.dispose();
+		}
 	});
 
 	test('manages primitive attribute buffers', () => {
