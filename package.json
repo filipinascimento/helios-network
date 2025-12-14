@@ -22,8 +22,8 @@
     "dev": "vite",
     "test": "vitest --run --exclude tests/browser.spec.js",
     "docs:js": "jsdoc -c docs/jsdoc.json",
-    "test:browser": "start-server-and-test dev http://localhost:5173 'playwright test'",
-    "test:browser:ci": "start-server-and-test dev http://localhost:5173 'playwright test'",
+    "test:browser": "start-server-and-test \"PORT=4173 npm run dev -- --port 4173\" http://localhost:4173 \"BASE_URL=http://localhost:4173 playwright test\"",
+    "test:browser:ci": "start-server-and-test \"PORT=4173 npm run dev -- --port 4173\" http://localhost:4173 \"BASE_URL=http://localhost:4173 playwright test\"",
     "prepublishOnly": "npm run build",
     "sync-version": "node sync-version.cjs"
   },

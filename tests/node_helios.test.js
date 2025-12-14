@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { beforeAll, afterAll, describe, expect, test } from 'vitest';
-import HeliosNetwork, { AttributeType } from '../src/helios-network.js';
+import HeliosNetwork, { AttributeType, DenseColorEncodingFormat } from '../src/helios-network.js';
 
 describe('HeliosNetwork (Node runtime)', () => {
 	let network;
@@ -728,6 +728,76 @@ describe('HeliosNetwork (Node runtime)', () => {
 			net.updateDenseEdgeIndexBuffer();
 			const denseEdgeIndex = net.getDenseEdgeIndexView();
 			expect(denseEdgeIndex.count).toBe(net.edgeCount);
+		} finally {
+			net.dispose();
+		}
+	});
+
+	test('builds color-encoded dense buffers for nodes and edges', async () => {
+		const net = await HeliosNetwork.create({ directed: true, initialNodes: 0, initialEdges: 0 });
+		const decode32 = (view, logicalIndex) => {
+			const base = logicalIndex * 4;
+			return (
+				view[base]
+				| (view[base + 1] << 8)
+				| (view[base + 2] << 16)
+				| (view[base + 3] << 24)
+			) >>> 0;
+		};
+		try {
+			const nodes = net.addNodes(3);
+			const edges = net.addEdges([
+				{ from: nodes[0], to: nodes[1] },
+				{ from: nodes[1], to: nodes[2] },
+			]);
+
+			net.defineNodeAttribute('node_id', AttributeType.UnsignedInteger, 1);
+			net.defineEdgeAttribute('edge_tag', AttributeType.UnsignedInteger, 1);
+			const nodeIds = net.getNodeAttributeBuffer('node_id').view;
+			const edgeTags = net.getEdgeAttributeBuffer('edge_tag').view;
+			nodeIds[nodes[0]] = 10n;
+			nodeIds[nodes[1]] = 20n;
+			nodeIds[nodes[2]] = 30n;
+			edgeTags[edges[0]] = 100n;
+			edgeTags[edges[1]] = 200n;
+
+			net.defineDenseColorEncodedNodeAttribute('node_id', 'node_color', { format: DenseColorEncodingFormat.Uint8x4 });
+			net.defineDenseColorEncodedEdgeAttribute('edge_tag', 'edge_color', { format: DenseColorEncodingFormat.Uint8x4 });
+			net.defineDenseColorEncodedNodeAttribute('index', 'node_index_color', { format: DenseColorEncodingFormat.Uint8x4 });
+			net.defineDenseColorEncodedEdgeAttribute('index', 'edge_index_color', { format: DenseColorEncodingFormat.Uint8x4 });
+
+			const nodeColor = net.updateDenseColorEncodedNodeAttribute('node_color');
+			expect(nodeColor.count).toBe(nodes.length);
+			expect(nodeColor.dimension).toBe(4);
+			expect(nodeColor.view).toBeInstanceOf(Uint8Array);
+			expect(decode32(nodeColor.view, 0)).toBe(11);
+			expect(decode32(nodeColor.view, 1)).toBe(21);
+			expect(decode32(nodeColor.view, 2)).toBe(31);
+
+			const edgeColor = net.updateDenseColorEncodedEdgeAttribute('edge_color');
+			expect(edgeColor.count).toBe(edges.length);
+			expect(edgeColor.view).toBeInstanceOf(Uint8Array);
+			expect(decode32(edgeColor.view, 0)).toBe(101);
+			expect(decode32(edgeColor.view, 1)).toBe(201);
+
+			nodeIds[nodes[1]] = 500n;
+			net.markDenseColorEncodedNodeAttributeDirty('node_color');
+			const updatedNodeColor = net.updateDenseColorEncodedNodeAttribute('node_color');
+			expect(decode32(updatedNodeColor.view, 1)).toBe(501);
+
+			const nodeOrder = Uint32Array.from(nodes).reverse();
+			const edgeOrder = Uint32Array.from(edges).reverse();
+			net.setDenseNodeOrder(nodeOrder);
+			net.setDenseEdgeOrder(edgeOrder);
+
+			const nodeIndexColor = net.updateDenseColorEncodedNodeAttribute('node_index_color');
+			expect(Array.from({ length: nodeIndexColor.count }, (_, i) => decode32(nodeIndexColor.view, i))).toEqual(
+				Array.from(nodeOrder, (id) => id + 1)
+			);
+			const edgeIndexColor = net.updateDenseColorEncodedEdgeAttribute('edge_index_color');
+			expect(Array.from({ length: edgeIndexColor.count }, (_, i) => decode32(edgeIndexColor.view, i))).toEqual(
+				Array.from(edgeOrder, (id) => id + 1)
+			);
 		} finally {
 			net.dispose();
 		}

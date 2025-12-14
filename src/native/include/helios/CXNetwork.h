@@ -108,6 +108,23 @@ typedef struct {
 	CXBool isIndexBuffer;
 } CXDenseAttributeBuffer;
 
+typedef enum {
+	CXDenseColorFormatU8x4 = 0,
+	CXDenseColorFormatU32x4 = 1
+} CXDenseColorFormat;
+
+typedef struct {
+	CXDenseColorFormat format;
+} CXDenseColorEncodingOptions;
+
+typedef struct {
+	char *encodedName;
+	char *sourceName;
+	CXDenseColorFormat format;
+	CXDenseAttributeBuffer buffer;
+	CXBool useIndexSource;
+} CXDenseColorEncodedAttribute;
+
 typedef struct CXNetwork {
 	CXBool isDirected;
 	CXSize nodeCount;
@@ -141,6 +158,12 @@ typedef struct CXNetwork {
 	CXIndex *edgeDenseOrder;
 	CXSize edgeDenseOrderCount;
 	CXSize edgeDenseOrderCapacity;
+	CXDenseColorEncodedAttribute *nodeColorAttributes;
+	CXSize nodeColorAttributeCount;
+	CXSize nodeColorAttributeCapacity;
+	CXDenseColorEncodedAttribute *edgeColorAttributes;
+	CXSize edgeColorAttributeCount;
+	CXSize edgeColorAttributeCapacity;
 	CXSize nodeValidStart;
 	CXSize nodeValidEnd;
 	CXBool nodeValidRangeDirty;
@@ -357,6 +380,22 @@ CX_EXTERN const CXDenseAttributeBuffer* CXNetworkUpdateDenseEdgeAttribute(CXNetw
 CX_EXTERN const CXDenseAttributeBuffer* CXNetworkUpdateDenseNodeIndexBuffer(CXNetworkRef network);
 /** Ensures the dense edge index buffer exists and returns it refreshed. */
 CX_EXTERN const CXDenseAttributeBuffer* CXNetworkUpdateDenseEdgeIndexBuffer(CXNetworkRef network);
+/** Registers a color-encoded dense node attribute derived from another integer attribute or the node index. */
+CX_EXTERN CXBool CXNetworkDefineDenseColorEncodedNodeAttribute(CXNetworkRef network, const CXString sourceName, const CXString encodedName, CXDenseColorEncodingOptions options);
+/** Registers a color-encoded dense edge attribute. */
+CX_EXTERN CXBool CXNetworkDefineDenseColorEncodedEdgeAttribute(CXNetworkRef network, const CXString sourceName, const CXString encodedName, CXDenseColorEncodingOptions options);
+/** Removes a color-encoded dense node attribute. */
+CX_EXTERN CXBool CXNetworkRemoveDenseColorEncodedNodeAttribute(CXNetworkRef network, const CXString encodedName);
+/** Removes a color-encoded dense edge attribute. */
+CX_EXTERN CXBool CXNetworkRemoveDenseColorEncodedEdgeAttribute(CXNetworkRef network, const CXString encodedName);
+/** Marks a color-encoded dense node attribute dirty. */
+CX_EXTERN CXBool CXNetworkMarkDenseColorEncodedNodeAttributeDirty(CXNetworkRef network, const CXString encodedName);
+/** Marks a color-encoded dense edge attribute dirty. */
+CX_EXTERN CXBool CXNetworkMarkDenseColorEncodedEdgeAttributeDirty(CXNetworkRef network, const CXString encodedName);
+/** Rebuilds a color-encoded dense node attribute when dirty. */
+CX_EXTERN const CXDenseAttributeBuffer* CXNetworkUpdateDenseColorEncodedNodeAttribute(CXNetworkRef network, const CXString encodedName);
+/** Rebuilds a color-encoded dense edge attribute when dirty. */
+CX_EXTERN const CXDenseAttributeBuffer* CXNetworkUpdateDenseColorEncodedEdgeAttribute(CXNetworkRef network, const CXString encodedName);
 /** Sets a default node order for dense packing (applied to all dense buffers when order is omitted). */
 CX_EXTERN CXBool CXNetworkSetDenseNodeOrder(CXNetworkRef network, const CXIndex *order, CXSize count);
 /** Sets a default edge order for dense packing. */

@@ -38,6 +38,15 @@ static CXBool CXNetworkSetDenseOrder(CXIndex **target, CXSize *count, CXSize *ca
 static CXBool CXNetworkRecomputeValidRange(const CXBool *activity, CXSize capacity, CXSize *start, CXSize *end);
 static CXBool CXNetworkRecomputeValidRange(const CXBool *activity, CXSize capacity, CXSize *start, CXSize *end);
 static CXBool CXNetworkRemoveAttributeInternal(CXStringDictionaryRef dict, const CXString name);
+static CXDenseColorEncodedAttribute* CXNetworkFindDenseColorAttribute(CXDenseColorEncodedAttribute *attributes, CXSize count, const CXString encodedName);
+static CXBool CXNetworkEnsureDenseColorListCapacity(CXDenseColorEncodedAttribute **attributes, CXSize *capacity, CXSize required);
+static CXBool CXNetworkAddDenseColorAttribute(CXDenseColorEncodedAttribute **attributes, CXSize *count, CXSize *capacity, const CXString sourceName, const CXString encodedName, CXDenseColorFormat format, CXBool useIndexSource);
+static void CXNetworkFreeDenseColorAttribute(CXDenseColorEncodedAttribute *attribute);
+static void CXNetworkFreeDenseColorLists(CXNetworkRef network);
+static void CXNetworkMarkDenseColorBuffersDirty(CXDenseColorEncodedAttribute *attributes, CXSize count);
+static void CXNetworkMarkDenseColorBuffersDirtyForSource(CXDenseColorEncodedAttribute *attributes, CXSize count, const CXString sourceName);
+static uint32_t CXNetworkEncodeColorValueFromAttribute(CXAttributeRef attribute, CXIndex index);
+static CXBool CXNetworkPackDenseColorEncoded(CXDenseColorEncodedAttribute *attribute, const CXIndex *order, CXSize orderCount, const CXBool *activity, CXSize capacityLimit, CXAttributeRef sourceAttribute);
 
 static CXSelector* CXSelectorCreateInternal(CXSize initialCapacity);
 static void CXSelectorDestroyInternal(CXSelector *selector);
@@ -212,12 +221,18 @@ static void CXDestroyAttributeDictionary(CXStringDictionaryRef dictionary) {
 
 /** Marks node-derived caches dirty. */
 static void CXNetworkMarkNodesDirty(CXNetworkRef network) {
-	(void)network;
+	if (!network) {
+		return;
+	}
+	CXNetworkMarkDenseColorBuffersDirty(network->nodeColorAttributes, network->nodeColorAttributeCount);
 }
 
 /** Marks edge-derived caches dirty. */
 static void CXNetworkMarkEdgesDirty(CXNetworkRef network) {
-	(void)network;
+	if (!network) {
+		return;
+	}
+	CXNetworkMarkDenseColorBuffersDirty(network->edgeColorAttributes, network->edgeColorAttributeCount);
 }
 
 // -----------------------------------------------------------------------------
@@ -345,12 +360,292 @@ static void CXNetworkFreeDenseLists(CXNetworkRef network) {
 		network->edgeDenseOrderCount = 0;
 		network->edgeDenseOrderCapacity = 0;
 	}
+	CXNetworkFreeDenseColorLists(network);
 }
 
 static CXBool CXNetworkMarkDenseBuffersDirty(CXDenseAttributeBuffer *buffers, CXSize count) {
 	for (CXSize i = 0; i < count; i++) {
 		buffers[i].dirty = CXTrue;
 	}
+	return CXTrue;
+}
+
+static CXDenseColorEncodedAttribute* CXNetworkFindDenseColorAttribute(CXDenseColorEncodedAttribute *attributes, CXSize count, const CXString encodedName) {
+	if (!attributes || !encodedName) {
+		return NULL;
+	}
+	for (CXSize i = 0; i < count; i++) {
+		if (attributes[i].encodedName && strcmp(attributes[i].encodedName, encodedName) == 0) {
+			return &attributes[i];
+		}
+	}
+	return NULL;
+}
+
+static CXBool CXNetworkEnsureDenseColorListCapacity(CXDenseColorEncodedAttribute **attributes, CXSize *capacity, CXSize required) {
+	if (!attributes || !capacity) {
+		return CXFalse;
+	}
+	if (required <= *capacity) {
+		return CXTrue;
+	}
+	CXSize newCapacity = *capacity > 0 ? *capacity : 2;
+	while (newCapacity < required) {
+		newCapacity = CXCapacityGrow(newCapacity);
+		if (newCapacity < required) {
+			newCapacity = required;
+			break;
+		}
+	}
+	CXDenseColorEncodedAttribute *newList = realloc(*attributes, sizeof(CXDenseColorEncodedAttribute) * newCapacity);
+	if (!newList) {
+		return CXFalse;
+	}
+	for (CXSize i = *capacity; i < newCapacity; i++) {
+		memset(&newList[i], 0, sizeof(CXDenseColorEncodedAttribute));
+	}
+	*attributes = newList;
+	*capacity = newCapacity;
+	return CXTrue;
+}
+
+static CXBool CXNetworkAddDenseColorAttribute(CXDenseColorEncodedAttribute **attributes, CXSize *count, CXSize *capacity, const CXString sourceName, const CXString encodedName, CXDenseColorFormat format, CXBool useIndexSource) {
+	if (!attributes || !count || !capacity || !encodedName) {
+		return CXFalse;
+	}
+	if (!CXNetworkEnsureDenseColorListCapacity(attributes, capacity, *count + 1)) {
+		return CXFalse;
+	}
+	CXDenseColorEncodedAttribute *entry = &(*attributes)[*count];
+	memset(entry, 0, sizeof(CXDenseColorEncodedAttribute));
+	entry->encodedName = strdup(encodedName);
+	entry->sourceName = sourceName ? strdup(sourceName) : NULL;
+	if (!entry->encodedName || (!useIndexSource && !entry->sourceName)) {
+		CXNetworkFreeDenseColorAttribute(entry);
+		return CXFalse;
+	}
+	entry->format = format;
+	entry->useIndexSource = useIndexSource;
+	entry->buffer.dirty = CXTrue;
+	entry->buffer.isIndexBuffer = CXFalse;
+	(*count)++;
+	return CXTrue;
+}
+
+static void CXNetworkFreeDenseColorAttribute(CXDenseColorEncodedAttribute *attribute) {
+	if (!attribute) {
+		return;
+	}
+	if (attribute->encodedName) {
+		free(attribute->encodedName);
+		attribute->encodedName = NULL;
+	}
+	if (attribute->sourceName) {
+		free(attribute->sourceName);
+		attribute->sourceName = NULL;
+	}
+	attribute->format = CXDenseColorFormatU8x4;
+	attribute->useIndexSource = CXFalse;
+	CXNetworkFreeDenseBuffer(&attribute->buffer);
+}
+
+static void CXNetworkFreeDenseColorLists(CXNetworkRef network) {
+	if (!network) {
+		return;
+	}
+	for (CXSize i = 0; i < network->nodeColorAttributeCount; i++) {
+		CXNetworkFreeDenseColorAttribute(&network->nodeColorAttributes[i]);
+	}
+	free(network->nodeColorAttributes);
+	network->nodeColorAttributes = NULL;
+	network->nodeColorAttributeCount = 0;
+	network->nodeColorAttributeCapacity = 0;
+
+	for (CXSize i = 0; i < network->edgeColorAttributeCount; i++) {
+		CXNetworkFreeDenseColorAttribute(&network->edgeColorAttributes[i]);
+	}
+	free(network->edgeColorAttributes);
+	network->edgeColorAttributes = NULL;
+	network->edgeColorAttributeCount = 0;
+	network->edgeColorAttributeCapacity = 0;
+}
+
+static void CXNetworkMarkDenseColorBuffersDirty(CXDenseColorEncodedAttribute *attributes, CXSize count) {
+	if (!attributes) {
+		return;
+	}
+	for (CXSize i = 0; i < count; i++) {
+		attributes[i].buffer.dirty = CXTrue;
+	}
+}
+
+static void CXNetworkMarkDenseColorBuffersDirtyForSource(CXDenseColorEncodedAttribute *attributes, CXSize count, const CXString sourceName) {
+	if (!attributes || !sourceName) {
+		return;
+	}
+	for (CXSize i = 0; i < count; i++) {
+		if (attributes[i].sourceName && strcmp(attributes[i].sourceName, sourceName) == 0) {
+			attributes[i].buffer.dirty = CXTrue;
+		}
+	}
+}
+
+static uint32_t CXNetworkEncodeColorValueFromAttribute(CXAttributeRef attribute, CXIndex index) {
+	if (!attribute || !attribute->data) {
+		return 0;
+	}
+	const uint8_t *base = attribute->data + ((size_t)index * attribute->stride);
+	if (attribute->type == CXIntegerAttributeType) {
+		const int64_t *valuePtr = (const int64_t *)base;
+		int64_t raw = valuePtr ? valuePtr[0] : 0;
+		int64_t encoded = raw >= INT64_MAX - 1 ? INT64_MAX : raw + 1;
+		if (encoded < 0) {
+			return 0;
+		}
+		if ((uint64_t)encoded > UINT32_MAX) {
+			return UINT32_MAX;
+		}
+		return (uint32_t)encoded;
+	}
+	if (attribute->type == CXUnsignedIntegerAttributeType) {
+		const uint64_t *valuePtr = (const uint64_t *)base;
+		uint64_t raw = valuePtr ? valuePtr[0] : 0;
+		uint64_t encoded = raw + 1;
+		if (encoded < raw) {
+			encoded = UINT64_MAX;
+		}
+		if (encoded > UINT32_MAX) {
+			return UINT32_MAX;
+		}
+		return (uint32_t)encoded;
+	}
+	return 0;
+}
+
+static CXBool CXNetworkPackDenseColorEncoded(
+	CXDenseColorEncodedAttribute *attribute,
+	const CXIndex *order,
+	CXSize orderCount,
+	const CXBool *activity,
+	CXSize capacityLimit,
+	CXAttributeRef sourceAttribute
+) {
+	if (!attribute) {
+		return CXFalse;
+	}
+	CXDenseAttributeBuffer *buffer = &attribute->buffer;
+	const CXBool useOrder = order && orderCount > 0;
+	CXSize count = 0;
+	if (useOrder) {
+		for (CXSize i = 0; i < orderCount; i++) {
+			CXIndex idx = order[i];
+			if (idx < capacityLimit && (!activity || activity[idx])) {
+				count++;
+			}
+		}
+	} else {
+		for (CXSize i = 0; i < capacityLimit; i++) {
+			if (!activity || activity[i]) {
+				count++;
+			}
+		}
+	}
+	const CXSize stride = attribute->format == CXDenseColorFormatU32x4 ? sizeof(uint32_t) * 4 : sizeof(uint8_t) * 4;
+	if (count == 0) {
+		buffer->count = 0;
+		buffer->validStart = 0;
+		buffer->validEnd = 0;
+		buffer->stride = stride;
+		buffer->dirty = CXFalse;
+		return CXTrue;
+	}
+	buffer->stride = stride;
+	const CXSize requiredBytes = count * buffer->stride;
+	if (buffer->capacity < requiredBytes) {
+		CXSize newCapacity = buffer->capacity > 0 ? buffer->capacity : requiredBytes;
+		while (newCapacity < requiredBytes) {
+			newCapacity = CXCapacityGrow(newCapacity);
+			if (newCapacity < requiredBytes) {
+				newCapacity = requiredBytes;
+				break;
+			}
+		}
+		uint8_t *newData = realloc(buffer->data, newCapacity);
+		if (!newData) {
+			return CXFalse;
+		}
+		buffer->data = newData;
+		buffer->capacity = newCapacity;
+	}
+
+	CXSize written = 0;
+	CXSize minIdx = CXIndexMAX;
+	CXSize maxIdx = 0;
+	const CXBool emitU32 = attribute->format == CXDenseColorFormatU32x4;
+	if (useOrder) {
+		for (CXSize i = 0; i < orderCount; i++) {
+			CXIndex idx = order[i];
+			if (idx >= capacityLimit || (activity && !activity[idx])) {
+				continue;
+			}
+			uint32_t encoded = attribute->useIndexSource ? (uint32_t)((uint64_t)idx + 1) : CXNetworkEncodeColorValueFromAttribute(sourceAttribute, idx);
+			uint8_t *dst = buffer->data + ((size_t)written * buffer->stride);
+			if (emitU32) {
+				uint32_t *dst32 = (uint32_t *)dst;
+				dst32[0] = encoded & 0xFFu;
+				dst32[1] = (encoded >> 8) & 0xFFu;
+				dst32[2] = (encoded >> 16) & 0xFFu;
+				dst32[3] = (encoded >> 24) & 0xFFu;
+			} else {
+				dst[0] = (uint8_t)(encoded & 0xFFu);
+				dst[1] = (uint8_t)((encoded >> 8) & 0xFFu);
+				dst[2] = (uint8_t)((encoded >> 16) & 0xFFu);
+				dst[3] = (uint8_t)((encoded >> 24) & 0xFFu);
+			}
+			if (idx < minIdx) {
+				minIdx = idx;
+			}
+			if (idx > maxIdx) {
+				maxIdx = idx;
+			}
+			written++;
+		}
+	} else {
+		for (CXSize idx = 0; idx < capacityLimit; idx++) {
+			if (!activity || activity[idx]) {
+				uint32_t encoded = attribute->useIndexSource ? (uint32_t)((uint64_t)idx + 1) : CXNetworkEncodeColorValueFromAttribute(sourceAttribute, idx);
+				uint8_t *dst = buffer->data + ((size_t)written * buffer->stride);
+				if (emitU32) {
+					uint32_t *dst32 = (uint32_t *)dst;
+					dst32[0] = encoded & 0xFFu;
+					dst32[1] = (encoded >> 8) & 0xFFu;
+					dst32[2] = (encoded >> 16) & 0xFFu;
+					dst32[3] = (encoded >> 24) & 0xFFu;
+				} else {
+					dst[0] = (uint8_t)(encoded & 0xFFu);
+					dst[1] = (uint8_t)((encoded >> 8) & 0xFFu);
+					dst[2] = (uint8_t)((encoded >> 16) & 0xFFu);
+					dst[3] = (uint8_t)((encoded >> 24) & 0xFFu);
+				}
+				if (idx < minIdx) {
+					minIdx = idx;
+				}
+				if (idx > maxIdx) {
+					maxIdx = idx;
+				}
+				written++;
+			}
+		}
+	}
+	buffer->count = written;
+	if (written == 0) {
+		buffer->validStart = 0;
+		buffer->validEnd = 0;
+	} else {
+		buffer->validStart = minIdx;
+		buffer->validEnd = maxIdx + 1;
+	}
+	buffer->dirty = CXFalse;
 	return CXTrue;
 }
 
@@ -1917,6 +2212,7 @@ CXBool CXNetworkMarkDenseNodeAttributeDirty(CXNetworkRef network, const CXString
 		return CXFalse;
 	}
 	buf->dirty = CXTrue;
+	CXNetworkMarkDenseColorBuffersDirtyForSource(network->nodeColorAttributes, network->nodeColorAttributeCount, name);
 	return CXTrue;
 }
 
@@ -1926,6 +2222,119 @@ CXBool CXNetworkMarkDenseEdgeAttributeDirty(CXNetworkRef network, const CXString
 		return CXFalse;
 	}
 	buf->dirty = CXTrue;
+	CXNetworkMarkDenseColorBuffersDirtyForSource(network->edgeColorAttributes, network->edgeColorAttributeCount, name);
+	return CXTrue;
+}
+
+static CXBool CXNetworkValidateColorSourceAttribute(CXAttributeRef attribute) {
+	if (!attribute) {
+		return CXFalse;
+	}
+	if (attribute->dimension != 1) {
+		return CXFalse;
+	}
+	return attribute->type == CXIntegerAttributeType || attribute->type == CXUnsignedIntegerAttributeType;
+}
+
+static CXDenseColorFormat CXNetworkNormalizeColorFormat(CXDenseColorFormat format) {
+	return format == CXDenseColorFormatU32x4 ? CXDenseColorFormatU32x4 : CXDenseColorFormatU8x4;
+}
+
+CXBool CXNetworkDefineDenseColorEncodedNodeAttribute(CXNetworkRef network, const CXString sourceName, const CXString encodedName, CXDenseColorEncodingOptions options) {
+	if (!network || !sourceName || !encodedName) {
+		return CXFalse;
+	}
+	const CXBool useIndex = strcmp(sourceName, "index") == 0;
+	const CXDenseColorFormat format = CXNetworkNormalizeColorFormat(options.format);
+	CXDenseColorEncodedAttribute *existing = CXNetworkFindDenseColorAttribute(network->nodeColorAttributes, network->nodeColorAttributeCount, encodedName);
+	if (existing) {
+		const CXBool sameSource = existing->useIndexSource == useIndex && (useIndex || (existing->sourceName && strcmp(existing->sourceName, sourceName) == 0));
+		if (!sameSource || existing->format != format) {
+			return CXFalse;
+		}
+		return CXTrue;
+	}
+	if (!useIndex) {
+		CXAttributeRef sourceAttr = CXNetworkGetNodeAttribute(network, sourceName);
+		if (!CXNetworkValidateColorSourceAttribute(sourceAttr)) {
+			return CXFalse;
+		}
+	}
+	return CXNetworkAddDenseColorAttribute(&network->nodeColorAttributes, &network->nodeColorAttributeCount, &network->nodeColorAttributeCapacity, sourceName, encodedName, format, useIndex);
+}
+
+CXBool CXNetworkDefineDenseColorEncodedEdgeAttribute(CXNetworkRef network, const CXString sourceName, const CXString encodedName, CXDenseColorEncodingOptions options) {
+	if (!network || !sourceName || !encodedName) {
+		return CXFalse;
+	}
+	const CXBool useIndex = strcmp(sourceName, "index") == 0;
+	const CXDenseColorFormat format = CXNetworkNormalizeColorFormat(options.format);
+	CXDenseColorEncodedAttribute *existing = CXNetworkFindDenseColorAttribute(network->edgeColorAttributes, network->edgeColorAttributeCount, encodedName);
+	if (existing) {
+		const CXBool sameSource = existing->useIndexSource == useIndex && (useIndex || (existing->sourceName && strcmp(existing->sourceName, sourceName) == 0));
+		if (!sameSource || existing->format != format) {
+			return CXFalse;
+		}
+		return CXTrue;
+	}
+	if (!useIndex) {
+		CXAttributeRef sourceAttr = CXNetworkGetEdgeAttribute(network, sourceName);
+		if (!CXNetworkValidateColorSourceAttribute(sourceAttr)) {
+			return CXFalse;
+		}
+	}
+	return CXNetworkAddDenseColorAttribute(&network->edgeColorAttributes, &network->edgeColorAttributeCount, &network->edgeColorAttributeCapacity, sourceName, encodedName, format, useIndex);
+}
+
+CXBool CXNetworkRemoveDenseColorEncodedNodeAttribute(CXNetworkRef network, const CXString encodedName) {
+	if (!network || !encodedName) {
+		return CXFalse;
+	}
+	for (CXSize i = 0; i < network->nodeColorAttributeCount; i++) {
+		if (network->nodeColorAttributes[i].encodedName && strcmp(network->nodeColorAttributes[i].encodedName, encodedName) == 0) {
+			CXNetworkFreeDenseColorAttribute(&network->nodeColorAttributes[i]);
+			if (i + 1 < network->nodeColorAttributeCount) {
+				memmove(&network->nodeColorAttributes[i], &network->nodeColorAttributes[i + 1], sizeof(CXDenseColorEncodedAttribute) * (network->nodeColorAttributeCount - i - 1));
+			}
+			network->nodeColorAttributeCount--;
+			return CXTrue;
+		}
+	}
+	return CXFalse;
+}
+
+CXBool CXNetworkRemoveDenseColorEncodedEdgeAttribute(CXNetworkRef network, const CXString encodedName) {
+	if (!network || !encodedName) {
+		return CXFalse;
+	}
+	for (CXSize i = 0; i < network->edgeColorAttributeCount; i++) {
+		if (network->edgeColorAttributes[i].encodedName && strcmp(network->edgeColorAttributes[i].encodedName, encodedName) == 0) {
+			CXNetworkFreeDenseColorAttribute(&network->edgeColorAttributes[i]);
+			if (i + 1 < network->edgeColorAttributeCount) {
+				memmove(&network->edgeColorAttributes[i], &network->edgeColorAttributes[i + 1], sizeof(CXDenseColorEncodedAttribute) * (network->edgeColorAttributeCount - i - 1));
+			}
+			network->edgeColorAttributeCount--;
+			return CXTrue;
+		}
+	}
+	return CXFalse;
+}
+
+CXBool CXNetworkMarkDenseColorEncodedNodeAttributeDirty(CXNetworkRef network, const CXString encodedName) {
+	CXDenseColorEncodedAttribute *attr = network ? CXNetworkFindDenseColorAttribute(network->nodeColorAttributes, network->nodeColorAttributeCount, encodedName) : NULL;
+	if (!attr) {
+		return CXFalse;
+	}
+	attr->buffer.dirty = CXTrue;
+	return CXTrue;
+}
+
+CXBool CXNetworkMarkDenseColorEncodedEdgeAttributeDirty(CXNetworkRef network, const CXString encodedName) {
+	CXDenseColorEncodedAttribute *attr = network ? CXNetworkFindDenseColorAttribute(network->edgeColorAttributes, network->edgeColorAttributeCount, encodedName) : NULL;
+	if (!attr) {
+		return CXFalse;
+	}
+	attr->buffer.dirty = CXTrue;
 	return CXTrue;
 }
 
@@ -2025,6 +2434,64 @@ const CXDenseAttributeBuffer* CXNetworkUpdateDenseEdgeIndexBuffer(CXNetworkRef n
 	return &network->edgeIndexDense;
 }
 
+const CXDenseAttributeBuffer* CXNetworkUpdateDenseColorEncodedNodeAttribute(CXNetworkRef network, const CXString encodedName) {
+	if (!network || !encodedName) {
+		return NULL;
+	}
+	CXDenseColorEncodedAttribute *attr = CXNetworkFindDenseColorAttribute(network->nodeColorAttributes, network->nodeColorAttributeCount, encodedName);
+	if (!attr) {
+		return NULL;
+	}
+	const CXIndex *order = NULL;
+	CXSize orderCount = 0;
+	if (network->nodeDenseOrder && network->nodeDenseOrderCount > 0) {
+		order = network->nodeDenseOrder;
+		orderCount = network->nodeDenseOrderCount;
+	}
+	CXAttributeRef sourceAttr = NULL;
+	if (!attr->useIndexSource) {
+		sourceAttr = CXNetworkGetNodeAttribute(network, attr->sourceName);
+		if (!CXNetworkValidateColorSourceAttribute(sourceAttr) || !sourceAttr->data) {
+			return NULL;
+		}
+	}
+	if (attr->buffer.dirty || !attr->buffer.data) {
+		if (!CXNetworkPackDenseColorEncoded(attr, order, orderCount, network->nodeActive, network->nodeCapacity, sourceAttr)) {
+			return NULL;
+		}
+	}
+	return &attr->buffer;
+}
+
+const CXDenseAttributeBuffer* CXNetworkUpdateDenseColorEncodedEdgeAttribute(CXNetworkRef network, const CXString encodedName) {
+	if (!network || !encodedName) {
+		return NULL;
+	}
+	CXDenseColorEncodedAttribute *attr = CXNetworkFindDenseColorAttribute(network->edgeColorAttributes, network->edgeColorAttributeCount, encodedName);
+	if (!attr) {
+		return NULL;
+	}
+	const CXIndex *order = NULL;
+	CXSize orderCount = 0;
+	if (network->edgeDenseOrder && network->edgeDenseOrderCount > 0) {
+		order = network->edgeDenseOrder;
+		orderCount = network->edgeDenseOrderCount;
+	}
+	CXAttributeRef sourceAttr = NULL;
+	if (!attr->useIndexSource) {
+		sourceAttr = CXNetworkGetEdgeAttribute(network, attr->sourceName);
+		if (!CXNetworkValidateColorSourceAttribute(sourceAttr) || !sourceAttr->data) {
+			return NULL;
+		}
+	}
+	if (attr->buffer.dirty || !attr->buffer.data) {
+		if (!CXNetworkPackDenseColorEncoded(attr, order, orderCount, network->edgeActive, network->edgeCapacity, sourceAttr)) {
+			return NULL;
+		}
+	}
+	return &attr->buffer;
+}
+
 CXBool CXNetworkSetDenseNodeOrder(CXNetworkRef network, const CXIndex *order, CXSize count) {
 	if (!network) {
 		return CXFalse;
@@ -2034,6 +2501,7 @@ CXBool CXNetworkSetDenseNodeOrder(CXNetworkRef network, const CXIndex *order, CX
 	}
 	CXNetworkMarkDenseBuffersDirty(network->nodeDenseBuffers, network->nodeDenseBufferCount);
 	network->nodeIndexDense.dirty = CXTrue;
+	CXNetworkMarkDenseColorBuffersDirty(network->nodeColorAttributes, network->nodeColorAttributeCount);
 	return CXTrue;
 }
 
@@ -2046,6 +2514,7 @@ CXBool CXNetworkSetDenseEdgeOrder(CXNetworkRef network, const CXIndex *order, CX
 	}
 	CXNetworkMarkDenseBuffersDirty(network->edgeDenseBuffers, network->edgeDenseBufferCount);
 	network->edgeIndexDense.dirty = CXTrue;
+	CXNetworkMarkDenseColorBuffersDirty(network->edgeColorAttributes, network->edgeColorAttributeCount);
 	return CXTrue;
 }
 

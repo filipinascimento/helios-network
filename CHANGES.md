@@ -1,5 +1,11 @@
 # CHANGES
 
+## 2025-02-10
+
+- Added dense color-encoded node/edge buffers (u8x4/u32x4) with `(value + 1)` packing, dirty tracking, and dense-order support for GPU-friendly picking; exposed JS APIs (`define/update/getDenseColorEncoded*Attribute`) and `DenseColorEncodingFormat`.
+- Documented the new buffers in `docs/dense-buffer-sessions.md` and updated exports.
+- Added regression coverage in `tests/node_helios.test.js` for color-encoded buffers.
+
 ## 2025-02-02 (developer notes)
 
 - Removed public `nodeActivityView` / `edgeActivityView` accessors. Active tracking remains in the C core (bitsets), but JS no longer exposes raw masks.

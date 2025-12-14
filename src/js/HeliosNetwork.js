@@ -18,6 +18,11 @@ const AttributeType = Object.freeze({
 	Unknown: 255,
 });
 
+const DenseColorEncodingFormat = Object.freeze({
+	Uint8x4: 0,
+	Uint32x4: 1,
+});
+
 /**
  * Cached WASM module promise and resolved instance.
  * @type {Promise<object>|null}
@@ -1323,6 +1328,10 @@ export class HeliosNetwork {
 		this._denseEdgeAttributeDescriptors = new Map();
 		this._denseNodeIndexDescriptor = null;
 		this._denseEdgeIndexDescriptor = null;
+		this._denseColorNodeAttributes = new Map();
+		this._denseColorEdgeAttributes = new Map();
+		this._denseColorNodeDescriptors = new Map();
+		this._denseColorEdgeDescriptors = new Map();
 		this._bufferSessionDepth = 0;
 		this._nodeToEdgePassthrough = new Map();
 		this._nodeAttributeDependents = new Map();
@@ -1416,13 +1425,16 @@ export class HeliosNetwork {
 		if (scope === 'node') {
 			this._nodeTopologyVersion += 1;
 			this._nodeIndexCache = null;
+			this._markAllColorEncodedDirty('node');
 			if (cascadeEdges) {
 				this._edgeTopologyVersion += 1;
 				this._edgeIndexCache = null;
+				this._markAllColorEncodedDirty('edge');
 			}
 		} else if (scope === 'edge') {
 			this._edgeTopologyVersion += 1;
 			this._edgeIndexCache = null;
+			this._markAllColorEncodedDirty('edge');
 		}
 	}
 
@@ -1738,6 +1750,7 @@ export class HeliosNetwork {
 			cstr.dispose();
 		}
 		this._markPassthroughEdgesDirtyForNode(name);
+		this._markColorEncodedDirtyForSource('node', name);
 	}
 
 	/**
@@ -1751,6 +1764,7 @@ export class HeliosNetwork {
 		} finally {
 			cstr.dispose();
 		}
+		this._markColorEncodedDirtyForSource('edge', name);
 	}
 
 	/**
@@ -1871,6 +1885,140 @@ export class HeliosNetwork {
 	}
 
 	/**
+	 * Registers a color-encoded dense node attribute derived from an integer attribute or the node index.
+	 *
+	 * @param {string} sourceName - Source attribute identifier or "index".
+	 * @param {string} encodedName - Name of the packed buffer to register.
+	 * @param {{format?: DenseColorEncodingFormat|string}} [options] - Encoding options.
+	 */
+	defineDenseColorEncodedNodeAttribute(sourceName, encodedName, options = {}) {
+		this._defineDenseColorEncodedAttribute('node', sourceName, encodedName, options);
+	}
+
+	/**
+	 * Registers a color-encoded dense edge attribute derived from an integer attribute or edge index.
+	 *
+	 * @param {string} sourceName - Source attribute identifier or "index".
+	 * @param {string} encodedName - Name of the packed buffer to register.
+	 * @param {{format?: DenseColorEncodingFormat|string}} [options] - Encoding options.
+	 */
+	defineDenseColorEncodedEdgeAttribute(sourceName, encodedName, options = {}) {
+		this._defineDenseColorEncodedAttribute('edge', sourceName, encodedName, options);
+	}
+
+	/**
+	 * Removes a color-encoded dense node attribute registration.
+	 *
+	 * @param {string} encodedName - Encoded buffer identifier.
+	 */
+	removeDenseColorEncodedNodeAttribute(encodedName) {
+		this._removeDenseColorEncodedAttribute('node', encodedName);
+	}
+
+	/**
+	 * Removes a color-encoded dense edge attribute registration.
+	 *
+	 * @param {string} encodedName - Encoded buffer identifier.
+	 */
+	removeDenseColorEncodedEdgeAttribute(encodedName) {
+		this._removeDenseColorEncodedAttribute('edge', encodedName);
+	}
+
+	/**
+	 * Marks a color-encoded dense node buffer dirty.
+	 *
+	 * @param {string} encodedName - Encoded buffer identifier.
+	 */
+	markDenseColorEncodedNodeAttributeDirty(encodedName) {
+		this._markDenseColorEncodedAttributeDirty('node', encodedName);
+	}
+
+	/**
+	 * Marks a color-encoded dense edge buffer dirty.
+	 *
+	 * @param {string} encodedName - Encoded buffer identifier.
+	 */
+	markDenseColorEncodedEdgeAttributeDirty(encodedName) {
+		this._markDenseColorEncodedAttributeDirty('edge', encodedName);
+	}
+
+	/**
+	 * Refreshes a color-encoded dense node buffer if dirty and returns its typed view.
+	 *
+	 * @param {string} encodedName - Encoded buffer identifier.
+	 * @returns {{view: TypedArray, count: number, dimension: number, type: Function}}
+	 */
+	updateDenseColorEncodedNodeAttribute(encodedName) {
+		this._assertCanAllocate('updateDenseColorEncodedNodeAttribute');
+		this._ensureActive();
+		this._ensureColorEncodedMetadata('node', encodedName);
+		const updateFn = this.module._CXNetworkUpdateDenseColorEncodedNodeAttribute;
+		if (typeof updateFn !== 'function') {
+			throw new Error('Dense color-encoded attributes are unavailable in this WASM build');
+		}
+		const cstr = new CString(this.module, encodedName);
+		let ptr = 0;
+		try {
+			ptr = updateFn.call(this.module, this.ptr, cstr.ptr);
+		} finally {
+			cstr.dispose();
+		}
+		this._denseColorNodeDescriptors.set(encodedName, this._readDenseBufferDescriptor(ptr));
+		return this.getDenseColorEncodedNodeAttributeView(encodedName);
+	}
+
+	/**
+	 * Refreshes a color-encoded dense edge buffer if dirty and returns its typed view.
+	 *
+	 * @param {string} encodedName - Encoded buffer identifier.
+	 * @returns {{view: TypedArray, count: number, dimension: number, type: Function}}
+	 */
+	updateDenseColorEncodedEdgeAttribute(encodedName) {
+		this._assertCanAllocate('updateDenseColorEncodedEdgeAttribute');
+		this._ensureActive();
+		this._ensureColorEncodedMetadata('edge', encodedName);
+		const updateFn = this.module._CXNetworkUpdateDenseColorEncodedEdgeAttribute;
+		if (typeof updateFn !== 'function') {
+			throw new Error('Dense color-encoded attributes are unavailable in this WASM build');
+		}
+		const cstr = new CString(this.module, encodedName);
+		let ptr = 0;
+		try {
+			ptr = updateFn.call(this.module, this.ptr, cstr.ptr);
+		} finally {
+			cstr.dispose();
+		}
+		this._denseColorEdgeDescriptors.set(encodedName, this._readDenseBufferDescriptor(ptr));
+		return this.getDenseColorEncodedEdgeAttributeView(encodedName);
+	}
+
+	/**
+	 * Returns a typed view over the last packed color-encoded dense node buffer.
+	 *
+	 * @param {string} encodedName - Encoded buffer identifier.
+	 * @returns {{view: TypedArray, count: number, dimension: number, type: Function}}
+	 */
+	getDenseColorEncodedNodeAttributeView(encodedName) {
+		this._ensureActive();
+		const meta = this._ensureColorEncodedMetadata('node', encodedName);
+		const desc = this._denseColorNodeDescriptors.get(encodedName) ?? this._readDenseBufferDescriptor(0);
+		return this._materializeColorEncodedView(desc, meta);
+	}
+
+	/**
+	 * Returns a typed view over the last packed color-encoded dense edge buffer.
+	 *
+	 * @param {string} encodedName - Encoded buffer identifier.
+	 * @returns {{view: TypedArray, count: number, dimension: number, type: Function}}
+	 */
+	getDenseColorEncodedEdgeAttributeView(encodedName) {
+		this._ensureActive();
+		const meta = this._ensureColorEncodedMetadata('edge', encodedName);
+		const desc = this._denseColorEdgeDescriptors.get(encodedName) ?? this._readDenseBufferDescriptor(0);
+		return this._materializeColorEncodedView(desc, meta);
+	}
+
+	/**
 	 * Provides typed dense views inside a buffer access session.
 	 *
 	 * @param {Array<[string, string]>} requests - List of scope/name pairs; use name "index" to request the index buffer (scope must be "node" or "edge").
@@ -1943,6 +2091,7 @@ export class HeliosNetwork {
 		} finally {
 			orderInfo.dispose();
 		}
+		this._markAllColorEncodedDirty('node');
 	}
 
 	/**
@@ -1957,6 +2106,7 @@ export class HeliosNetwork {
 		} finally {
 			orderInfo.dispose();
 		}
+		this._markAllColorEncodedDirty('edge');
 	}
 
 	/**
@@ -2994,6 +3144,167 @@ export class HeliosNetwork {
 		}
 	}
 
+	_colorEncodedRegistry(scope) {
+		if (scope === 'node') return this._denseColorNodeAttributes;
+		if (scope === 'edge') return this._denseColorEdgeAttributes;
+		throw new Error(`Unknown color-encoded scope "${scope}"`);
+	}
+
+	_colorEncodedDescriptors(scope) {
+		if (scope === 'node') return this._denseColorNodeDescriptors;
+		if (scope === 'edge') return this._denseColorEdgeDescriptors;
+		throw new Error(`Unknown color-encoded scope "${scope}"`);
+	}
+
+	_ensureColorEncodedMetadata(scope, encodedName) {
+		const registry = this._colorEncodedRegistry(scope);
+		const meta = registry.get(encodedName);
+		if (!meta) {
+			throw new Error(`Color-encoded ${scope} attribute "${encodedName}" is not defined`);
+		}
+		return meta;
+	}
+
+	_normalizeColorEncodingFormat(format) {
+		if (format === DenseColorEncodingFormat.Uint32x4 || format === 'u32' || format === 'u32x4' || format === 'uint32' || format === 'rgba32') {
+			return DenseColorEncodingFormat.Uint32x4;
+		}
+		if (format === DenseColorEncodingFormat.Uint8x4 || format === 'u8' || format === 'u8x4' || format === 'uint8' || format === 'rgba8') {
+			return DenseColorEncodingFormat.Uint8x4;
+		}
+		return DenseColorEncodingFormat.Uint8x4;
+	}
+
+	_defineDenseColorEncodedAttribute(scope, sourceName, encodedName, options) {
+		this._assertCanAllocate(`define dense color-encoded ${scope} attribute`);
+		this._ensureActive();
+		const registry = this._colorEncodedRegistry(scope);
+		const format = this._normalizeColorEncodingFormat(options?.format);
+		const existing = registry.get(encodedName);
+		if (existing) {
+			if (existing.sourceName !== sourceName || existing.format !== format) {
+				throw new Error(`Color-encoded ${scope} attribute "${encodedName}" already exists with a different configuration`);
+			}
+			return;
+		}
+		const useIndex = sourceName === 'index';
+		if (!useIndex) {
+			const meta = this._ensureAttributeMetadata(scope, sourceName);
+			if (meta.type !== AttributeType.Integer && meta.type !== AttributeType.UnsignedInteger) {
+				throw new Error('Color encoding only supports integer or unsigned integer attributes');
+			}
+			const dimension = Math.max(1, meta.dimension || 1);
+			if (dimension !== 1) {
+				throw new Error('Color encoding only supports scalar attributes');
+			}
+		}
+		const defineFn = scope === 'node'
+			? this.module._CXNetworkDefineDenseColorEncodedNodeAttribute
+			: this.module._CXNetworkDefineDenseColorEncodedEdgeAttribute;
+		if (typeof defineFn !== 'function') {
+			throw new Error('Dense color-encoded attributes are unavailable in this WASM build');
+		}
+		const sourceCstr = new CString(this.module, sourceName);
+		const encodedCstr = new CString(this.module, encodedName);
+		let ok = false;
+		try {
+			ok = defineFn.call(this.module, this.ptr, sourceCstr.ptr, encodedCstr.ptr, format);
+		} finally {
+			sourceCstr.dispose();
+			encodedCstr.dispose();
+		}
+		if (!ok) {
+			throw new Error(`Failed to define color-encoded ${scope} attribute "${encodedName}"`);
+		}
+		registry.set(encodedName, { sourceName, format, useIndex });
+	}
+
+	_removeDenseColorEncodedAttribute(scope, encodedName) {
+		this._assertCanAllocate(`remove dense color-encoded ${scope} attribute`);
+		this._ensureActive();
+		const registry = this._colorEncodedRegistry(scope);
+		if (!registry.has(encodedName)) {
+			return;
+		}
+		const removeFn = scope === 'node'
+			? this.module._CXNetworkRemoveDenseColorEncodedNodeAttribute
+			: this.module._CXNetworkRemoveDenseColorEncodedEdgeAttribute;
+		if (typeof removeFn !== 'function') {
+			throw new Error('Dense color-encoded attributes are unavailable in this WASM build');
+		}
+		const cstr = new CString(this.module, encodedName);
+		let ok = false;
+		try {
+			ok = removeFn.call(this.module, this.ptr, cstr.ptr);
+		} finally {
+			cstr.dispose();
+		}
+		if (!ok) {
+			throw new Error(`Failed to remove color-encoded ${scope} attribute "${encodedName}"`);
+		}
+		registry.delete(encodedName);
+		this._colorEncodedDescriptors(scope).delete(encodedName);
+	}
+
+	_markDenseColorEncodedAttributeDirty(scope, encodedName) {
+		this._ensureActive();
+		const registry = this._colorEncodedRegistry(scope);
+		if (!registry.has(encodedName)) {
+			throw new Error(`Color-encoded ${scope} attribute "${encodedName}" is not defined`);
+		}
+		const markFn = scope === 'node'
+			? this.module._CXNetworkMarkDenseColorEncodedNodeAttributeDirty
+			: this.module._CXNetworkMarkDenseColorEncodedEdgeAttributeDirty;
+		if (typeof markFn !== 'function') {
+			throw new Error('Dense color-encoded attributes are unavailable in this WASM build');
+		}
+		const cstr = new CString(this.module, encodedName);
+		try {
+			markFn.call(this.module, this.ptr, cstr.ptr);
+		} finally {
+			cstr.dispose();
+		}
+		const descriptors = this._colorEncodedDescriptors(scope);
+		const desc = descriptors.get(encodedName);
+		if (desc) {
+			descriptors.set(encodedName, { ...desc, dirty: true });
+		}
+	}
+
+	_markColorEncodedDirtyForSource(scope, sourceName) {
+		const registry = this._colorEncodedRegistry(scope);
+		const descriptors = this._colorEncodedDescriptors(scope);
+		for (const [name, meta] of registry.entries()) {
+			if (meta.sourceName !== sourceName) {
+				continue;
+			}
+			const desc = descriptors.get(name);
+			if (desc) {
+				descriptors.set(name, { ...desc, dirty: true });
+			}
+		}
+	}
+
+	_markAllColorEncodedDirty(scope) {
+		const descriptors = this._colorEncodedDescriptors(scope);
+		for (const [name, desc] of descriptors.entries()) {
+			descriptors.set(name, { ...desc, dirty: true });
+		}
+	}
+
+	_removeColorEncodedAttributesForSource(scope, sourceName) {
+		const registry = this._colorEncodedRegistry(scope);
+		const names = [];
+		for (const [name, meta] of registry.entries()) {
+			if (meta.sourceName === sourceName) {
+				names.push(name);
+			}
+		}
+		for (const name of names) {
+			this._removeDenseColorEncodedAttribute(scope, name);
+		}
+	}
+
 	_copyIndicesToWasm(indices) {
 		this._assertCanAllocate('copy indices to WASM memory');
 		if (!indices) {
@@ -3056,6 +3367,15 @@ export class HeliosNetwork {
 			validEnd,
 			dirty,
 		};
+	}
+
+	_materializeColorEncodedView(descriptor, meta) {
+		const TypedArrayCtor = meta.format === DenseColorEncodingFormat.Uint32x4 ? Uint32Array : Uint8Array;
+		const length = descriptor.count * 4;
+		const view = descriptor.pointer
+			? new TypedArrayCtor(this.module.HEAPU8.buffer, descriptor.pointer, length)
+			: new TypedArrayCtor(0);
+		return { ...descriptor, view, count: descriptor.count, dimension: 4, type: TypedArrayCtor };
 	}
 
 	_materializeDenseAttributeView(descriptor, meta) {
@@ -3385,6 +3705,9 @@ export class HeliosNetwork {
 				dependents.delete(name);
 			}
 			this._denseEdgeAttributeDescriptors.delete(name);
+		}
+		if (scope === 'node' || scope === 'edge') {
+			this._removeColorEncodedAttributesForSource(scope, name);
 		}
 	}
 
@@ -3878,5 +4201,5 @@ export class HeliosNetwork {
 	}
 }
 
-export { AttributeType, NodeSelector, EdgeSelector, getModule as getHeliosModule };
+export { AttributeType, DenseColorEncodingFormat, NodeSelector, EdgeSelector, getModule as getHeliosModule };
 export default HeliosNetwork;
