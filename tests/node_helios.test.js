@@ -763,8 +763,8 @@ describe('HeliosNetwork (Node runtime)', () => {
 
 			net.defineDenseColorEncodedNodeAttribute('node_id', 'node_color', { format: DenseColorEncodingFormat.Uint8x4 });
 			net.defineDenseColorEncodedEdgeAttribute('edge_tag', 'edge_color', { format: DenseColorEncodingFormat.Uint8x4 });
-			net.defineDenseColorEncodedNodeAttribute('index', 'node_index_color', { format: DenseColorEncodingFormat.Uint8x4 });
-			net.defineDenseColorEncodedEdgeAttribute('index', 'edge_index_color', { format: DenseColorEncodingFormat.Uint8x4 });
+			net.defineDenseColorEncodedNodeAttribute('$index', 'node_index_color', { format: DenseColorEncodingFormat.Uint8x4 });
+			net.defineDenseColorEncodedEdgeAttribute('$index', 'edge_index_color', { format: DenseColorEncodingFormat.Uint8x4 });
 
 			const nodeColor = net.updateDenseColorEncodedNodeAttribute('node_color');
 			expect(nodeColor.count).toBe(nodes.length);

@@ -30,7 +30,7 @@
 - Register encoded buffers that pack `(value + 1)` into 4 components (reserving 0 as “no value”):
   - Nodes: `defineDenseColorEncodedNodeAttribute(sourceName, encodedName, { format })`
   - Edges: `defineDenseColorEncodedEdgeAttribute(sourceName, encodedName, { format })`
-  - `sourceName` can be an integer attribute **or** the literal string `"index"` to encode ids without an attribute.
+  - `sourceName` can be an integer attribute **or** the literal string `"$index"` to encode ids without an attribute.
 - Supported formats: `Uint8x4` (default) and `Uint32x4` (choose with `DenseColorEncodingFormat.Uint32x4` or `'u32x4'`). Views are `Uint8Array` / `Uint32Array`, sized `count * 4` with `dimension: 4`.
 - Dirty tracking mirrors dense attributes: source attribute changes (`markDense*AttributeDirty`), topology edits, or dense order updates will mark the encoded buffer dirty. Call `updateDenseColorEncoded*Attribute(name)` to repack; bind via `getDenseColorEncoded*AttributeView(name)` inside `withBufferAccess`.
 - Ordering matches dense orders set via `setDense*Order`; buffers are stable (no reallocation unless grown) for direct WebGL/WebGPU binding.

@@ -3187,7 +3187,7 @@ export class HeliosNetwork {
 			}
 			return;
 		}
-		const useIndex = sourceName === 'index';
+		const useIndex = sourceName === '$index';
 		if (!useIndex) {
 			const meta = this._ensureAttributeMetadata(scope, sourceName);
 			if (meta.type !== AttributeType.Integer && meta.type !== AttributeType.UnsignedInteger) {

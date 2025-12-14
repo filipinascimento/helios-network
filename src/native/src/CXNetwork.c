@@ -2244,7 +2244,7 @@ CXBool CXNetworkDefineDenseColorEncodedNodeAttribute(CXNetworkRef network, const
 	if (!network || !sourceName || !encodedName) {
 		return CXFalse;
 	}
-	const CXBool useIndex = strcmp(sourceName, "index") == 0;
+	const CXBool useIndex = strcmp(sourceName, "$index") == 0;
 	const CXDenseColorFormat format = CXNetworkNormalizeColorFormat(options.format);
 	CXDenseColorEncodedAttribute *existing = CXNetworkFindDenseColorAttribute(network->nodeColorAttributes, network->nodeColorAttributeCount, encodedName);
 	if (existing) {
@@ -2267,7 +2267,7 @@ CXBool CXNetworkDefineDenseColorEncodedEdgeAttribute(CXNetworkRef network, const
 	if (!network || !sourceName || !encodedName) {
 		return CXFalse;
 	}
-	const CXBool useIndex = strcmp(sourceName, "index") == 0;
+	const CXBool useIndex = strcmp(sourceName, "$index") == 0;
 	const CXDenseColorFormat format = CXNetworkNormalizeColorFormat(options.format);
 	CXDenseColorEncodedAttribute *existing = CXNetworkFindDenseColorAttribute(network->edgeColorAttributes, network->edgeColorAttributeCount, encodedName);
 	if (existing) {
