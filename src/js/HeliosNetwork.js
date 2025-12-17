@@ -3043,8 +3043,8 @@ export class HeliosNetwork {
 		let attributePtr = 0;
 		let bufferPtr = 0;
 		try {
-			attributePtr = getter.call(this.module, this.ptr, cstr.ptr);
-			bufferPtr = bufferGetter.call(this.module, this.ptr, cstr.ptr);
+			attributePtr = getter.call(this.module, this.ptr, cstr.ptr) >>> 0;
+			bufferPtr = bufferGetter.call(this.module, this.ptr, cstr.ptr) >>> 0;
 		} finally {
 			cstr.dispose();
 		}
@@ -3052,7 +3052,7 @@ export class HeliosNetwork {
 			throw new Error(`Attribute buffer for "${name}" is not available`);
 		}
 		const stride = this.module._CXAttributeStride(attributePtr);
-		return { pointer: bufferPtr, stride };
+		return { pointer: bufferPtr >>> 0, stride };
 	}
 
 	/**
