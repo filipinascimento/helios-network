@@ -18,6 +18,7 @@ Dense buffers give WebGL/WebGPU a tightly packed snapshot of attributes and ids 
 - **Dirty tracking**: dense buffers are auto-marked dirty on structural edits. Mark them yourself after attribute writes:
   - JS: `markDenseNodeAttributeDirty(name)`, `markDenseEdgeAttributeDirty(name)`
 - **Valid ranges** (network-level): `network.nodeValidRange` / `network.edgeValidRange` return `{start,end}` based on active ids. Use these to slice original sparse attribute buffers when you want to avoid unused capacity. Dense descriptors keep `count`/`stride` for packed views; valid ranges refer to source indices.
+- **Transparent aliasing (optimization)**: when no dense order is set and the active ids are already contiguous (`count === end-start`), `updateDense*AttributeBuffer(name)` may return a dense view that aliases the underlying sparse buffer slice instead of repacking/copying. Dense index buffers may also be virtualized in this case (a cached `Uint32Array` containing `start..end-1`), avoiding native packing. This is an internal optimization; ordering semantics remain unchanged. (Node→edge passthroughs still perform the copy step when updating.)
 
 Dense descriptor shape in JS:
 ```js

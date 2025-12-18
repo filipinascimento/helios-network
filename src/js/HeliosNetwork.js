@@ -1324,10 +1324,16 @@ export class HeliosNetwork {
 		this._nodeAttributes = new Map();
 		this._edgeAttributes = new Map();
 		this._networkAttributes = new Map();
+		this._registeredDenseNodeAttributes = new Set();
+		this._registeredDenseEdgeAttributes = new Set();
+		this._denseNodeOrderActive = false;
+		this._denseEdgeOrderActive = false;
 		this._denseNodeAttributeDescriptors = new Map();
 		this._denseEdgeAttributeDescriptors = new Map();
 		this._denseNodeIndexDescriptor = null;
 		this._denseEdgeIndexDescriptor = null;
+		this._denseNodeIndexVirtualCache = null;
+		this._denseEdgeIndexVirtualCache = null;
 		this._denseColorNodeAttributes = new Map();
 		this._denseColorEdgeAttributes = new Map();
 		this._denseColorNodeDescriptors = new Map();
@@ -1598,6 +1604,7 @@ export class HeliosNetwork {
 		} finally {
 			cstr.dispose();
 		}
+		this._registeredDenseNodeAttributes.add(name);
 	}
 
 	/**
@@ -1613,6 +1620,7 @@ export class HeliosNetwork {
 		} finally {
 			cstr.dispose();
 		}
+		this._registeredDenseEdgeAttributes.add(name);
 	}
 
 	/**
@@ -1702,6 +1710,8 @@ export class HeliosNetwork {
 		} finally {
 			cstr.dispose();
 		}
+		this._registeredDenseNodeAttributes.delete(name);
+		this._denseNodeAttributeDescriptors.delete(name);
 	}
 
 	/**
@@ -1715,6 +1725,8 @@ export class HeliosNetwork {
 		} finally {
 			cstr.dispose();
 		}
+		this._registeredDenseEdgeAttributes.delete(name);
+		this._denseEdgeAttributeDescriptors.delete(name);
 	}
 
 	/**
@@ -1779,13 +1791,17 @@ export class HeliosNetwork {
 		}
 		this._assertCanAllocate('updateDenseNodeAttributeBuffer');
 		this._ensureActive();
+		if (this._registeredDenseNodeAttributes.has(name) && this._canAliasDenseAttributeBuffer('node')) {
+			this._denseNodeAttributeDescriptors.set(name, this._buildAliasedDenseAttributeDescriptor('node', name));
+			return;
+		}
 		const cstr = new CString(this.module, name);
 		let ptr = 0;
 		try {
 			// console.log('TRYING: updateDenseNodeAttributeBuffer', name, ptr);
 			ptr = this.module._CXNetworkUpdateDenseNodeAttribute(this.ptr, cstr.ptr);
 			// console.log('SUCCESS: updateDenseNodeAttributeBuffer', name, ptr);
-		}finally {
+		} finally {
 			cstr.dispose();
 		}
 		this._denseNodeAttributeDescriptors.set(name, this._readDenseBufferDescriptor(ptr));
@@ -1808,6 +1824,10 @@ export class HeliosNetwork {
 				passthrough.dirty = false;
 			}
 		}
+		if (this._registeredDenseEdgeAttributes.has(name) && this._canAliasDenseAttributeBuffer('edge')) {
+			this._denseEdgeAttributeDescriptors.set(name, this._buildAliasedDenseAttributeDescriptor('edge', name));
+			return;
+		}
 		const cstr = new CString(this.module, name);
 		let ptr = 0;
 		try {
@@ -1824,6 +1844,32 @@ export class HeliosNetwork {
 	updateDenseNodeIndexBuffer() {
 		this._assertCanAllocate('updateDenseNodeIndexBuffer');
 		this._ensureActive();
+		if (!this._denseNodeOrderActive) {
+			const { start, end } = this.nodeValidRange;
+			const count = Math.max(0, end - start);
+			if (count && this.nodeCount === count) {
+				const version = this._nodeTopologyVersion;
+				const cached = this._denseNodeIndexVirtualCache;
+				if (!cached || cached.version !== version || cached.start !== start || cached.end !== end) {
+					const view = new Uint32Array(count);
+					for (let i = 0; i < count; i += 1) {
+						view[i] = (start + i) >>> 0;
+					}
+					this._denseNodeIndexVirtualCache = { version, start, end, view };
+				}
+				this._denseNodeIndexDescriptor = {
+					pointer: 0,
+					count,
+					capacity: count * Uint32Array.BYTES_PER_ELEMENT,
+					stride: Uint32Array.BYTES_PER_ELEMENT,
+					validStart: start,
+					validEnd: end,
+					dirty: false,
+					jsView: this._denseNodeIndexVirtualCache.view,
+				};
+				return;
+			}
+		}
 		let ptr = 0;
 		try {
 			ptr = this.module._CXNetworkUpdateDenseNodeIndexBuffer(this.ptr);
@@ -1838,6 +1884,32 @@ export class HeliosNetwork {
 	updateDenseEdgeIndexBuffer() {
 		this._assertCanAllocate('updateDenseEdgeIndexBuffer');
 		this._ensureActive();
+		if (!this._denseEdgeOrderActive) {
+			const { start, end } = this.edgeValidRange;
+			const count = Math.max(0, end - start);
+			if (count && this.edgeCount === count) {
+				const version = this._edgeTopologyVersion;
+				const cached = this._denseEdgeIndexVirtualCache;
+				if (!cached || cached.version !== version || cached.start !== start || cached.end !== end) {
+					const view = new Uint32Array(count);
+					for (let i = 0; i < count; i += 1) {
+						view[i] = (start + i) >>> 0;
+					}
+					this._denseEdgeIndexVirtualCache = { version, start, end, view };
+				}
+				this._denseEdgeIndexDescriptor = {
+					pointer: 0,
+					count,
+					capacity: count * Uint32Array.BYTES_PER_ELEMENT,
+					stride: Uint32Array.BYTES_PER_ELEMENT,
+					validStart: start,
+					validEnd: end,
+					dirty: false,
+					jsView: this._denseEdgeIndexVirtualCache.view,
+				};
+				return;
+			}
+		}
 		let ptr = 0;
 		try {
 			ptr = this.module._CXNetworkUpdateDenseEdgeIndexBuffer(this.ptr);
@@ -2091,6 +2163,7 @@ export class HeliosNetwork {
 		} finally {
 			orderInfo.dispose();
 		}
+		this._denseNodeOrderActive = orderInfo.count > 0;
 		this._markAllColorEncodedDirty('node');
 	}
 
@@ -2106,6 +2179,7 @@ export class HeliosNetwork {
 		} finally {
 			orderInfo.dispose();
 		}
+		this._denseEdgeOrderActive = orderInfo.count > 0;
 		this._markAllColorEncodedDirty('edge');
 	}
 
@@ -3338,6 +3412,60 @@ export class HeliosNetwork {
 		};
 	}
 
+	_canAliasDenseAttributeBuffer(scope) {
+		if (scope === 'node') {
+			if (this._denseNodeOrderActive) {
+				return false;
+			}
+			const { start, end } = this.nodeValidRange;
+			return this.nodeCount === (end - start);
+		}
+		if (scope === 'edge') {
+			if (this._denseEdgeOrderActive) {
+				return false;
+			}
+			const { start, end } = this.edgeValidRange;
+			return this.edgeCount === (end - start);
+		}
+		return false;
+	}
+
+	_buildAliasedDenseAttributeDescriptor(scope, name) {
+		const meta = this._ensureAttributeMetadata(scope, name);
+		if (!meta) {
+			return this._readDenseBufferDescriptor(0);
+		}
+		let pointers = null;
+		try {
+			pointers = this._attributePointers(scope, name, meta);
+		} catch (_) {
+			return this._readDenseBufferDescriptor(0);
+		}
+		const { start, end } = scope === 'node' ? this.nodeValidRange : this.edgeValidRange;
+		const count = Math.max(0, end - start);
+		if (!count) {
+			return {
+				pointer: 0,
+				count: 0,
+				capacity: 0,
+				stride: pointers.stride,
+				validStart: 0,
+				validEnd: 0,
+				dirty: false,
+			};
+		}
+		const pointer = (pointers.pointer + (start * pointers.stride)) >>> 0;
+		return {
+			pointer,
+			count,
+			capacity: count * pointers.stride,
+			stride: pointers.stride,
+			validStart: start,
+			validEnd: end,
+			dirty: false,
+		};
+	}
+
 	_readDenseBufferDescriptor(ptr) {
 		if (!ptr) {
 			return {
@@ -3395,6 +3523,9 @@ export class HeliosNetwork {
 	}
 
 	_materializeDenseIndexView(descriptor) {
+		if (descriptor?.jsView && descriptor.jsView instanceof Uint32Array) {
+			return { ...descriptor, view: descriptor.jsView };
+		}
 		const view = descriptor.pointer
 			? new Uint32Array(this.module.HEAPU8.buffer, descriptor.pointer, descriptor.count)
 			: EMPTY_UINT32;
@@ -3695,6 +3826,7 @@ export class HeliosNetwork {
 				this._nodeAttributeDependents.delete(name);
 			}
 			this._denseNodeAttributeDescriptors.delete(name);
+			this._registeredDenseNodeAttributes.delete(name);
 		} else if (scope === 'edge') {
 			if (this._nodeToEdgePassthrough.has(name)) {
 				const entry = this._nodeToEdgePassthrough.get(name);
@@ -3705,6 +3837,7 @@ export class HeliosNetwork {
 				dependents.delete(name);
 			}
 			this._denseEdgeAttributeDescriptors.delete(name);
+			this._registeredDenseEdgeAttributes.delete(name);
 		}
 		if (scope === 'node' || scope === 'edge') {
 			this._removeColorEncodedAttributesForSource(scope, name);

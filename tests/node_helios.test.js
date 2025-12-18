@@ -733,6 +733,72 @@ describe('HeliosNetwork (Node runtime)', () => {
 		}
 	});
 
+	test('aliases dense attribute buffers to sparse slices when contiguous and unordered', async () => {
+		const net = await HeliosNetwork.create({ directed: true, initialNodes: 0, initialEdges: 0 });
+		try {
+			const nodes = net.addNodes(4);
+			net.defineNodeAttribute('weight', AttributeType.Float, 1);
+			const weights = net.getNodeAttributeBuffer('weight').view;
+			for (let i = 0; i < nodes.length; i++) {
+				weights[nodes[i]] = i + 1;
+			}
+
+			net.addDenseNodeAttributeBuffer('weight');
+			net.updateDenseNodeAttributeBuffer('weight');
+			let dense = net.getDenseNodeAttributeView('weight');
+			expect(dense.count).toBe(net.nodeCount);
+
+			weights[nodes[0]] = 123;
+			dense = net.getDenseNodeAttributeView('weight');
+			expect(dense.view[0]).toBeCloseTo(123);
+
+			net.removeNodes([nodes[1]]);
+			net.updateDenseNodeAttributeBuffer('weight');
+			dense = net.getDenseNodeAttributeView('weight');
+			const packedBefore = dense.view[0];
+
+			weights[nodes[0]] = 777;
+			dense = net.getDenseNodeAttributeView('weight');
+			expect(dense.view[0]).toBeCloseTo(packedBefore);
+		} finally {
+			net.dispose();
+		}
+	});
+
+	test('virtualizes dense index buffers when contiguous and unordered', async () => {
+		const net = await HeliosNetwork.create({ directed: true, initialNodes: 0, initialEdges: 0 });
+		try {
+			const nodes = net.addNodes(4);
+
+			net.updateDenseNodeIndexBuffer();
+			let dense = net.getDenseNodeIndexView();
+			expect(Array.from(dense.view)).toEqual([0, 1, 2, 3]);
+
+			net.removeNodes([nodes[0]]);
+			net.updateDenseNodeIndexBuffer();
+			dense = net.getDenseNodeIndexView();
+			expect(Array.from(dense.view)).toEqual([1, 2, 3]);
+
+			net.removeNodes([nodes[2]]);
+			net.updateDenseNodeIndexBuffer();
+			dense = net.getDenseNodeIndexView();
+			expect(Array.from(dense.view)).toEqual([1, 3]);
+
+			const fresh = await HeliosNetwork.create({ directed: true, initialNodes: 0, initialEdges: 0 });
+			try {
+				const freshNodes = fresh.addNodes(4);
+				fresh.removeNodes([freshNodes[1]]);
+				fresh.updateDenseNodeIndexBuffer();
+				const fallbackDense = fresh.getDenseNodeIndexView();
+				expect(Array.from(fallbackDense.view)).toEqual([0, 2, 3]);
+			} finally {
+				fresh.dispose();
+			}
+		} finally {
+			net.dispose();
+		}
+	});
+
 	test('builds color-encoded dense buffers for nodes and edges', async () => {
 		const net = await HeliosNetwork.create({ directed: true, initialNodes: 0, initialEdges: 0 });
 		const decode32 = (view, logicalIndex) => {
