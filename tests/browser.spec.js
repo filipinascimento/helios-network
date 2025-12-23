@@ -1,7 +1,8 @@
 // tests/browser.spec.js
 import { test, expect } from '@playwright/test';
 
-const BASE_URL = 'http://localhost:5173';
+const BASE_URL = process.env.BASE_URL || 'http://localhost:4173';
+const EXAMPLE_BASE = '/docs/examples/browser';
 
 const browserExamples = [
 	{ slug: 'basic-usage', heading: /Browser Basic Usage/i },
@@ -13,17 +14,17 @@ const browserExamples = [
 
 for (const { slug, heading } of browserExamples) {
 	test(`browser example \'${slug}\' renders output`, async ({ page }) => {
-		await page.goto(`${BASE_URL}/examples/browser/${slug}/index.html`);
+		await page.goto(`${BASE_URL}${EXAMPLE_BASE}/${slug}/index.html`);
 		await expect(page.locator('h1')).toContainText(heading);
 		await expect(page.locator('#output')).toContainText(/Network disposed/i);
 	});
 }
 
 test('browser attribute API exposes names, info, and presence', async ({ page }) => {
-	await page.goto(`${BASE_URL}/examples/browser/attributes/index.html`);
+	await page.goto(`${BASE_URL}${EXAMPLE_BASE}/attributes/index.html`);
 
 	const result = await page.evaluate(async () => {
-		const { loadHelios } = await import('/examples/browser/utils/load-helios.js');
+		const { loadHelios } = await import('/docs/examples/browser/utils/load-helios.js');
 		const { default: HeliosNetwork, AttributeType } = await loadHelios();
 		const net = await HeliosNetwork.create({ directed: true, initialNodes: 0, initialEdges: 0 });
 		try {
@@ -69,10 +70,10 @@ test('browser attribute API exposes names, info, and presence', async ({ page })
 });
 
 test('browser round-trips BXNet serialization', async ({ page }) => {
-	await page.goto(`${BASE_URL}/examples/browser/basic-usage/index.html`);
+	await page.goto(`${BASE_URL}${EXAMPLE_BASE}/basic-usage/index.html`);
 
 	const result = await page.evaluate(async () => {
-		const { loadHelios } = await import('/examples/browser/utils/load-helios.js');
+		const { loadHelios } = await import('/docs/examples/browser/utils/load-helios.js');
 		const { default: HeliosNetwork, AttributeType } = await loadHelios();
 		const net = await HeliosNetwork.create({ directed: true, initialNodes: 0, initialEdges: 0 });
 		try {

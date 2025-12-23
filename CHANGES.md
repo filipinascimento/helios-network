@@ -1,5 +1,12 @@
 # CHANGES
 
+## 2025-02-20
+
+- Added stable version counters for sparse attributes, dense buffers (including color-encoded), and topology. Versions start at 0, wrap at `Number.MAX_SAFE_INTEGER`, and are exposed on all dense descriptors (index views also expose `topologyVersion`) plus sparse wrappers.
+- Introduced versioning helpers: `getTopologyVersions()`, `get*AttributeVersion(...)`, and manual bumpers on attribute wrappers / `bump*AttributeVersion` APIs for direct buffer writes.
+- Deprecated dirty-flag workflows; `markDense*Dirty` now emits a warning. Dirty booleans remain for compatibility, but consumers should cache and compare versions.
+- Documented the new flow in `docs/versioning.md` and refreshed dense buffer docs to highlight versioning-first change detection.
+
 ## 2025-02-10
 
 - Added dense color-encoded node/edge buffers (u8x4/u32x4) with `(value + 1)` packing, dirty tracking, and dense-order support for GPU-friendly picking; exposed JS APIs (`define/update/getDenseColorEncoded*Attribute`) and `DenseColorEncodingFormat`.

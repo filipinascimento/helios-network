@@ -1345,6 +1345,8 @@ export class HeliosNetwork {
 		this._edgeTopologyVersion = 0;
 		this._nodeIndexCache = null;
 		this._edgeIndexCache = null;
+		this._dirtyWarningKeys = new Set();
+		this._localVersions = new Map();
 	}
 
 	/**
@@ -1379,6 +1381,11 @@ export class HeliosNetwork {
 		if (this._disposed || !this.ptr) {
 			throw new Error('HeliosNetwork has been disposed');
 		}
+	}
+
+	_normalizeVersion(value) {
+		const numeric = typeof value === 'bigint' ? Number(value) : value;
+		return Number.isFinite(numeric) ? numeric : null;
 	}
 
 	/**
@@ -1427,21 +1434,70 @@ export class HeliosNetwork {
 		}
 	}
 
+	_refreshTopologyVersions(scope = null) {
+		let touched = false;
+		if (scope === null || scope === 'node') {
+			const fn = this.module._CXNetworkNodeTopologyVersion;
+			if (typeof fn === 'function') {
+				const value = this._normalizeVersion(fn.call(this.module, this.ptr));
+				if (value !== null) {
+					this._nodeTopologyVersion = value;
+					touched = true;
+				}
+			}
+		}
+		if (scope === null || scope === 'edge') {
+			const fn = this.module._CXNetworkEdgeTopologyVersion;
+			if (typeof fn === 'function') {
+				const value = this._normalizeVersion(fn.call(this.module, this.ptr));
+				if (value !== null) {
+					this._edgeTopologyVersion = value;
+					touched = true;
+				}
+			}
+		}
+		return touched;
+	}
+
 	_bumpTopology(scope, cascadeEdges = false) {
+		const refreshed = this._refreshTopologyVersions(scope === 'node' && cascadeEdges ? null : scope);
+		if (!refreshed) {
+			if (scope === 'node') {
+				this._nodeTopologyVersion += 1;
+				if (cascadeEdges) {
+					this._edgeTopologyVersion += 1;
+				}
+			} else if (scope === 'edge') {
+				this._edgeTopologyVersion += 1;
+			}
+		}
 		if (scope === 'node') {
-			this._nodeTopologyVersion += 1;
 			this._nodeIndexCache = null;
+			this._denseNodeIndexVirtualCache = null;
 			this._markAllColorEncodedDirty('node');
 			if (cascadeEdges) {
-				this._edgeTopologyVersion += 1;
 				this._edgeIndexCache = null;
+				this._denseEdgeIndexVirtualCache = null;
 				this._markAllColorEncodedDirty('edge');
+				this._refreshTopologyVersions('edge');
 			}
 		} else if (scope === 'edge') {
-			this._edgeTopologyVersion += 1;
 			this._edgeIndexCache = null;
+			this._denseEdgeIndexVirtualCache = null;
 			this._markAllColorEncodedDirty('edge');
 		}
+	}
+
+	_getTopologyVersion(scope) {
+		this._refreshTopologyVersions(scope);
+		return scope === 'node' ? this._nodeTopologyVersion : this._edgeTopologyVersion;
+	}
+
+	_nextLocalVersion(key) {
+		const current = this._localVersions.get(key) || 0;
+		const next = current >= Number.MAX_SAFE_INTEGER ? 1 : current + 1;
+		this._localVersions.set(key, next);
+		return next;
 	}
 
 	/**
@@ -1696,7 +1752,7 @@ export class HeliosNetwork {
 		}
 		this._nodeToEdgePassthrough.delete(edgeName);
 		this._unregisterNodeToEdgeDependency(entry.sourceName, edgeName);
-		this.markDenseEdgeAttributeDirty(edgeName);
+		this._markDenseAttributeDirtySilently('edge', edgeName);
 	}
 
 	/**
@@ -1754,13 +1810,9 @@ export class HeliosNetwork {
 	 * Marks a dense node attribute buffer dirty, forcing a repack on next update.
 	 */
 	markDenseNodeAttributeDirty(name) {
+		this._warnDirtyDeprecated('markDenseNodeAttributeDirty');
 		this._ensureActive();
-		const cstr = new CString(this.module, name);
-		try {
-			this.module._CXNetworkMarkDenseNodeAttributeDirty(this.ptr, cstr.ptr);
-		} finally {
-			cstr.dispose();
-		}
+		this._markDenseAttributeDirtySilently('node', name);
 		this._markPassthroughEdgesDirtyForNode(name);
 		this._markColorEncodedDirtyForSource('node', name);
 	}
@@ -1769,13 +1821,9 @@ export class HeliosNetwork {
 	 * Marks a dense edge attribute buffer dirty.
 	 */
 	markDenseEdgeAttributeDirty(name) {
+		this._warnDirtyDeprecated('markDenseEdgeAttributeDirty');
 		this._ensureActive();
-		const cstr = new CString(this.module, name);
-		try {
-			this.module._CXNetworkMarkDenseEdgeAttributeDirty(this.ptr, cstr.ptr);
-		} finally {
-			cstr.dispose();
-		}
+		this._markDenseAttributeDirtySilently('edge', name);
 		this._markColorEncodedDirtyForSource('edge', name);
 	}
 
@@ -1804,7 +1852,9 @@ export class HeliosNetwork {
 		} finally {
 			cstr.dispose();
 		}
-		this._denseNodeAttributeDescriptors.set(name, this._readDenseBufferDescriptor(ptr));
+		const desc = this._readDenseBufferDescriptor(ptr);
+		const version = (desc.sourceVersion ?? desc.version) ?? this._nextLocalVersion(`dense:node:${name}`);
+		this._denseNodeAttributeDescriptors.set(name, { ...desc, version });
 	}
 
 	/**
@@ -1820,7 +1870,7 @@ export class HeliosNetwork {
 		if (passthrough) {
 			if (passthrough.dirty) {
 				this._copyNodeToEdgeAttribute(passthrough.sourceName, name, passthrough.endpointMode, passthrough.doubleWidth);
-				this.markDenseEdgeAttributeDirty(name);
+				this._markDenseAttributeDirtySilently('edge', name);
 				passthrough.dirty = false;
 			}
 		}
@@ -1835,7 +1885,9 @@ export class HeliosNetwork {
 		} finally {
 			cstr.dispose();
 		}
-		this._denseEdgeAttributeDescriptors.set(name, this._readDenseBufferDescriptor(ptr));
+		const desc = this._readDenseBufferDescriptor(ptr);
+		const version = (desc.sourceVersion ?? desc.version) ?? this._nextLocalVersion(`dense:edge:${name}`);
+		this._denseEdgeAttributeDescriptors.set(name, { ...desc, version });
 	}
 
 	/**
@@ -1844,6 +1896,7 @@ export class HeliosNetwork {
 	updateDenseNodeIndexBuffer() {
 		this._assertCanAllocate('updateDenseNodeIndexBuffer');
 		this._ensureActive();
+		this._refreshTopologyVersions('node');
 		if (!this._denseNodeOrderActive) {
 			const { start, end } = this.nodeValidRange;
 			const count = Math.max(0, end - start);
@@ -1865,6 +1918,8 @@ export class HeliosNetwork {
 					validStart: start,
 					validEnd: end,
 					dirty: false,
+					version,
+					topologyVersion: version,
 					jsView: this._denseNodeIndexVirtualCache.view,
 				};
 				return;
@@ -1875,7 +1930,14 @@ export class HeliosNetwork {
 			ptr = this.module._CXNetworkUpdateDenseNodeIndexBuffer(this.ptr);
 		} finally {
 		}
-		this._denseNodeIndexDescriptor = this._readDenseBufferDescriptor(ptr);
+		this._refreshTopologyVersions('node');
+		const desc = this._readDenseBufferDescriptor(ptr);
+		const topologyVersion = this._nodeTopologyVersion;
+		let version = (desc.sourceVersion ?? topologyVersion ?? desc.version);
+		if (version === null || version === undefined) {
+			version = this._nextLocalVersion('dense:index:node');
+		}
+		this._denseNodeIndexDescriptor = { ...desc, version, topologyVersion };
 	}
 
 	/**
@@ -1884,6 +1946,7 @@ export class HeliosNetwork {
 	updateDenseEdgeIndexBuffer() {
 		this._assertCanAllocate('updateDenseEdgeIndexBuffer');
 		this._ensureActive();
+		this._refreshTopologyVersions('edge');
 		if (!this._denseEdgeOrderActive) {
 			const { start, end } = this.edgeValidRange;
 			const count = Math.max(0, end - start);
@@ -1905,6 +1968,8 @@ export class HeliosNetwork {
 					validStart: start,
 					validEnd: end,
 					dirty: false,
+					version,
+					topologyVersion: version,
 					jsView: this._denseEdgeIndexVirtualCache.view,
 				};
 				return;
@@ -1915,7 +1980,14 @@ export class HeliosNetwork {
 			ptr = this.module._CXNetworkUpdateDenseEdgeIndexBuffer(this.ptr);
 		} finally {
 		}
-		this._denseEdgeIndexDescriptor = this._readDenseBufferDescriptor(ptr);
+		this._refreshTopologyVersions('edge');
+		const desc = this._readDenseBufferDescriptor(ptr);
+		const topologyVersion = this._edgeTopologyVersion;
+		let version = (desc.sourceVersion ?? topologyVersion ?? desc.version);
+		if (version === null || version === undefined) {
+			version = this._nextLocalVersion('dense:index:edge');
+		}
+		this._denseEdgeIndexDescriptor = { ...desc, version, topologyVersion };
 	}
 
 	/**
@@ -2002,6 +2074,7 @@ export class HeliosNetwork {
 	 * @param {string} encodedName - Encoded buffer identifier.
 	 */
 	markDenseColorEncodedNodeAttributeDirty(encodedName) {
+		this._warnDirtyDeprecated('markDenseColorEncodedNodeAttributeDirty');
 		this._markDenseColorEncodedAttributeDirty('node', encodedName);
 	}
 
@@ -2011,6 +2084,7 @@ export class HeliosNetwork {
 	 * @param {string} encodedName - Encoded buffer identifier.
 	 */
 	markDenseColorEncodedEdgeAttributeDirty(encodedName) {
+		this._warnDirtyDeprecated('markDenseColorEncodedEdgeAttributeDirty');
 		this._markDenseColorEncodedAttributeDirty('edge', encodedName);
 	}
 
@@ -2035,7 +2109,9 @@ export class HeliosNetwork {
 		} finally {
 			cstr.dispose();
 		}
-		this._denseColorNodeDescriptors.set(encodedName, this._readDenseBufferDescriptor(ptr));
+		const desc = this._readDenseBufferDescriptor(ptr);
+		const version = (desc.sourceVersion ?? desc.version) ?? this._nextLocalVersion(`dense:nodeColor:${encodedName}`);
+		this._denseColorNodeDescriptors.set(encodedName, { ...desc, version });
 		return this.getDenseColorEncodedNodeAttributeView(encodedName);
 	}
 
@@ -2060,7 +2136,9 @@ export class HeliosNetwork {
 		} finally {
 			cstr.dispose();
 		}
-		this._denseColorEdgeDescriptors.set(encodedName, this._readDenseBufferDescriptor(ptr));
+		const desc = this._readDenseBufferDescriptor(ptr);
+		const version = (desc.sourceVersion ?? desc.version) ?? this._nextLocalVersion(`dense:edgeColor:${encodedName}`);
+		this._denseColorEdgeDescriptors.set(encodedName, { ...desc, version });
 		return this.getDenseColorEncodedEdgeAttributeView(encodedName);
 	}
 
@@ -2245,7 +2323,7 @@ export class HeliosNetwork {
 		const sliceStart = start * meta.dimension;
 		const sliceEnd = end * meta.dimension;
 		const view = fullView.subarray(sliceStart, sliceEnd);
-		return { view, start, end, stride };
+		return { view, start, end, stride, version: this._getAttributeVersion('node', name), bumpVersion: () => this._bumpAttributeVersion('node', name) };
 	}
 
 	/**
@@ -2272,7 +2350,7 @@ export class HeliosNetwork {
 		const sliceStart = start * meta.dimension;
 		const sliceEnd = end * meta.dimension;
 		const view = fullView.subarray(sliceStart, sliceEnd);
-		return { view, start, end, stride };
+		return { view, start, end, stride, version: this._getAttributeVersion('edge', name), bumpVersion: () => this._bumpAttributeVersion('edge', name) };
 	}
 
 	/**
@@ -2827,6 +2905,35 @@ export class HeliosNetwork {
 		return this._attributeInfo('network', name);
 	}
 
+	getNodeAttributeVersion(name) {
+		return this._getAttributeVersion('node', name);
+	}
+
+	getEdgeAttributeVersion(name) {
+		return this._getAttributeVersion('edge', name);
+	}
+
+	getNetworkAttributeVersion(name) {
+		return this._getAttributeVersion('network', name);
+	}
+
+	bumpNodeAttributeVersion(name) {
+		return this._bumpAttributeVersion('node', name);
+	}
+
+	bumpEdgeAttributeVersion(name) {
+		return this._bumpAttributeVersion('edge', name);
+	}
+
+	bumpNetworkAttributeVersion(name) {
+		return this._bumpAttributeVersion('network', name);
+	}
+
+	getTopologyVersions() {
+		this._refreshTopologyVersions();
+		return { node: this._nodeTopologyVersion, edge: this._edgeTopologyVersion };
+	}
+
 	/**
 	 * Checks whether a node-to-edge passthrough is registered for a given edge attribute.
 	 * @param {string} edgeName - Edge attribute identifier.
@@ -3039,6 +3146,77 @@ export class HeliosNetwork {
 		return this._getStringAttribute('network', name, 0);
 	}
 
+	_getAttributeVersion(scope, name) {
+		const versionFn = this.module._CXAttributeVersion;
+		if (typeof versionFn !== 'function') {
+			return this._localVersions.get(`attr:${scope}:${name}`) || 0;
+		}
+		this._ensureActive();
+		const meta = this._ensureAttributeMetadata(scope, name);
+		if (!meta) {
+			throw new Error(`Unknown ${scope} attribute "${name}"`);
+		}
+		const getter = scope === 'node'
+			? this.module._CXNetworkGetNodeAttribute
+			: scope === 'edge'
+				? this.module._CXNetworkGetEdgeAttribute
+				: this.module._CXNetworkGetNetworkAttribute;
+		const cstr = new CString(this.module, name);
+		let attributePtr = 0;
+		try {
+			attributePtr = getter.call(this.module, this.ptr, cstr.ptr) >>> 0;
+		} finally {
+			cstr.dispose();
+		}
+		if (!attributePtr) {
+			return 0;
+		}
+		const version = this._normalizeVersion(versionFn.call(this.module, attributePtr));
+		return version ?? 0;
+	}
+
+	_bumpAttributeVersion(scope, name) {
+		const bumpFn = scope === 'node'
+			? this.module._CXNetworkBumpNodeAttributeVersion
+			: scope === 'edge'
+				? this.module._CXNetworkBumpEdgeAttributeVersion
+				: this.module._CXNetworkBumpNetworkAttributeVersion;
+		this._ensureActive();
+		if (typeof bumpFn !== 'function') {
+			if (scope === 'node' || scope === 'edge') {
+				this._markDenseAttributeDirtySilently(scope, name);
+			}
+			if (scope === 'node') {
+				this._markPassthroughEdgesDirtyForNode(name);
+				this._markColorEncodedDirtyForSource('node', name);
+			} else if (scope === 'edge') {
+				this._markColorEncodedDirtyForSource('edge', name);
+			}
+			return this._nextLocalVersion(`attr:${scope}:${name}`);
+		}
+		const meta = this._ensureAttributeMetadata(scope, name);
+		if (!meta) {
+			throw new Error(`Unknown ${scope} attribute "${name}"`);
+		}
+		const cstr = new CString(this.module, name);
+		let bumped = 0;
+		try {
+			const value = bumpFn.call(this.module, this.ptr, cstr.ptr);
+			const normalized = this._normalizeVersion(value);
+			bumped = normalized ?? this._nextLocalVersion(`attr:${scope}:${name}`);
+		} finally {
+			cstr.dispose();
+		}
+		this._localVersions.set(`attr:${scope}:${name}`, bumped);
+		if (scope === 'node') {
+			this._markPassthroughEdgesDirtyForNode(name);
+			this._markColorEncodedDirtyForSource('node', name);
+		} else if (scope === 'edge') {
+			this._markColorEncodedDirtyForSource('edge', name);
+		}
+		return bumped;
+	}
+
 	/**
 	 * Internal helper that resolves attribute metadata and buffer handles.
 	 * @private
@@ -3054,16 +3232,19 @@ export class HeliosNetwork {
 			throw new Error(`Unknown ${scope} attribute "${name}"`);
 		}
 		const { pointer, stride } = this._attributePointers(scope, name, meta);
+		const version = this._getAttributeVersion(scope, name);
 		const capacity = scope === 'node' ? this.nodeCapacity : scope === 'edge' ? this.edgeCapacity : 1;
 
 		if (meta.complex) {
 			return {
 				type: meta.type,
 				dimension: meta.dimension,
+				version,
 				get: (index = 0) => meta.jsStore.get(index)?.value ?? null,
 				set: (index, value) => this._setComplexAttribute(scope, name, meta, index, value, pointer),
-				delete: (index) => this._deleteComplexAttribute(scope, meta, index, pointer),
+				delete: (index) => this._deleteComplexAttribute(scope, name, meta, index, pointer),
 				store: meta.jsStore,
+				bumpVersion: () => this._bumpAttributeVersion(scope, name),
 			};
 		}
 
@@ -3071,11 +3252,13 @@ export class HeliosNetwork {
 			return {
 				type: meta.type,
 				dimension: meta.dimension,
+				version,
 				getView: () => new Uint32Array(this.module.HEAPU32.buffer, pointer, capacity * meta.dimension),
 				getString: (index) => {
 					const view = new Uint32Array(this.module.HEAPU32.buffer, pointer, capacity * meta.dimension);
 					return this.module.UTF8ToString(view[index]);
 				},
+				bumpVersion: () => this._bumpAttributeVersion(scope, name),
 			};
 		}
 
@@ -3089,6 +3272,8 @@ export class HeliosNetwork {
 			dimension: meta.dimension,
 			stride,
 			view: new TypedArrayCtor(this.module.HEAPU8.buffer, pointer, length),
+			version,
+			bumpVersion: () => this._bumpAttributeVersion(scope, name),
 		};
 	}
 
@@ -3126,7 +3311,7 @@ export class HeliosNetwork {
 			throw new Error(`Attribute buffer for "${name}" is not available`);
 		}
 		const stride = this.module._CXAttributeStride(attributePtr);
-		return { pointer: bufferPtr >>> 0, stride };
+		return { pointer: bufferPtr >>> 0, stride, attributePtr };
 	}
 
 	/**
@@ -3149,6 +3334,7 @@ export class HeliosNetwork {
 		}
 		entry.value = value;
 		buffer[index] = entry.id;
+		this._bumpAttributeVersion(scope, name);
 	}
 
 	/**
@@ -3160,10 +3346,11 @@ export class HeliosNetwork {
 	 * @param {number} index - Entity index.
 	 * @param {number} pointer - Pointer to the backing handle buffer.
 	 */
-	_deleteComplexAttribute(scope, meta, index, pointer) {
+	_deleteComplexAttribute(scope, name, meta, index, pointer) {
 		const buffer = new Uint32Array(this.module.HEAPU32.buffer, pointer, this._capacityForScope(scope));
 		meta.jsStore.delete(index);
 		buffer[index] = 0;
+		this._bumpAttributeVersion(scope, name);
 	}
 
 	/**
@@ -3352,18 +3539,54 @@ export class HeliosNetwork {
 			if (meta.sourceName !== sourceName) {
 				continue;
 			}
+			const markFn = scope === 'node'
+				? this.module._CXNetworkMarkDenseColorEncodedNodeAttributeDirty
+				: this.module._CXNetworkMarkDenseColorEncodedEdgeAttributeDirty;
+			if (typeof markFn === 'function') {
+				const cstr = new CString(this.module, name);
+				try {
+					markFn.call(this.module, this.ptr, cstr.ptr);
+				} finally {
+					cstr.dispose();
+				}
+			}
 			const desc = descriptors.get(name);
 			if (desc) {
-				descriptors.set(name, { ...desc, dirty: true });
+				descriptors.set(name, { ...desc, dirty: true, sourceVersion: 0 });
 			}
+		}
+	}
+
+	_markDenseAttributeDirtySilently(scope, name) {
+		this._ensureActive();
+		const fn = scope === 'node'
+			? this.module._CXNetworkMarkDenseNodeAttributeDirty
+			: this.module._CXNetworkMarkDenseEdgeAttributeDirty;
+		if (typeof fn !== 'function') {
+			return;
+		}
+		const cstr = new CString(this.module, name);
+		try {
+			fn.call(this.module, this.ptr, cstr.ptr);
+		} finally {
+			cstr.dispose();
 		}
 	}
 
 	_markAllColorEncodedDirty(scope) {
 		const descriptors = this._colorEncodedDescriptors(scope);
 		for (const [name, desc] of descriptors.entries()) {
-			descriptors.set(name, { ...desc, dirty: true });
+			descriptors.set(name, { ...desc, dirty: true, sourceVersion: 0 });
 		}
+	}
+
+	_warnDirtyDeprecated(method) {
+		if (this._dirtyWarningKeys.has(method)) {
+			return;
+		}
+		this._dirtyWarningKeys.add(method);
+		// eslint-disable-next-line no-console
+		console.warn(`[HeliosNetwork] ${method} is deprecated: rely on versioned buffers instead of dirty flags.`);
 	}
 
 	_removeColorEncodedAttributesForSource(scope, sourceName) {
@@ -3452,6 +3675,7 @@ export class HeliosNetwork {
 				validStart: 0,
 				validEnd: 0,
 				dirty: false,
+				version: this._getAttributeVersion(scope, name),
 			};
 		}
 		const pointer = (pointers.pointer + (start * pointers.stride)) >>> 0;
@@ -3463,6 +3687,7 @@ export class HeliosNetwork {
 			validStart: start,
 			validEnd: end,
 			dirty: false,
+			version: this._getAttributeVersion(scope, name),
 		};
 	}
 
@@ -3476,6 +3701,9 @@ export class HeliosNetwork {
 				validStart: 0,
 				validEnd: 0,
 				dirty: false,
+				version: 0,
+				topologyVersion: 0,
+				sourceVersion: 0,
 			};
 		}
 		const base = ptr >>> 2;
@@ -3486,6 +3714,10 @@ export class HeliosNetwork {
 		const validStart = this.module.HEAPU32[base + 5];
 		const validEnd = this.module.HEAPU32[base + 6];
 		const dirty = !!this.module.HEAPU8[(base + 7) * 4];
+		const versionFn = this.module._CXDenseAttributeBufferVersion;
+		const sourceVersionFn = this.module._CXDenseAttributeBufferSourceVersion;
+		const version = typeof versionFn === 'function' ? (this._normalizeVersion(versionFn.call(this.module, ptr)) ?? 0) : 0;
+		const sourceVersion = typeof sourceVersionFn === 'function' ? (this._normalizeVersion(sourceVersionFn.call(this.module, ptr)) ?? 0) : 0;
 		return {
 			pointer: dataPtr,
 			count,
@@ -3494,6 +3726,9 @@ export class HeliosNetwork {
 			validStart,
 			validEnd,
 			dirty,
+			version,
+			topologyVersion: 0,
+			sourceVersion,
 		};
 	}
 
@@ -3533,6 +3768,7 @@ export class HeliosNetwork {
 	}
 
 	_materializeActiveIndexCopy(scope) {
+		this._refreshTopologyVersions(scope);
 		const cache = scope === 'node' ? this._nodeIndexCache : this._edgeIndexCache;
 		const version = scope === 'node' ? this._nodeTopologyVersion : this._edgeTopologyVersion;
 		if (cache && cache.version === version) {
@@ -3686,6 +3922,7 @@ export class HeliosNetwork {
 		if (value == null) {
 			view[index] = 0;
 			meta.stringPointers.delete(index);
+			this._bumpAttributeVersion(scope, name);
 			return;
 		}
 		const length = this.module.lengthBytesUTF8(value) + 1;
@@ -3696,6 +3933,7 @@ export class HeliosNetwork {
 		this.module.stringToUTF8(value, ptr, length);
 		meta.stringPointers.set(index, ptr);
 		view[index] = ptr;
+		this._bumpAttributeVersion(scope, name);
 	}
 
 	/**
@@ -3782,7 +4020,7 @@ export class HeliosNetwork {
 	 */
 	copyNodeAttributeToEdgeAttribute(sourceName, destinationName, endpoints = 'both', doubleWidth = true) {
 		this._copyNodeToEdgeAttribute(sourceName, destinationName, this._normalizeEndpointMode(endpoints), doubleWidth);
-		this.markDenseEdgeAttributeDirty(destinationName);
+		this._markDenseAttributeDirtySilently('edge', destinationName);
 		const passthrough = this._nodeToEdgePassthrough.get(destinationName);
 		if (passthrough) {
 			passthrough.dirty = false;
@@ -3821,7 +4059,7 @@ export class HeliosNetwork {
 			if (dependents) {
 				for (const edgeName of dependents) {
 					this._nodeToEdgePassthrough.delete(edgeName);
-					this.markDenseEdgeAttributeDirty(edgeName);
+					this._markDenseAttributeDirtySilently('edge', edgeName);
 				}
 				this._nodeAttributeDependents.delete(name);
 			}
@@ -3915,6 +4153,7 @@ export class HeliosNetwork {
 			endpointMode,
 			duplicateSingleEndpoint ? 1 : 0
 		);
+		this._bumpAttributeVersion('edge', destinationName);
 	}
 
 	_registerNodeToEdgeDependency(sourceName, edgeName) {
@@ -3939,7 +4178,7 @@ export class HeliosNetwork {
 		const dependents = this._nodeAttributeDependents.get(sourceName);
 		if (!dependents) return;
 		for (const edgeName of dependents) {
-			this.markDenseEdgeAttributeDirty(edgeName);
+			this._markDenseAttributeDirtySilently('edge', edgeName);
 			const entry = this._nodeToEdgePassthrough.get(edgeName);
 			if (entry) {
 				entry.dirty = true;
@@ -3949,7 +4188,7 @@ export class HeliosNetwork {
 
 	_markAllPassthroughEdgesDirty() {
 		for (const edgeName of this._nodeToEdgePassthrough.keys()) {
-			this.markDenseEdgeAttributeDirty(edgeName);
+			this._markDenseAttributeDirtySilently('edge', edgeName);
 			const entry = this._nodeToEdgePassthrough.get(edgeName);
 			if (entry) {
 				entry.dirty = true;

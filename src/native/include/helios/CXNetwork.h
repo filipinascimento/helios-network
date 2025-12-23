@@ -78,6 +78,7 @@ typedef struct {
 	uint8_t *data;
 	CXStringDictionaryRef categoricalDictionary;
 	CXBool usesJavascriptShadow;
+	uint64_t version;
 } CXAttribute;
 
 typedef CXAttribute* CXAttributeRef;
@@ -106,6 +107,8 @@ typedef struct {
 	CXSize validEnd;
 	CXBool dirty;
 	CXBool isIndexBuffer;
+	uint64_t version;
+	uint64_t sourceVersion;
 } CXDenseAttributeBuffer;
 
 typedef enum {
@@ -170,6 +173,8 @@ typedef struct CXNetwork {
 	CXSize edgeValidStart;
 	CXSize edgeValidEnd;
 	CXBool edgeValidRangeDirty;
+	uint64_t nodeTopologyVersion;
+	uint64_t edgeTopologyVersion;
 } CXNetwork;
 
 typedef CXNetwork* CXNetworkRef;
@@ -396,6 +401,22 @@ CX_EXTERN CXBool CXNetworkMarkDenseColorEncodedEdgeAttributeDirty(CXNetworkRef n
 CX_EXTERN const CXDenseAttributeBuffer* CXNetworkUpdateDenseColorEncodedNodeAttribute(CXNetworkRef network, const CXString encodedName);
 /** Rebuilds a color-encoded dense edge attribute when dirty. */
 CX_EXTERN const CXDenseAttributeBuffer* CXNetworkUpdateDenseColorEncodedEdgeAttribute(CXNetworkRef network, const CXString encodedName);
+/** Returns the version counter for a dense attribute buffer (0 when unavailable). */
+CX_EXTERN uint64_t CXDenseAttributeBufferVersion(const CXDenseAttributeBuffer *buffer);
+/** Returns the source version last packed into a dense buffer. */
+CX_EXTERN uint64_t CXDenseAttributeBufferSourceVersion(const CXDenseAttributeBuffer *buffer);
+/** Returns the version counter for an attribute descriptor. */
+CX_EXTERN uint64_t CXAttributeVersion(CXAttributeRef attribute);
+/** Returns the node topology version (increments on topology edits and repacks). */
+CX_EXTERN uint64_t CXNetworkNodeTopologyVersion(CXNetworkRef network);
+/** Returns the edge topology version. */
+CX_EXTERN uint64_t CXNetworkEdgeTopologyVersion(CXNetworkRef network);
+/** Manually bumps a node attribute version and returns the new value. */
+CX_EXTERN uint64_t CXNetworkBumpNodeAttributeVersion(CXNetworkRef network, const CXString name);
+/** Manually bumps an edge attribute version and returns the new value. */
+CX_EXTERN uint64_t CXNetworkBumpEdgeAttributeVersion(CXNetworkRef network, const CXString name);
+/** Manually bumps a network attribute version and returns the new value. */
+CX_EXTERN uint64_t CXNetworkBumpNetworkAttributeVersion(CXNetworkRef network, const CXString name);
 /** Sets a default node order for dense packing (applied to all dense buffers when order is omitted). */
 CX_EXTERN CXBool CXNetworkSetDenseNodeOrder(CXNetworkRef network, const CXIndex *order, CXSize count);
 /** Sets a default edge order for dense packing. */

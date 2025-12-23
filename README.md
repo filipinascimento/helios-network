@@ -254,7 +254,7 @@ const lastEdgeIds = net.getDenseEdgeIndexView();
 
 `writeActiveNodes` / `writeActiveEdges` return the required length; nothing is written when the provided buffer is too small. `writeActiveEdgeSegments` writes two vectors per edge into `segments` using the requested stride (`componentsPerNode`). For dense workflows you now have two paths:
 
-- **Passthrough edges (recommended for render data)**: `defineNodeToEdgeAttribute(sourceNodeAttr, edgeAttr, endpoints='both', doubleWidth=true)` declares an edge attribute derived from nodes. Calling `updateDenseEdgeAttributeBuffer(edgeAttr)` will copy from nodes into the edge buffer (using native code) and then pack it densely. Dirtying the node attribute (via `markDenseNodeAttributeDirty`) automatically dirties dependent passthrough edges.
+- **Passthrough edges (recommended for render data)**: `defineNodeToEdgeAttribute(sourceNodeAttr, edgeAttr, endpoints='both', doubleWidth=true)` declares an edge attribute derived from nodes. Calling `updateDenseEdgeAttributeBuffer(edgeAttr)` will copy from nodes into the edge buffer (using native code) and then pack it densely. Bump the source node attribute version (or call `bumpNodeAttributeVersion`) after writes so dependents see the change.
 - **Manual sparse copy**: `copyNodeAttributeToEdgeAttribute(sourceNodeAttr, edgeAttr, endpoints='both', doubleWidth=true)` fills the sparse edge attribute once (honouring endpoint/duplication), then you can mutate it further and call `updateDenseEdgeAttributeBuffer` yourself.
 
 Cleanup: remove dense tracking with `removeDenseNodeAttributeBuffer` / `removeDenseEdgeAttributeBuffer` or unregister a passthrough via `removeNodeToEdgeAttribute(edgeAttr)`. To delete sparse attributes entirely (and their dense buffers), call `removeNodeAttribute`, `removeEdgeAttribute`, or `removeNetworkAttribute`. A passthrough edge name must not already exist as a defined edge attribute.
@@ -414,7 +414,7 @@ The public headers under `src/native/include/helios/` define the C API, intended
 
 ### Dense attribute buffers
 
-Advanced usage for render-ready dense buffers (packing, ordering, dirty flags, valid ranges) lives in [`docs/visualization-buffers.md`](docs/visualization-buffers.md).
+Advanced usage for render-ready dense buffers (packing, ordering, versioning / legacy dirty flags, valid ranges) lives in [`docs/visualization-buffers.md`](docs/visualization-buffers.md).
 
 ---
 

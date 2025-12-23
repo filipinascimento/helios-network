@@ -15,10 +15,12 @@ Dense buffers give WebGL/WebGPU a tightly packed snapshot of attributes and ids 
   - JS: `updateDenseNodeAttributeBuffer(name)`, `updateDenseEdgeAttributeBuffer(name)` + `getDenseNodeAttributeView(name)` / `getDenseEdgeAttributeView(name)`
   - Index buffers: `updateDenseNodeIndexBuffer()`, `updateDenseEdgeIndexBuffer()` + `getDenseNodeIndexView()` / `getDenseEdgeIndexView()`
   - Convenience: `network.nodeIndices` / `network.edgeIndices` return copied `Uint32Array`s of active ids in native order (cached until topology changes; independent of dense ordering; cannot be called inside `withBufferAccess` because they allocate).
-- **Dirty tracking**: dense buffers are auto-marked dirty on structural edits. Mark them yourself after attribute writes:
-  - JS: `markDenseNodeAttributeDirty(name)`, `markDenseEdgeAttributeDirty(name)`
+- **Versioning**: dense descriptors expose `version` (index descriptors also include `topologyVersion`). Cache the last seen value per buffer/attribute/topology and only re-upload when it changes. Versions start at `0` before the first build and wrap to `1` after `Number.MAX_SAFE_INTEGER`.
+- **Dirty flags (deprecated)**: legacy dirty booleans remain for compatibility, but version checks are the stable signal. Calling `markDense*Dirty` logs a deprecation warning; version bumps + repacks drive change detection for dense and color-encoded buffers.
 - **Valid ranges** (network-level): `network.nodeValidRange` / `network.edgeValidRange` return `{start,end}` based on active ids. Use these to slice original sparse attribute buffers when you want to avoid unused capacity. Dense descriptors keep `count`/`stride` for packed views; valid ranges refer to source indices.
 - **Transparent aliasing (optimization)**: when no dense order is set and the active ids are already contiguous (`count === end-start`), `updateDense*AttributeBuffer(name)` may return a dense view that aliases the underlying sparse buffer slice instead of repacking/copying. Dense index buffers may also be virtualized in this case (a cached `Uint32Array` containing `start..end-1`), avoiding native packing. This is an internal optimization; ordering semantics remain unchanged. (Node→edge passthroughs still perform the copy step when updating.)
+
+See [`docs/versioning.md`](./versioning.md) for usage patterns.
 
 Dense descriptor shape in JS:
 ```js
@@ -30,7 +32,9 @@ Dense descriptor shape in JS:
   capacity: number,      // bytes allocated
   validStart: number,    // smallest original index copied
   validEnd: number,      // largest original index copied + 1
-  dirty: boolean         // true if needs rebuild
+  version: number,       // increments on repack/resize (wraps; 0 before first build)
+  topologyVersion: number, // (index views) mirrors node/edge topology changes
+  dirty: boolean         // legacy compatibility flag
 }
 ```
 
@@ -119,7 +123,7 @@ const indices = edgeIndices.view;
 // sizes is [fromSize, toSize, ...] aligned with indices
 ```
 
-`endpoints`: `"both"`/`-1` copies `[from,to]`; `"source"`/`0` or `"destination"`/`1` copies one endpoint. `doubleWidth` (default `true`) duplicates a single endpoint into a double-width layout. Dirtying the source node attribute via `markDenseNodeAttributeDirty` auto-dirties all dependent passthrough edge attributes; structural edits also mark them dirty. Passthrough edge names must be unused edge attributes; remove an existing edge attribute first if you want to reuse the name. Cleanup options: `removeNodeToEdgeAttribute(edgeAttr)` unregisters a passthrough; `removeEdgeAttribute`/`removeNodeAttribute`/`removeNetworkAttribute` drop sparse attributes (and associated dense tracking); `removeDense*` calls remove only dense registrations.
+`endpoints`: `"both"`/`-1` copies `[from,to]`; `"source"`/`0` or `"destination"`/`1` copies one endpoint. `doubleWidth` (default `true`) duplicates a single endpoint into a double-width layout. Bumping the source node attribute version (or calling the deprecated `markDenseNodeAttributeDirty`) auto-marks dependent passthrough edge attributes for repacking; structural edits do the same. Passthrough edge names must be unused edge attributes; remove an existing edge attribute first if you want to reuse the name. Cleanup options: `removeNodeToEdgeAttribute(edgeAttr)` unregisters a passthrough; `removeEdgeAttribute`/`removeNodeAttribute`/`removeNetworkAttribute` drop sparse attributes (and associated dense tracking); `removeDense*` calls remove only dense registrations.
 
 If you want a sparse edge buffer seeded from nodes (to tweak afterward), call:
 

@@ -544,7 +544,7 @@ describe('HeliosNetwork (Node runtime)', () => {
 
 			sizes[nodes[0]] = 9;
 			sizes[nodes[1]] = 10;
-			net.markDenseNodeAttributeDirty('size');
+			net.bumpNodeAttributeVersion('size');
 			net.updateDenseEdgeAttributeBuffer('size_passthrough');
 			const refreshed = net.getDenseEdgeAttributeView('size_passthrough');
 			const refreshedView = refreshed.view;
@@ -555,7 +555,7 @@ describe('HeliosNetwork (Node runtime)', () => {
 			net.removeNodeToEdgeAttribute('size_passthrough');
 			sizes[nodes[0]] = 100;
 			sizes[nodes[1]] = 200;
-			net.markDenseNodeAttributeDirty('size');
+			net.bumpNodeAttributeVersion('size');
 			net.updateDenseEdgeAttributeBuffer('size_passthrough');
 			const afterRemoval = net.getDenseEdgeAttributeView('size_passthrough');
 			const afterRemovalView = afterRemoval.view;
@@ -675,7 +675,7 @@ describe('HeliosNetwork (Node runtime)', () => {
 		}
 	});
 
-	test('packs dense attribute and index buffers with dirty tracking', async () => {
+	test('packs dense attribute and index buffers with versioning', async () => {
 		const net = await HeliosNetwork.create({ directed: true, initialNodes: 0, initialEdges: 0 });
 		try {
 			const nodes = net.addNodes(4);
@@ -696,20 +696,23 @@ describe('HeliosNetwork (Node runtime)', () => {
 			expect(dense.validEnd).toBe(nodes[nodes.length - 1] + 1);
 			const denseFloats = dense.view;
 			expect(Array.from(denseFloats.slice(0, reverseOrder.length))).toEqual([40, 30, 20, 10]);
+			const firstDenseVersion = dense.version;
 
 			weights[nodes[0]] = 99;
-			net.markDenseNodeAttributeDirty('weight');
+			net.bumpNodeAttributeVersion('weight');
 			net.updateDenseNodeAttributeBuffer('weight');
 			dense = net.getDenseNodeAttributeView('weight');
 			const refreshedFloats = dense.view;
 			expect(refreshedFloats[0]).toBeCloseTo(40);
 			expect(refreshedFloats[reverseOrder.length - 1]).toBeCloseTo(99);
+			expect(dense.version).toBeGreaterThan(firstDenseVersion);
 
 			net.updateDenseNodeIndexBuffer();
 			const indexDense = net.getDenseNodeIndexView();
 			expect(indexDense.count).toBe(net.nodeCount);
 			const indexView = indexDense.view;
 			expect(Array.from(indexView.slice(0, net.nodeCount))).toEqual(expect.arrayContaining(Array.from(nodes)));
+			expect(indexDense.topologyVersion).toBeGreaterThan(0);
 
 			const edges = net.addEdges([
 				{ from: nodes[0], to: nodes[1] },
@@ -847,7 +850,7 @@ describe('HeliosNetwork (Node runtime)', () => {
 			expect(decode32(edgeColor.view, 1)).toBe(201);
 
 			nodeIds[nodes[1]] = 500n;
-			net.markDenseColorEncodedNodeAttributeDirty('node_color');
+			net.bumpNodeAttributeVersion('node_id');
 			const updatedNodeColor = net.updateDenseColorEncodedNodeAttribute('node_color');
 			expect(decode32(updatedNodeColor.view, 1)).toBe(501);
 
