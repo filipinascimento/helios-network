@@ -454,7 +454,7 @@ See `docs/CONTRIBUTING.md` for the full development and release guide, including
 
 ---
 
-© 2024–2025 Helios Network contributors. Licensed under MIT.
+© 2024–2025 Filipi Nascimento Silva. Licensed under MIT.
 ## Packaging
 
 Native packaging overlays for vcpkg and Conan live under `packaging/`, backed by the root `CMakeLists.txt`. See `docs/packaging.md` for build commands, overlay usage, and guidance on upstreaming new ports/recipes.
