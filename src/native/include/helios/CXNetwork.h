@@ -62,6 +62,8 @@ typedef enum {
 	CXDataAttributeCategoryType = 6,
 	CXDataAttributeType = 7,
 	CXJavascriptAttributeType = 8,
+	CXBigIntegerAttributeType = 9,
+	CXUnsignedBigIntegerAttributeType = 10,
 	CXUnknownAttributeType = 255
 } CXAttributeType;
 
@@ -213,6 +215,14 @@ CX_EXTERN CXSize CXNetworkEdgeCount(CXNetworkRef network);
 CX_EXTERN CXSize CXNetworkNodeCapacity(CXNetworkRef network);
 /** Returns the allocated edge capacity. */
 CX_EXTERN CXSize CXNetworkEdgeCapacity(CXNetworkRef network);
+/** Returns the current node free-list size (recycled indices). */
+CX_EXTERN CXSize CXNetworkNodeFreeListCount(CXNetworkRef network);
+/** Returns the allocated node free-list capacity (reserved slots). */
+CX_EXTERN CXSize CXNetworkNodeFreeListCapacity(CXNetworkRef network);
+/** Returns the current edge free-list size (recycled indices). */
+CX_EXTERN CXSize CXNetworkEdgeFreeListCount(CXNetworkRef network);
+/** Returns the allocated edge free-list capacity (reserved slots). */
+CX_EXTERN CXSize CXNetworkEdgeFreeListCapacity(CXNetworkRef network);
 /** Returns CXTrue when the network treats edges as directed. */
 CX_EXTERN CXBool CXNetworkIsDirected(CXNetworkRef network);
 /**

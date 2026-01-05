@@ -95,6 +95,39 @@ describe('HeliosNetwork (Node runtime)', () => {
 		}
 	});
 
+	test('uses 32-bit arrays for Integer types and BigInt64 for BigInteger types', async () => {
+		const net = await HeliosNetwork.create({ directed: false, initialNodes: 0, initialEdges: 0 });
+		try {
+			const nodes = net.addNodes(1);
+			net.defineNodeAttribute('i32', AttributeType.Integer, 1);
+			net.defineNodeAttribute('u32', AttributeType.UnsignedInteger, 1);
+			net.defineNodeAttribute('i64', AttributeType.BigInteger, 1);
+			net.defineNodeAttribute('u64', AttributeType.UnsignedBigInteger, 1);
+
+			const i32 = net.getNodeAttributeBuffer('i32').view;
+			const u32 = net.getNodeAttributeBuffer('u32').view;
+			const i64 = net.getNodeAttributeBuffer('i64').view;
+			const u64 = net.getNodeAttributeBuffer('u64').view;
+
+			expect(i32).toBeInstanceOf(Int32Array);
+			expect(u32).toBeInstanceOf(Uint32Array);
+			expect(i64).toBeInstanceOf(BigInt64Array);
+			expect(u64).toBeInstanceOf(BigUint64Array);
+
+			i32[nodes[0]] = -12345;
+			u32[nodes[0]] = 4294967295;
+			i64[nodes[0]] = 1n << 40n;
+			u64[nodes[0]] = (1n << 60n) - 1n;
+
+			expect(i32[nodes[0]]).toBe(-12345);
+			expect(u32[nodes[0]]).toBe(4294967295);
+			expect(i64[nodes[0]]).toBe(1n << 40n);
+			expect(u64[nodes[0]]).toBe((1n << 60n) - 1n);
+		} finally {
+			net.dispose();
+		}
+	});
+
 	test('manages primitive attribute buffers', () => {
 		const nodes = network.addNodes(2);
 		network.defineNodeAttribute('weight', AttributeType.Float, 1);
@@ -136,6 +169,57 @@ describe('HeliosNetwork (Node runtime)', () => {
 		nodeSelector.dispose();
 		edgeSelector.dispose();
 		customSelector.dispose();
+	});
+
+	test('reports buffer memory usage', async () => {
+		const net = await HeliosNetwork.create({ directed: false, initialNodes: 0, initialEdges: 0 });
+		try {
+			const nodes = net.addNodes(3);
+			net.defineNodeAttribute('pos', AttributeType.Float, 2);
+			net.defineEdgeAttribute('weight', AttributeType.Double, 1);
+			net.addEdges([
+				{ from: nodes[0], to: nodes[1] },
+				{ from: nodes[1], to: nodes[2] },
+			]);
+
+			net.addDenseNodeAttributeBuffer('pos');
+			net.addDenseEdgeAttributeBuffer('weight');
+			net.updateDenseNodeAttributeBuffer('pos');
+			net.updateDenseEdgeAttributeBuffer('weight');
+
+			const report = net.getBufferMemoryUsage();
+			expect(report.wasm.heapBytes).toBeGreaterThan(0);
+
+			expect(report.buffers['topology.edgeFromTo']).toBe(net.edgeCapacity * 2 * Uint32Array.BYTES_PER_ELEMENT);
+			expect(report.buffers['topology.nodeFreeList']).toBe(net.nodeCapacity * Uint32Array.BYTES_PER_ELEMENT);
+			expect(report.buffers['topology.edgeFreeList']).toBe(net.edgeCapacity * Uint32Array.BYTES_PER_ELEMENT);
+
+			expect(report.buffers['sparse.node.attribute.pos']).toBeGreaterThan(0);
+
+			expect(report.buffers['dense.node.attribute.pos']).toBeGreaterThanOrEqual(0);
+		} finally {
+			net.dispose();
+		}
+	});
+
+	test('reports buffer versions', async () => {
+		const net = await HeliosNetwork.create({ directed: false, initialNodes: 0, initialEdges: 0 });
+		try {
+			const nodes = net.addNodes(2);
+			net.addEdges([{ from: nodes[0], to: nodes[1] }]);
+
+			net.defineNodeAttribute('pos', AttributeType.Float, 2);
+			net.addDenseNodeAttributeBuffer('pos');
+			net.updateDenseNodeAttributeBuffer('pos');
+
+			const versions = net.getBufferVersions();
+			expect(typeof versions.topology.node).toBe('number');
+			expect(typeof versions.topology.edge).toBe('number');
+			expect(typeof versions.attributes.node.pos).toBe('number');
+			expect(typeof versions.dense.node.attributes.pos).toBe('number');
+		} finally {
+			net.dispose();
+		}
 	});
 
 	test('checks active index membership', async () => {
@@ -824,11 +908,11 @@ describe('HeliosNetwork (Node runtime)', () => {
 			net.defineEdgeAttribute('edge_tag', AttributeType.UnsignedInteger, 1);
 			const nodeIds = net.getNodeAttributeBuffer('node_id').view;
 			const edgeTags = net.getEdgeAttributeBuffer('edge_tag').view;
-			nodeIds[nodes[0]] = 10n;
-			nodeIds[nodes[1]] = 20n;
-			nodeIds[nodes[2]] = 30n;
-			edgeTags[edges[0]] = 100n;
-			edgeTags[edges[1]] = 200n;
+			nodeIds[nodes[0]] = 10;
+			nodeIds[nodes[1]] = 20;
+			nodeIds[nodes[2]] = 30;
+			edgeTags[edges[0]] = 100;
+			edgeTags[edges[1]] = 200;
 
 			net.defineDenseColorEncodedNodeAttribute('node_id', 'node_color', { format: DenseColorEncodingFormat.Uint8x4 });
 			net.defineDenseColorEncodedEdgeAttribute('edge_tag', 'edge_color', { format: DenseColorEncodingFormat.Uint8x4 });
@@ -849,7 +933,7 @@ describe('HeliosNetwork (Node runtime)', () => {
 			expect(decode32(edgeColor.view, 0)).toBe(101);
 			expect(decode32(edgeColor.view, 1)).toBe(201);
 
-			nodeIds[nodes[1]] = 500n;
+			nodeIds[nodes[1]] = 500;
 			net.bumpNodeAttributeVersion('node_id');
 			const updatedNodeColor = net.updateDenseColorEncodedNodeAttribute('node_color');
 			expect(decode32(updatedNodeColor.view, 1)).toBe(501);
@@ -1108,6 +1192,84 @@ describe('HeliosNetwork (Node runtime)', () => {
 			}
 		} finally {
 			networkInstance.dispose();
+		}
+	});
+
+	test('round-trips 32-bit integers and big integers across bxnet/zxnet/xnet', async () => {
+		const formats = ['bxnet', 'zxnet', 'xnet'];
+
+		for (const format of formats) {
+			const net = await HeliosNetwork.create({ directed: false, initialNodes: 0, initialEdges: 0 });
+			const mod = net.module;
+			const supported = format === 'bxnet'
+				? typeof mod._CXNetworkWriteBXNet === 'function' && typeof mod._CXNetworkReadBXNet === 'function'
+				: format === 'zxnet'
+					? typeof mod._CXNetworkWriteZXNet === 'function' && typeof mod._CXNetworkReadZXNet === 'function'
+					: typeof mod._CXNetworkWriteXNet === 'function' && typeof mod._CXNetworkReadXNet === 'function';
+
+			try {
+				if (!supported) {
+					const savePromise = format === 'bxnet'
+						? net.saveBXNet()
+						: format === 'zxnet'
+							? net.saveZXNet()
+							: net.saveXNet();
+					await expect(savePromise).rejects.toThrow();
+					continue;
+				}
+
+				const nodes = net.addNodes(2);
+				net.defineNodeAttribute('i32', AttributeType.Integer, 1);
+				net.defineNodeAttribute('u32', AttributeType.UnsignedInteger, 1);
+				net.defineNodeAttribute('i64', AttributeType.BigInteger, 1);
+				net.defineNodeAttribute('u64', AttributeType.UnsignedBigInteger, 1);
+
+				const i32 = net.getNodeAttributeBuffer('i32').view;
+				const u32 = net.getNodeAttributeBuffer('u32').view;
+				const i64 = net.getNodeAttributeBuffer('i64').view;
+				const u64 = net.getNodeAttributeBuffer('u64').view;
+
+				i32[nodes[0]] = -1;
+				i32[nodes[1]] = 2147483647;
+				u32[nodes[0]] = 0;
+				u32[nodes[1]] = 4294967295;
+				i64[nodes[0]] = -(1n << 40n);
+				i64[nodes[1]] = 1n << 41n;
+				u64[nodes[0]] = 1n;
+				u64[nodes[1]] = (1n << 60n) - 5n;
+
+				const payload = await (format === 'bxnet'
+					? net.saveBXNet()
+					: format === 'zxnet'
+						? net.saveZXNet({ compressionLevel: 1 })
+						: net.saveXNet());
+				const restored = await (format === 'bxnet'
+					? HeliosNetwork.fromBXNet(payload)
+					: format === 'zxnet'
+						? HeliosNetwork.fromZXNet(payload)
+						: HeliosNetwork.fromXNet(payload));
+
+				try {
+					const ri32 = restored.getNodeAttributeBuffer('i32').view;
+					const ru32 = restored.getNodeAttributeBuffer('u32').view;
+					const ri64 = restored.getNodeAttributeBuffer('i64').view;
+					const ru64 = restored.getNodeAttributeBuffer('u64').view;
+
+					expect(ri32).toBeInstanceOf(Int32Array);
+					expect(ru32).toBeInstanceOf(Uint32Array);
+					expect(ri64).toBeInstanceOf(BigInt64Array);
+					expect(ru64).toBeInstanceOf(BigUint64Array);
+
+					expect(Array.from(ri32.slice(0, restored.nodeCount))).toEqual([-1, 2147483647]);
+					expect(Array.from(ru32.slice(0, restored.nodeCount))).toEqual([0, 4294967295]);
+					expect(Array.from(ri64.slice(0, restored.nodeCount))).toEqual([-(1n << 40n), 1n << 41n]);
+					expect(Array.from(ru64.slice(0, restored.nodeCount))).toEqual([1n, (1n << 60n) - 5n]);
+				} finally {
+					restored.dispose();
+				}
+			} finally {
+				net.dispose();
+			}
 		}
 	});
 

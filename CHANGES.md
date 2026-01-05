@@ -1,5 +1,18 @@
 # CHANGES
 
+## 2026-01-02
+
+- Added `getBufferMemoryUsage()` to report WASM buffer memory usage (topology buffers including node/edge free lists, sparse attributes, dense buffers) plus total WASM heap size.
+
+## 2025-12-23
+
+- Integer attribute storage changed: `AttributeType.Integer`/`AttributeType.UnsignedInteger` now use 32-bit typed arrays (`Int32Array`/`Uint32Array`) instead of BigInt-backed 64-bit arrays.
+- Added 64-bit integer attribute types: `AttributeType.BigInteger` and `AttributeType.UnsignedBigInteger` (backed by `BigInt64Array`/`BigUint64Array`).
+- Serialization updated:
+  - XNET: `i`/`u` now represent 32-bit integers; new `I`/`U` tokens represent 64-bit big integers.
+  - BXNet/ZXNet: integer attribute storage widths now reflect 32-bit vs 64-bit types.
+- Dense buffers follow the same typing changes (dense views for integer attributes now return 32-bit arrays; big integers return BigInt arrays). Color-encoding remains limited to 32-bit integer attributes.
+
 ## 2025-02-20
 
 - Added stable version counters for sparse attributes, dense buffers (including color-encoded), and topology. Versions start at 0, wrap at `Number.MAX_SAFE_INTEGER`, and are exposed on all dense descriptors (index views also expose `topologyVersion`) plus sparse wrappers.

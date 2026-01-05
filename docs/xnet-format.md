@@ -27,9 +27,10 @@ focusing on syntax and validation rules rather than API usage.
   escapes `\n`, `\r`, `\t`, `\\`, and `\"`. Unquoted strings cannot start with `#`
   and end at the first trailing whitespace. Empty values must be written as
   `""` or nothing inside quotes.
-- **Numbers** – Integers are base-10 and stored as signed (`int64`) or unsigned
-  (`uint64`) values depending on context. Floating-point numbers are parsed
-  using `strtod` and accept scientific notation.
+- **Numbers** – Integers are base-10. `i`/`u` tokens store 32-bit signed or
+  unsigned values, while `I`/`U` tokens store 64-bit integers (BigInteger).
+  Floating-point numbers are parsed using `strtod` and accept scientific
+  notation.
 - **Attribute blocks** – Each attribute declaration consumes a fixed number of
   subsequent value lines: the vertex count for `#v`, the edge count for `#e`,
   and exactly one line for `#g`. Comments or blank lines inside a block are
@@ -81,10 +82,14 @@ when present but may also ingest files that omit it.
 | `s`   | UTF-8 string (scalar)             |
 | `f`   | 32-bit float scalar               |
 | `fN`  | Float vector of length `N ≥ 2`    |
-| `i`   | 64-bit signed integer scalar      |
+| `i`   | 32-bit signed integer scalar      |
 | `iN`  | Signed integer vector (`N ≥ 2`)   |
-| `u`   | 64-bit unsigned integer scalar    |
+| `u`   | 32-bit unsigned integer scalar    |
 | `uN`  | Unsigned integer vector (`N ≥ 2`) |
+| `I`   | 64-bit signed BigInteger scalar   |
+| `IN`  | BigInteger vector (`N ≥ 2`)       |
+| `U`   | 64-bit unsigned BigInteger scalar |
+| `UN`  | Unsigned BigInteger vector (`N ≥ 2`) |
 
 Strings cannot be vectorized. For numeric vectors, elements on each value line
 are separated by single spaces. All attribute values must be present; missing or

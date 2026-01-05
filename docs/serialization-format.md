@@ -107,10 +107,11 @@ Each declaration chunk begins with a block containing the attribute count
 3. Dictionary block (reserved for categorical dictionaries; presently zero-length).
 
 The current implementation supports scalar numeric attribute types:
-boolean, float, double, signed integer, unsigned integer, and categorical
-integers. Attribute types that rely on pointer payloads (strings, raw data,
-Javascript-backed attributes) are not yet serialized. Declarations containing
-non-zero flags or dictionary payloads are rejected by the reader.
+boolean, float, double, 32-bit signed integer, 32-bit unsigned integer,
+64-bit signed/unsigned big integers, and categorical integers. Attribute
+types that rely on pointer payloads (strings, raw data, Javascript-backed
+attributes) are not yet serialized. Declarations containing non-zero flags
+or dictionary payloads are rejected by the reader.
 
 #### Attribute Value Chunks (`NVAL`, `EVAL`, `GVAL`)
 

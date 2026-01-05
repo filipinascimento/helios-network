@@ -266,6 +266,8 @@ static CXBool CXAttributeStorageInfo(CXAttributeRef attribute, uint32_t *storage
 		case CXDoubleAttributeType:
 		case CXIntegerAttributeType:
 		case CXUnsignedIntegerAttributeType:
+		case CXBigIntegerAttributeType:
+		case CXUnsignedBigIntegerAttributeType:
 		case CXDataAttributeCategoryType:
 			break;
 		default:
@@ -306,9 +308,15 @@ static CXBool CXExpectedStorageWidthForType(CXAttributeType type, uint32_t *outW
 			*outWidth = sizeof(double);
 			return CXTrue;
 		case CXIntegerAttributeType:
-			*outWidth = sizeof(int64_t);
+			*outWidth = sizeof(int32_t);
 			return CXTrue;
 		case CXUnsignedIntegerAttributeType:
+			*outWidth = sizeof(uint32_t);
+			return CXTrue;
+		case CXBigIntegerAttributeType:
+			*outWidth = sizeof(int64_t);
+			return CXTrue;
+		case CXUnsignedBigIntegerAttributeType:
 			*outWidth = sizeof(uint64_t);
 			return CXTrue;
 		case CXDataAttributeCategoryType:
@@ -935,7 +943,7 @@ static CXBool CXReadAttributeValuesIntoPlan(CXInputStream *stream, CXAttributeLo
 	for (uint64_t idx = 0; idx < capacity; idx++) {
 		uint8_t *entryBase = destination + (size_t)idx * plan->attribute->stride;
 		for (uint64_t dim = 0; dim < dimension; dim++) {
-			uint8_t buffer[8];
+			uint8_t buffer[8] = {0};
 			if (!CXReadExact(stream, buffer, plan->storageWidth)) {
 				return CXFalse;
 			}
@@ -959,11 +967,21 @@ static CXBool CXReadAttributeValuesIntoPlan(CXInputStream *stream, CXAttributeLo
 					break;
 				}
 				case CXIntegerAttributeType: {
-					int64_t value = (int64_t)cx_read_u64le(buffer);
+					int32_t value = (int32_t)cx_read_u32le(buffer);
 					memcpy(target, &value, sizeof(value));
 					break;
 				}
 				case CXUnsignedIntegerAttributeType: {
+					uint32_t value = cx_read_u32le(buffer);
+					memcpy(target, &value, sizeof(value));
+					break;
+				}
+				case CXBigIntegerAttributeType: {
+					int64_t value = (int64_t)cx_read_u64le(buffer);
+					memcpy(target, &value, sizeof(value));
+					break;
+				}
+				case CXUnsignedBigIntegerAttributeType: {
 					uint64_t value = cx_read_u64le(buffer);
 					memcpy(target, &value, sizeof(value));
 					break;
@@ -1347,6 +1365,21 @@ static CXBool CXWriteAttributeValuesCallback(CXSizedWriterContext *context, void
 				}
 				case CXIntegerAttributeType: {
 					union {
+						int32_t s;
+						uint32_t u;
+					} converter;
+					memcpy(&converter.s, elementPtr, sizeof(int32_t));
+					cx_write_u32le(converter.u, encoded);
+					break;
+				}
+				case CXUnsignedIntegerAttributeType: {
+					uint32_t value = 0;
+					memcpy(&value, elementPtr, sizeof(uint32_t));
+					cx_write_u32le(value, encoded);
+					break;
+				}
+				case CXBigIntegerAttributeType: {
+					union {
 						int64_t s;
 						uint64_t u;
 					} converter;
@@ -1354,7 +1387,7 @@ static CXBool CXWriteAttributeValuesCallback(CXSizedWriterContext *context, void
 					cx_write_u64le(converter.u, encoded);
 					break;
 				}
-				case CXUnsignedIntegerAttributeType: {
+				case CXUnsignedBigIntegerAttributeType: {
 					uint64_t value = 0;
 					memcpy(&value, elementPtr, sizeof(uint64_t));
 					cx_write_u64le(value, encoded);

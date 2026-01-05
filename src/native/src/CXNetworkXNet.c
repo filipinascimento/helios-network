@@ -19,8 +19,10 @@
 
 typedef enum {
 	XNetBaseFloat,
-	XNetBaseInt,
-	XNetBaseUInt,
+	XNetBaseInt32,
+	XNetBaseUInt32,
+	XNetBaseInt64,
+	XNetBaseUInt64,
 	XNetBaseString
 } XNetBaseType;
 
@@ -43,8 +45,10 @@ typedef struct {
 	CXSize count;
 	union {
 		float *asFloat;
-		int64_t *asInt;
-		uint64_t *asUInt;
+		int32_t *asInt32;
+		uint32_t *asUInt32;
+		int64_t *asInt64;
+		uint64_t *asUInt64;
 		char **asString;
 	} values;
 } XNetAttributeBlock;
@@ -171,10 +175,14 @@ static void XNetAttributeBlockFree(XNetAttributeBlock *block) {
 		}
 	} else if (block->base == XNetBaseFloat) {
 		free(block->values.asFloat);
-	} else if (block->base == XNetBaseInt) {
-		free(block->values.asInt);
-	} else if (block->base == XNetBaseUInt) {
-		free(block->values.asUInt);
+	} else if (block->base == XNetBaseInt32) {
+		free(block->values.asInt32);
+	} else if (block->base == XNetBaseUInt32) {
+		free(block->values.asUInt32);
+	} else if (block->base == XNetBaseInt64) {
+		free(block->values.asInt64);
+	} else if (block->base == XNetBaseUInt64) {
+		free(block->values.asUInt64);
 	}
 	memset(&block->values, 0, sizeof(block->values));
 	block->count = 0;
@@ -405,13 +413,21 @@ static CXBool XNetAllocateAttributeValues(XNetAttributeBlock *block) {
 		block->values.asFloat = calloc(total, sizeof(float));
 		return block->values.asFloat != NULL;
 	}
-	if (block->base == XNetBaseInt) {
-		block->values.asInt = calloc(total, sizeof(int64_t));
-		return block->values.asInt != NULL;
+	if (block->base == XNetBaseInt32) {
+		block->values.asInt32 = calloc(total, sizeof(int32_t));
+		return block->values.asInt32 != NULL;
 	}
-	if (block->base == XNetBaseUInt) {
-		block->values.asUInt = calloc(total, sizeof(uint64_t));
-		return block->values.asUInt != NULL;
+	if (block->base == XNetBaseUInt32) {
+		block->values.asUInt32 = calloc(total, sizeof(uint32_t));
+		return block->values.asUInt32 != NULL;
+	}
+	if (block->base == XNetBaseInt64) {
+		block->values.asInt64 = calloc(total, sizeof(int64_t));
+		return block->values.asInt64 != NULL;
+	}
+	if (block->base == XNetBaseUInt64) {
+		block->values.asUInt64 = calloc(total, sizeof(uint64_t));
+		return block->values.asUInt64 != NULL;
 	}
 	return CXFalse;
 }
@@ -589,7 +605,7 @@ static CXBool XNetParseFloatLine(const char *line, CXSize dimension, float *dest
 	return CXTrue;
 }
 
-static CXBool XNetParseIntLine(const char *line, CXSize dimension, CXBool unsignedMode, void *dest, XNetError *error, size_t lineNumber) {
+static CXBool XNetParseIntLine(const char *line, CXSize dimension, CXBool unsignedMode, int bits, void *dest, XNetError *error, size_t lineNumber) {
 	if (!line || !dest || dimension == 0) {
 		return CXFalse;
 	}
@@ -610,18 +626,38 @@ static CXBool XNetParseIntLine(const char *line, CXSize dimension, CXBool unsign
 				XNetErrorSet(error, lineNumber, "Invalid unsigned integer value");
 				return CXFalse;
 			}
-			if ((uint64_t)value > UINT64_MAX) {
-				XNetErrorSet(error, lineNumber, "Unsigned integer value out of range");
-				return CXFalse;
+			if (bits == 32) {
+				if (value > UINT32_MAX) {
+					XNetErrorSet(error, lineNumber, "Unsigned integer value out of range");
+					return CXFalse;
+				}
+				((uint32_t *)dest)[i] = (uint32_t)value;
+			} else {
+				if ((uint64_t)value > UINT64_MAX) {
+					XNetErrorSet(error, lineNumber, "Unsigned integer value out of range");
+					return CXFalse;
+				}
+				((uint64_t *)dest)[i] = (uint64_t)value;
 			}
-			((uint64_t *)dest)[i] = (uint64_t)value;
 		} else {
 			long long value = strtoll(cursor, &end, 10);
 			if (errno || end == cursor) {
 				XNetErrorSet(error, lineNumber, "Invalid integer value");
 				return CXFalse;
 			}
-			((int64_t *)dest)[i] = (int64_t)value;
+			if (bits == 32) {
+				if (value < INT32_MIN || value > INT32_MAX) {
+					XNetErrorSet(error, lineNumber, "Integer value out of range");
+					return CXFalse;
+				}
+				((int32_t *)dest)[i] = (int32_t)value;
+			} else {
+				if (value < LLONG_MIN || value > LLONG_MAX) {
+					XNetErrorSet(error, lineNumber, "Integer value out of range");
+					return CXFalse;
+				}
+				((int64_t *)dest)[i] = (int64_t)value;
+			}
 		}
 		cursor = end;
 	}
@@ -677,7 +713,7 @@ static CXBool XNetParseTypeToken(const char *token, CXBool legacy, XNetBaseType 
 		*outDimension = 1;
 		return CXTrue;
 	}
-	if (kind != 'f' && kind != 'i' && kind != 'u') {
+	if (kind != 'f' && kind != 'i' && kind != 'u' && kind != 'I' && kind != 'U') {
 		XNetErrorSet(error, lineNumber, "Unsupported type '%s'", token);
 		return CXFalse;
 	}
@@ -694,9 +730,9 @@ static CXBool XNetParseTypeToken(const char *token, CXBool legacy, XNetBaseType 
 	if (kind == 'f') {
 		*outBase = XNetBaseFloat;
 	} else if (kind == 'i') {
-		*outBase = XNetBaseInt;
+		*outBase = XNetBaseInt32;
 	} else {
-		*outBase = XNetBaseUInt;
+		*outBase = (kind == 'u') ? XNetBaseUInt32 : (kind == 'I' ? XNetBaseInt64 : XNetBaseUInt64);
 	}
 	return CXTrue;
 }
@@ -991,10 +1027,14 @@ static CXBool XNetParseVertexAttribute(XNetParser *parser, const char *line, XNe
 			}
 		} else if (block->base == XNetBaseFloat) {
 			ok = XNetParseFloatLine(valueLine, block->dimension, block->values.asFloat + (size_t)idx * block->dimension, error, valueLineNumber);
-		} else if (block->base == XNetBaseInt) {
-			ok = XNetParseIntLine(valueLine, block->dimension, CXFalse, block->values.asInt + (size_t)idx * block->dimension, error, valueLineNumber);
-		} else if (block->base == XNetBaseUInt) {
-			ok = XNetParseIntLine(valueLine, block->dimension, CXTrue, block->values.asUInt + (size_t)idx * block->dimension, error, valueLineNumber);
+		} else if (block->base == XNetBaseInt32) {
+			ok = XNetParseIntLine(valueLine, block->dimension, CXFalse, 32, block->values.asInt32 + (size_t)idx * block->dimension, error, valueLineNumber);
+		} else if (block->base == XNetBaseUInt32) {
+			ok = XNetParseIntLine(valueLine, block->dimension, CXTrue, 32, block->values.asUInt32 + (size_t)idx * block->dimension, error, valueLineNumber);
+		} else if (block->base == XNetBaseInt64) {
+			ok = XNetParseIntLine(valueLine, block->dimension, CXFalse, 64, block->values.asInt64 + (size_t)idx * block->dimension, error, valueLineNumber);
+		} else if (block->base == XNetBaseUInt64) {
+			ok = XNetParseIntLine(valueLine, block->dimension, CXTrue, 64, block->values.asUInt64 + (size_t)idx * block->dimension, error, valueLineNumber);
 		}
 		free(valueLine);
 		if (!ok) {
@@ -1087,10 +1127,14 @@ static CXBool XNetParseEdgeAttribute(XNetParser *parser, const char *line, XNetE
 			}
 		} else if (block->base == XNetBaseFloat) {
 			ok = XNetParseFloatLine(valueLine, block->dimension, block->values.asFloat + (size_t)idx * block->dimension, error, valueLineNumber);
-		} else if (block->base == XNetBaseInt) {
-			ok = XNetParseIntLine(valueLine, block->dimension, CXFalse, block->values.asInt + (size_t)idx * block->dimension, error, valueLineNumber);
-		} else if (block->base == XNetBaseUInt) {
-			ok = XNetParseIntLine(valueLine, block->dimension, CXTrue, block->values.asUInt + (size_t)idx * block->dimension, error, valueLineNumber);
+		} else if (block->base == XNetBaseInt32) {
+			ok = XNetParseIntLine(valueLine, block->dimension, CXFalse, 32, block->values.asInt32 + (size_t)idx * block->dimension, error, valueLineNumber);
+		} else if (block->base == XNetBaseUInt32) {
+			ok = XNetParseIntLine(valueLine, block->dimension, CXTrue, 32, block->values.asUInt32 + (size_t)idx * block->dimension, error, valueLineNumber);
+		} else if (block->base == XNetBaseInt64) {
+			ok = XNetParseIntLine(valueLine, block->dimension, CXFalse, 64, block->values.asInt64 + (size_t)idx * block->dimension, error, valueLineNumber);
+		} else if (block->base == XNetBaseUInt64) {
+			ok = XNetParseIntLine(valueLine, block->dimension, CXTrue, 64, block->values.asUInt64 + (size_t)idx * block->dimension, error, valueLineNumber);
 		}
 		free(valueLine);
 		if (!ok) {
@@ -1182,10 +1226,14 @@ static CXBool XNetParseGraphAttribute(XNetParser *parser, const char *line, XNet
 		}
 	} else if (block->base == XNetBaseFloat) {
 		ok = XNetParseFloatLine(valueLine, block->dimension, block->values.asFloat, error, valueLineNumber);
-	} else if (block->base == XNetBaseInt) {
-		ok = XNetParseIntLine(valueLine, block->dimension, CXFalse, block->values.asInt, error, valueLineNumber);
-	} else if (block->base == XNetBaseUInt) {
-		ok = XNetParseIntLine(valueLine, block->dimension, CXTrue, block->values.asUInt, error, valueLineNumber);
+	} else if (block->base == XNetBaseInt32) {
+		ok = XNetParseIntLine(valueLine, block->dimension, CXFalse, 32, block->values.asInt32, error, valueLineNumber);
+	} else if (block->base == XNetBaseUInt32) {
+		ok = XNetParseIntLine(valueLine, block->dimension, CXTrue, 32, block->values.asUInt32, error, valueLineNumber);
+	} else if (block->base == XNetBaseInt64) {
+		ok = XNetParseIntLine(valueLine, block->dimension, CXFalse, 64, block->values.asInt64, error, valueLineNumber);
+	} else if (block->base == XNetBaseUInt64) {
+		ok = XNetParseIntLine(valueLine, block->dimension, CXTrue, 64, block->values.asUInt64, error, valueLineNumber);
 	}
 	free(valueLine);
 	if (!ok) {
@@ -1455,10 +1503,14 @@ static CXAttributeType XNetAttributeTypeForBase(XNetBaseType base) {
 	switch (base) {
 		case XNetBaseFloat:
 			return CXFloatAttributeType;
-		case XNetBaseInt:
+		case XNetBaseInt32:
 			return CXIntegerAttributeType;
-		case XNetBaseUInt:
+		case XNetBaseUInt32:
 			return CXUnsignedIntegerAttributeType;
+		case XNetBaseInt64:
+			return CXBigIntegerAttributeType;
+		case XNetBaseUInt64:
+			return CXUnsignedBigIntegerAttributeType;
 		case XNetBaseString:
 			return CXStringAttributeType;
 		default:
@@ -1521,12 +1573,20 @@ static CXBool XNetPopulateAttribute(CXNetworkRef network, XNetAttributeScope sco
 		memcpy(attr->data, block->values.asFloat, bytes * sizeof(float));
 		return CXTrue;
 	}
-	if (block->base == XNetBaseInt) {
-		memcpy(attr->data, block->values.asInt, bytes * sizeof(int64_t));
+	if (block->base == XNetBaseInt32) {
+		memcpy(attr->data, block->values.asInt32, bytes * sizeof(int32_t));
 		return CXTrue;
 	}
-	if (block->base == XNetBaseUInt) {
-		memcpy(attr->data, block->values.asUInt, bytes * sizeof(uint64_t));
+	if (block->base == XNetBaseUInt32) {
+		memcpy(attr->data, block->values.asUInt32, bytes * sizeof(uint32_t));
+		return CXTrue;
+	}
+	if (block->base == XNetBaseInt64) {
+		memcpy(attr->data, block->values.asInt64, bytes * sizeof(int64_t));
+		return CXTrue;
+	}
+	if (block->base == XNetBaseUInt64) {
+		memcpy(attr->data, block->values.asUInt64, bytes * sizeof(uint64_t));
 		return CXTrue;
 	}
 	return CXFalse;
@@ -1746,18 +1806,32 @@ static const char* XNetTypeCodeForAttribute(const XNetAttributeView *view, char 
 				snprintf(buffer, 16, "f%zu", (size_t)view->dimension);
 			}
 			return buffer;
-		case XNetBaseInt:
+		case XNetBaseInt32:
 			if (view->dimension == 1) {
 				strcpy(buffer, "i");
 			} else {
 				snprintf(buffer, 16, "i%zu", (size_t)view->dimension);
 			}
 			return buffer;
-		case XNetBaseUInt:
+		case XNetBaseUInt32:
 			if (view->dimension == 1) {
 				strcpy(buffer, "u");
 			} else {
 				snprintf(buffer, 16, "u%zu", (size_t)view->dimension);
+			}
+			return buffer;
+		case XNetBaseInt64:
+			if (view->dimension == 1) {
+				strcpy(buffer, "I");
+			} else {
+				snprintf(buffer, 16, "I%zu", (size_t)view->dimension);
+			}
+			return buffer;
+		case XNetBaseUInt64:
+			if (view->dimension == 1) {
+				strcpy(buffer, "U");
+			} else {
+				snprintf(buffer, 16, "U%zu", (size_t)view->dimension);
 			}
 			return buffer;
 		default:
@@ -1774,10 +1848,16 @@ static CXBool XNetAttributeSupportedForWrite(const CXAttributeRef attribute, XNe
 			*outBase = XNetBaseFloat;
 			return CXTrue;
 		case CXIntegerAttributeType:
-			*outBase = XNetBaseInt;
+			*outBase = XNetBaseInt32;
 			return CXTrue;
 		case CXUnsignedIntegerAttributeType:
-			*outBase = XNetBaseUInt;
+			*outBase = XNetBaseUInt32;
+			return CXTrue;
+		case CXBigIntegerAttributeType:
+			*outBase = XNetBaseInt64;
+			return CXTrue;
+		case CXUnsignedBigIntegerAttributeType:
+			*outBase = XNetBaseUInt64;
 			return CXTrue;
 		case CXStringAttributeType:
 			if (attribute->dimension != 1) {
@@ -1907,7 +1987,33 @@ static CXBool XNetWriteVertexAttributes(FILE *file, const XNetAttributeViewList 
 				}
 				fputc('\n', file);
 			}
-		} else if (view->base == XNetBaseInt) {
+		} else if (view->base == XNetBaseInt32) {
+			int32_t *values = (int32_t *)view->attribute->data;
+			for (CXSize idx = 0; idx < nodeCount; idx++) {
+				CXIndex original = activeNodes[idx];
+				for (CXSize d = 0; d < view->dimension; d++) {
+					if (d > 0) {
+						fputc(' ', file);
+					}
+					int32_t value = values[(size_t)original * view->attribute->dimension + d];
+					fprintf(file, "%" PRId32, value);
+				}
+				fputc('\n', file);
+			}
+		} else if (view->base == XNetBaseUInt32) {
+			uint32_t *values = (uint32_t *)view->attribute->data;
+			for (CXSize idx = 0; idx < nodeCount; idx++) {
+				CXIndex original = activeNodes[idx];
+				for (CXSize d = 0; d < view->dimension; d++) {
+					if (d > 0) {
+						fputc(' ', file);
+					}
+					uint32_t value = values[(size_t)original * view->attribute->dimension + d];
+					fprintf(file, "%" PRIu32, value);
+				}
+				fputc('\n', file);
+			}
+		} else if (view->base == XNetBaseInt64) {
 			int64_t *values = (int64_t *)view->attribute->data;
 			for (CXSize idx = 0; idx < nodeCount; idx++) {
 				CXIndex original = activeNodes[idx];
@@ -1920,7 +2026,7 @@ static CXBool XNetWriteVertexAttributes(FILE *file, const XNetAttributeViewList 
 				}
 				fputc('\n', file);
 			}
-		} else if (view->base == XNetBaseUInt) {
+		} else if (view->base == XNetBaseUInt64) {
 			uint64_t *values = (uint64_t *)view->attribute->data;
 			for (CXSize idx = 0; idx < nodeCount; idx++) {
 				CXIndex original = activeNodes[idx];
@@ -1968,7 +2074,33 @@ static CXBool XNetWriteEdgeAttributes(FILE *file, const XNetAttributeViewList *a
 				}
 				fputc('\n', file);
 			}
-		} else if (view->base == XNetBaseInt) {
+		} else if (view->base == XNetBaseInt32) {
+			int32_t *values = (int32_t *)view->attribute->data;
+			for (CXSize idx = 0; idx < edgeCount; idx++) {
+				CXIndex original = edgeOrder[idx];
+				for (CXSize d = 0; d < view->dimension; d++) {
+					if (d > 0) {
+						fputc(' ', file);
+					}
+					int32_t value = values[(size_t)original * view->attribute->dimension + d];
+					fprintf(file, "%" PRId32, value);
+				}
+				fputc('\n', file);
+			}
+		} else if (view->base == XNetBaseUInt32) {
+			uint32_t *values = (uint32_t *)view->attribute->data;
+			for (CXSize idx = 0; idx < edgeCount; idx++) {
+				CXIndex original = edgeOrder[idx];
+				for (CXSize d = 0; d < view->dimension; d++) {
+					if (d > 0) {
+						fputc(' ', file);
+					}
+					uint32_t value = values[(size_t)original * view->attribute->dimension + d];
+					fprintf(file, "%" PRIu32, value);
+				}
+				fputc('\n', file);
+			}
+		} else if (view->base == XNetBaseInt64) {
 			int64_t *values = (int64_t *)view->attribute->data;
 			for (CXSize idx = 0; idx < edgeCount; idx++) {
 				CXIndex original = edgeOrder[idx];
@@ -1981,7 +2113,7 @@ static CXBool XNetWriteEdgeAttributes(FILE *file, const XNetAttributeViewList *a
 				}
 				fputc('\n', file);
 			}
-		} else if (view->base == XNetBaseUInt) {
+		} else if (view->base == XNetBaseUInt64) {
 			uint64_t *values = (uint64_t *)view->attribute->data;
 			for (CXSize idx = 0; idx < edgeCount; idx++) {
 				CXIndex original = edgeOrder[idx];
@@ -2021,7 +2153,25 @@ static CXBool XNetWriteGraphAttributes(FILE *file, const XNetAttributeViewList *
 				fprintf(file, "%.9g", value[d]);
 			}
 			fputc('\n', file);
-		} else if (view->base == XNetBaseInt) {
+		} else if (view->base == XNetBaseInt32) {
+			int32_t *value = (int32_t *)view->attribute->data;
+			for (CXSize d = 0; d < view->dimension; d++) {
+				if (d > 0) {
+					fputc(' ', file);
+				}
+				fprintf(file, "%" PRId32, value[d]);
+			}
+			fputc('\n', file);
+		} else if (view->base == XNetBaseUInt32) {
+			uint32_t *value = (uint32_t *)view->attribute->data;
+			for (CXSize d = 0; d < view->dimension; d++) {
+				if (d > 0) {
+					fputc(' ', file);
+				}
+				fprintf(file, "%" PRIu32, value[d]);
+			}
+			fputc('\n', file);
+		} else if (view->base == XNetBaseInt64) {
 			int64_t *value = (int64_t *)view->attribute->data;
 			for (CXSize d = 0; d < view->dimension; d++) {
 				if (d > 0) {
@@ -2030,7 +2180,7 @@ static CXBool XNetWriteGraphAttributes(FILE *file, const XNetAttributeViewList *
 				fprintf(file, "%" PRId64, value[d]);
 			}
 			fputc('\n', file);
-		} else if (view->base == XNetBaseUInt) {
+		} else if (view->base == XNetBaseUInt64) {
 			uint64_t *value = (uint64_t *)view->attribute->data;
 			for (CXSize d = 0; d < view->dimension; d++) {
 				if (d > 0) {

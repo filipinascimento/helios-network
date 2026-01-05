@@ -36,7 +36,7 @@ static CXBool CXNetworkEnsureNodeCapacity(CXNetworkRef network, CXSize required)
 static CXBool CXNetworkEnsureEdgeCapacity(CXNetworkRef network, CXSize required);
 static void CXNetworkResetNodeRecord(CXNetworkRef network, CXIndex node);
 static void CXNetworkResetEdgeRecord(CXNetworkRef network, CXIndex edge);
-static void CXNetworkDetachEdge(CXNetworkRef network, CXIndex edge, CXBool recycleIndex);
+static CXBool CXNetworkDetachEdge(CXNetworkRef network, CXIndex edge, CXBool recycleIndex);
 
 static void CXNetworkMarkNodesDirty(CXNetworkRef network);
 static void CXNetworkMarkEdgesDirty(CXNetworkRef network);
@@ -96,9 +96,15 @@ static CXBool CXAttributeComputeLayout(
 			baseSize = sizeof(float);
 			break;
 		case CXIntegerAttributeType:
-			baseSize = sizeof(int64_t);
+			baseSize = sizeof(int32_t);
 			break;
 		case CXUnsignedIntegerAttributeType:
+			baseSize = sizeof(uint32_t);
+			break;
+		case CXBigIntegerAttributeType:
+			baseSize = sizeof(int64_t);
+			break;
+		case CXUnsignedBigIntegerAttributeType:
 			baseSize = sizeof(uint64_t);
 			break;
 		case CXDoubleAttributeType:
@@ -203,7 +209,6 @@ static CXBool CXAttributeEnsureCapacity(CXAttributeRef attribute, CXSize require
 	}
 	attribute->data = newData;
 	attribute->capacity = newCapacity;
-	CXVersionBump(&attribute->version);
 	return CXTrue;
 }
 
@@ -213,7 +218,18 @@ static void CXAttributeClearSlot(CXAttributeRef attribute, CXIndex index) {
 		return;
 	}
 	memset(attribute->data + ((size_t)index * attribute->stride), 0, attribute->stride);
-	CXVersionBump(&attribute->version);
+}
+
+static void CXNetworkBumpAttributeDictionaryVersions(CXStringDictionaryRef dictionary) {
+	if (!dictionary) {
+		return;
+	}
+	CXStringDictionaryFOR(entry, dictionary) {
+		CXAttributeRef attribute = (CXAttributeRef)entry->data;
+		if (attribute) {
+			CXVersionBump(&attribute->version);
+		}
+	}
 }
 
 // -----------------------------------------------------------------------------
@@ -530,9 +546,9 @@ static uint32_t CXNetworkEncodeColorValueFromAttribute(CXAttributeRef attribute,
 	}
 	const uint8_t *base = attribute->data + ((size_t)index * attribute->stride);
 	if (attribute->type == CXIntegerAttributeType) {
-		const int64_t *valuePtr = (const int64_t *)base;
-		int64_t raw = valuePtr ? valuePtr[0] : 0;
-		int64_t encoded = raw >= INT64_MAX - 1 ? INT64_MAX : raw + 1;
+		const int32_t *valuePtr = (const int32_t *)base;
+		const int64_t raw = valuePtr ? (int64_t)valuePtr[0] : 0;
+		const int64_t encoded = raw >= INT32_MAX ? (int64_t)INT32_MAX + 1 : raw + 1;
 		if (encoded < 0) {
 			return 0;
 		}
@@ -542,12 +558,9 @@ static uint32_t CXNetworkEncodeColorValueFromAttribute(CXAttributeRef attribute,
 		return (uint32_t)encoded;
 	}
 	if (attribute->type == CXUnsignedIntegerAttributeType) {
-		const uint64_t *valuePtr = (const uint64_t *)base;
-		uint64_t raw = valuePtr ? valuePtr[0] : 0;
+		const uint32_t *valuePtr = (const uint32_t *)base;
+		const uint64_t raw = valuePtr ? (uint64_t)valuePtr[0] : 0;
 		uint64_t encoded = raw + 1;
-		if (encoded < raw) {
-			encoded = UINT64_MAX;
-		}
 		if (encoded > UINT32_MAX) {
 			return UINT32_MAX;
 		}
@@ -1198,6 +1211,34 @@ CXSize CXNetworkEdgeCapacity(CXNetworkRef network) {
 	return network ? network->edgeCapacity : 0;
 }
 
+CXSize CXNetworkNodeFreeListCount(CXNetworkRef network) {
+	if (!network || !network->nodeIndexManager) {
+		return 0;
+	}
+	return network->nodeIndexManager->freeCount;
+}
+
+CXSize CXNetworkNodeFreeListCapacity(CXNetworkRef network) {
+	if (!network || !network->nodeIndexManager) {
+		return 0;
+	}
+	return network->nodeIndexManager->freeCapacity;
+}
+
+CXSize CXNetworkEdgeFreeListCount(CXNetworkRef network) {
+	if (!network || !network->edgeIndexManager) {
+		return 0;
+	}
+	return network->edgeIndexManager->freeCount;
+}
+
+CXSize CXNetworkEdgeFreeListCapacity(CXNetworkRef network) {
+	if (!network || !network->edgeIndexManager) {
+		return 0;
+	}
+	return network->edgeIndexManager->freeCapacity;
+}
+
 CXBool CXNetworkIsDirected(CXNetworkRef network) {
 	return network ? network->isDirected : CXFalse;
 }
@@ -1455,11 +1496,20 @@ CXBool CXNetworkAddNodes(CXNetworkRef network, CXSize count, CXIndex *outIndices
 		return CXFalse;
 	}
 
+	CXStringDictionaryFOR(entry, network->nodeAttributes) {
+		CXAttributeRef attribute = (CXAttributeRef)entry->data;
+		CXAttributeEnsureCapacity(attribute, network->nodeCapacity);
+	}
+
 	for (CXSize i = 0; i < count; i++) {
 		CXIndex index = CXIndexManagerGetIndex(network->nodeIndexManager);
 		if (index == CXInvalidIndexValue) {
 			if (!CXNetworkEnsureNodeCapacity(network, network->nodeCapacity + 1)) {
 				return CXFalse;
+			}
+			CXStringDictionaryFOR(entry, network->nodeAttributes) {
+				CXAttributeRef attribute = (CXAttributeRef)entry->data;
+				CXAttributeEnsureCapacity(attribute, network->nodeCapacity);
 			}
 			index = CXIndexManagerGetIndex(network->nodeIndexManager);
 			if (index == CXInvalidIndexValue) {
@@ -1474,7 +1524,6 @@ CXBool CXNetworkAddNodes(CXNetworkRef network, CXSize count, CXIndex *outIndices
 
 		CXStringDictionaryFOR(entry, network->nodeAttributes) {
 			CXAttributeRef attribute = (CXAttributeRef)entry->data;
-			CXAttributeEnsureCapacity(attribute, network->nodeCapacity);
 			CXAttributeClearSlot(attribute, index);
 		}
 
@@ -1484,6 +1533,7 @@ CXBool CXNetworkAddNodes(CXNetworkRef network, CXSize count, CXIndex *outIndices
 	network->nodeIndexDense.dirty = CXTrue;
 	network->nodeValidRangeDirty = CXTrue;
 	CXNetworkMarkNodesDirty(network);
+	CXNetworkBumpAttributeDictionaryVersions(network->nodeAttributes);
 	CXNetworkBumpTopologyVersion(network, CXTrue);
 	return CXTrue;
 }
@@ -1513,6 +1563,9 @@ CXBool CXNetworkRemoveNodes(CXNetworkRef network, const CXIndex *indices, CXSize
 		return CXFalse;
 	}
 
+	CXBool removedAnyNode = CXFalse;
+	CXBool removedAnyEdge = CXFalse;
+
 	for (CXSize i = 0; i < count; i++) {
 		CXIndex node = indices[i];
 		if (node >= network->nodeCapacity || !network->nodeActive[node]) {
@@ -1524,7 +1577,7 @@ CXBool CXNetworkRemoveNodes(CXNetworkRef network, const CXIndex *indices, CXSize
 		CXSize edgesCount = 0;
 		CXCollectEdgesFromContainer(&network->nodes[node].outNeighbors, &edgesBuffer, &edgesCount);
 		for (CXSize e = 0; e < edgesCount; e++) {
-			CXNetworkDetachEdge(network, edgesBuffer[e], CXTrue);
+			removedAnyEdge = CXNetworkDetachEdge(network, edgesBuffer[e], CXTrue) || removedAnyEdge;
 		}
 		free(edgesBuffer);
 
@@ -1533,7 +1586,7 @@ CXBool CXNetworkRemoveNodes(CXNetworkRef network, const CXIndex *indices, CXSize
 		edgesCount = 0;
 		CXCollectEdgesFromContainer(&network->nodes[node].inNeighbors, &edgesBuffer, &edgesCount);
 		for (CXSize e = 0; e < edgesCount; e++) {
-			CXNetworkDetachEdge(network, edgesBuffer[e], CXTrue);
+			removedAnyEdge = CXNetworkDetachEdge(network, edgesBuffer[e], CXTrue) || removedAnyEdge;
 		}
 		free(edgesBuffer);
 
@@ -1546,6 +1599,7 @@ CXBool CXNetworkRemoveNodes(CXNetworkRef network, const CXIndex *indices, CXSize
 		if (network->nodeCount > 0) {
 			network->nodeCount--;
 		}
+		removedAnyNode = CXTrue;
 	}
 	CXNetworkMarkDenseBuffersDirty(network->nodeDenseBuffers, network->nodeDenseBufferCount);
 	network->nodeIndexDense.dirty = CXTrue;
@@ -1555,6 +1609,12 @@ CXBool CXNetworkRemoveNodes(CXNetworkRef network, const CXIndex *indices, CXSize
 	network->edgeValidRangeDirty = CXTrue;
 	CXNetworkMarkNodesDirty(network);
 	CXNetworkMarkEdgesDirty(network);
+	if (removedAnyNode) {
+		CXNetworkBumpAttributeDictionaryVersions(network->nodeAttributes);
+	}
+	if (removedAnyEdge) {
+		CXNetworkBumpAttributeDictionaryVersions(network->edgeAttributes);
+	}
 	CXNetworkBumpTopologyVersion(network, CXTrue);
 	return CXTrue;
 }
@@ -1597,9 +1657,9 @@ static void CXNeighborContainerRemoveSingleEdge(CXNeighborContainer *container, 
 }
 
 /** Disconnects an edge from its endpoints and optionally recycles its index. */
-static void CXNetworkDetachEdge(CXNetworkRef network, CXIndex edge, CXBool recycleIndex) {
+static CXBool CXNetworkDetachEdge(CXNetworkRef network, CXIndex edge, CXBool recycleIndex) {
 	if (!network || edge >= network->edgeCapacity || !network->edgeActive[edge]) {
-		return;
+		return CXFalse;
 	}
 	CXNetworkMarkEdgesDirty(network);
 	CXNetworkMarkDenseBuffersDirty(network->edgeDenseBuffers, network->edgeDenseBufferCount);
@@ -1624,6 +1684,7 @@ static void CXNetworkDetachEdge(CXNetworkRef network, CXIndex edge, CXBool recyc
 	if (recycleIndex) {
 		CXIndexManagerAddIndex(network->edgeIndexManager, edge);
 	}
+	return CXTrue;
 }
 
 /** Adds new edges to the network, validating endpoints and returning indices. */
@@ -1633,6 +1694,10 @@ CXBool CXNetworkAddEdges(CXNetworkRef network, const CXEdge *edges, CXSize count
 	}
 	if (!CXNetworkEnsureEdgeCapacity(network, network->edgeCount + count)) {
 		return CXFalse;
+	}
+
+	CXStringDictionaryFOR(entry, network->edgeAttributes) {
+		CXAttributeEnsureCapacity((CXAttributeRef)entry->data, network->edgeCapacity);
 	}
 
 	for (CXSize i = 0; i < count; i++) {
@@ -1668,7 +1733,6 @@ CXBool CXNetworkAddEdges(CXNetworkRef network, const CXEdge *edges, CXSize count
 		}
 
 		CXStringDictionaryFOR(entry, network->edgeAttributes) {
-			CXAttributeEnsureCapacity((CXAttributeRef)entry->data, network->edgeCapacity);
 			CXAttributeClearSlot((CXAttributeRef)entry->data, edgeIndex);
 		}
 
@@ -1678,6 +1742,7 @@ CXBool CXNetworkAddEdges(CXNetworkRef network, const CXEdge *edges, CXSize count
 	network->edgeIndexDense.dirty = CXTrue;
 	network->edgeValidRangeDirty = CXTrue;
 	CXNetworkMarkEdgesDirty(network);
+	CXNetworkBumpAttributeDictionaryVersions(network->edgeAttributes);
 	CXNetworkBumpTopologyVersion(network, CXFalse);
 	return CXTrue;
 }
@@ -1687,8 +1752,12 @@ CXBool CXNetworkRemoveEdges(CXNetworkRef network, const CXIndex *indices, CXSize
 	if (!network || !indices || count == 0) {
 		return CXFalse;
 	}
+	CXBool removedAny = CXFalse;
 	for (CXSize i = 0; i < count; i++) {
-		CXNetworkDetachEdge(network, indices[i], CXTrue);
+		removedAny = CXNetworkDetachEdge(network, indices[i], CXTrue) || removedAny;
+	}
+	if (removedAny) {
+		CXNetworkBumpAttributeDictionaryVersions(network->edgeAttributes);
 	}
 	return CXTrue;
 }
@@ -2137,23 +2206,45 @@ CXBool CXNetworkCompact(CXNetworkRef network, const CXString nodeOriginalIndexAt
 	}
 
 	if (nodeOriginAttr && nodeOriginAttr->data) {
-		uint64_t *origin = (uint64_t *)nodeOriginAttr->data;
-		for (CXSize i = 0; i < network->nodeCapacity; i++) {
-			CXIndex mapped = nodeRemap[i];
-			if (mapped == CXIndexMAX) {
-				continue;
+		if (nodeOriginAttr->elementSize == sizeof(uint32_t)) {
+			uint32_t *origin = (uint32_t *)nodeOriginAttr->data;
+			for (CXSize i = 0; i < network->nodeCapacity; i++) {
+				CXIndex mapped = nodeRemap[i];
+				if (mapped == CXIndexMAX) {
+					continue;
+				}
+				origin[mapped] = (uint32_t)i;
 			}
-			origin[mapped] = (uint64_t)i;
+		} else {
+			uint64_t *origin = (uint64_t *)nodeOriginAttr->data;
+			for (CXSize i = 0; i < network->nodeCapacity; i++) {
+				CXIndex mapped = nodeRemap[i];
+				if (mapped == CXIndexMAX) {
+					continue;
+				}
+				origin[mapped] = (uint64_t)i;
+			}
 		}
 	}
 	if (edgeOriginAttr && edgeOriginAttr->data) {
-		uint64_t *origin = (uint64_t *)edgeOriginAttr->data;
-		for (CXSize i = 0; i < network->edgeCapacity; i++) {
-			CXIndex mapped = edgeRemap[i];
-			if (mapped == CXIndexMAX) {
-				continue;
+		if (edgeOriginAttr->elementSize == sizeof(uint32_t)) {
+			uint32_t *origin = (uint32_t *)edgeOriginAttr->data;
+			for (CXSize i = 0; i < network->edgeCapacity; i++) {
+				CXIndex mapped = edgeRemap[i];
+				if (mapped == CXIndexMAX) {
+					continue;
+				}
+				origin[mapped] = (uint32_t)i;
 			}
-			origin[mapped] = (uint64_t)i;
+		} else {
+			uint64_t *origin = (uint64_t *)edgeOriginAttr->data;
+			for (CXSize i = 0; i < network->edgeCapacity; i++) {
+				CXIndex mapped = edgeRemap[i];
+				if (mapped == CXIndexMAX) {
+					continue;
+				}
+				origin[mapped] = (uint64_t)i;
+			}
 		}
 	}
 

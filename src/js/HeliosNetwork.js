@@ -15,6 +15,8 @@ const AttributeType = Object.freeze({
 	Category: 6,
 	Data: 7,
 	Javascript: 8,
+	BigInteger: 9,
+	UnsignedBigInteger: 10,
 	Unknown: 255,
 });
 
@@ -87,9 +89,11 @@ const TypedArrayForType = {
 	[AttributeType.Boolean]: Uint8Array,
 	[AttributeType.Float]: Float32Array,
 	[AttributeType.Double]: Float64Array,
-	[AttributeType.Integer]: BigInt64Array,
-	[AttributeType.UnsignedInteger]: BigUint64Array,
+	[AttributeType.Integer]: Int32Array,
+	[AttributeType.UnsignedInteger]: Uint32Array,
 	[AttributeType.Category]: Uint32Array,
+	[AttributeType.BigInteger]: BigInt64Array,
+	[AttributeType.UnsignedBigInteger]: BigUint64Array,
 };
 
 const DenseTypedArrayForType = {
@@ -107,12 +111,14 @@ const TYPE_ELEMENT_SIZE = {
 	[AttributeType.Boolean]: 1,
 	[AttributeType.Float]: 4,
 	[AttributeType.Double]: 8,
-	[AttributeType.Integer]: 8,
-	[AttributeType.UnsignedInteger]: 8,
+	[AttributeType.Integer]: 4,
+	[AttributeType.UnsignedInteger]: 4,
 	[AttributeType.Category]: 4,
 	[AttributeType.String]: 4,
 	[AttributeType.Data]: 4,
 	[AttributeType.Javascript]: 4,
+	[AttributeType.BigInteger]: 8,
+	[AttributeType.UnsignedBigInteger]: 8,
 };
 
 /**
@@ -1643,6 +1649,433 @@ export class HeliosNetwork {
 		this._ensureActive();
 		const ptr = this.module._CXNetworkEdgesBuffer(this.ptr);
 		return new Uint32Array(this.module.HEAPU32.buffer, ptr, this.edgeCapacity * 2);
+	}
+
+	/**
+	 * Returns a dictionary describing memory usage (in bytes) of the network's buffers.
+	 * Sizes are derived from buffer capacities (not current active counts).
+	 *
+	 * Notes:
+	 * - Sparse attribute buffers are computed as `capacity * strideBytes` using the native stride.
+	 * - Dense buffers use the last known descriptor capacity. Pass `refreshDense:true` to repack
+	 *   all registered dense buffers before reading sizes (may allocate and must not run during buffer access).
+	 * - When dense buffers are aliased into sparse storage, `bytes` is reported as 0 (because no extra memory
+	 *   is owned by the dense buffer). `viewBytes` still reports the logical span of the dense view.
+	 *
+	 * @param {{refreshDense?:boolean, includeJs?:boolean}} [options]
+	 * @returns {object}
+	 */
+	getBufferMemoryUsage(options = {}) {
+		this._ensureActive();
+		const { refreshDense = false, includeJs = true } = options;
+		if (refreshDense) {
+			this._assertCanAllocate('getBufferMemoryUsage(refreshDense)');
+			this.updateDenseNodeIndexBuffer();
+			this.updateDenseEdgeIndexBuffer();
+			for (const name of this._registeredDenseNodeAttributes) {
+				this.updateDenseNodeAttributeBuffer(name);
+			}
+			for (const name of this._registeredDenseEdgeAttributes) {
+				this.updateDenseEdgeAttributeBuffer(name);
+			}
+			for (const encodedName of this._denseColorNodeAttributes.keys()) {
+				this.updateDenseColorEncodedNodeAttribute(encodedName);
+			}
+			for (const encodedName of this._denseColorEdgeAttributes.keys()) {
+				this.updateDenseColorEncodedEdgeAttribute(encodedName);
+			}
+		}
+
+		const buffers = Object.create(null);
+		const byAttribute = {
+			node: Object.create(null),
+			edge: Object.create(null),
+			network: Object.create(null),
+		};
+
+		const totals = {
+			nodes: {
+				activityBytes: 0,
+				freeListBytes: 0,
+				sparseAttributeBytes: 0,
+				denseAttributeBytes: 0,
+				colorEncodedDenseBytes: 0,
+				totalBytes: 0,
+			},
+			edges: {
+				activityBytes: 0,
+				freeListBytes: 0,
+				fromToBytes: 0,
+				sparseAttributeBytes: 0,
+				denseAttributeBytes: 0,
+				colorEncodedDenseBytes: 0,
+				totalBytes: 0,
+			},
+			network: {
+				sparseAttributeBytes: 0,
+				totalBytes: 0,
+			},
+			denseIndex: {
+				wasmBytes: 0,
+				jsBytes: 0,
+				totalBytes: 0,
+			},
+			wasmHeapBytes: this.module?.HEAPU8?.buffer?.byteLength ?? 0,
+		};
+
+		const addBuffer = (key, bytes) => {
+			buffers[key] = bytes >>> 0;
+		};
+
+		const bitsetBytesForCapacity = (capacity) => {
+			const numeric = Number.isFinite(capacity) ? capacity : 0;
+			return Math.ceil(Math.max(0, numeric) / 8);
+		};
+
+		const collectSparseAttributeBytes = (scope, name) => {
+			const meta = this._ensureAttributeMetadata(scope, name);
+			if (!meta) {
+				return null;
+			}
+			const { stride } = this._attributePointers(scope, name, meta);
+			const capacity = this._capacityForScope(scope);
+			return capacity * stride;
+		};
+
+		const isDenseDescriptorAliased = (scope, name, desc) => {
+			if (!desc?.pointer || (scope !== 'node' && scope !== 'edge')) {
+				return false;
+			}
+			let meta;
+			try {
+				meta = this._ensureAttributeMetadata(scope, name);
+			} catch (_) {
+				return false;
+			}
+			if (!meta) {
+				return false;
+			}
+			let pointers;
+			try {
+				pointers = this._attributePointers(scope, name, meta);
+			} catch (_) {
+				return false;
+			}
+			const expected = (pointers.pointer + (Math.max(0, desc.validStart || 0) * pointers.stride)) >>> 0;
+			const countMatchesRange = desc.validEnd != null && desc.validStart != null
+				? desc.count === Math.max(0, desc.validEnd - desc.validStart)
+				: true;
+			return (
+				(desc.pointer >>> 0) === expected
+				&& desc.stride === pointers.stride
+				&& countMatchesRange
+				&& desc.capacity === desc.count * desc.stride
+			);
+		};
+
+		const collectDenseAttribute = (scope, name, desc, kind) => {
+			const viewBytes = desc?.capacity ?? 0;
+			const aliased = kind === 'attribute' ? isDenseDescriptorAliased(scope, name, desc) : false;
+			const bytes = aliased ? 0 : (desc?.pointer ? viewBytes : 0);
+			return bytes;
+		};
+
+		const nodeActivityBytes = bitsetBytesForCapacity(this.nodeCapacity);
+		const edgeActivityBytes = bitsetBytesForCapacity(this.edgeCapacity);
+		const fromToBytes = this.edgeCapacity * 2 * Uint32Array.BYTES_PER_ELEMENT;
+
+		const indexElementBytes = Uint32Array.BYTES_PER_ELEMENT;
+		const nodeFreeListCapacity = typeof this.module._CXNetworkNodeFreeListCapacity === 'function'
+			? this.module._CXNetworkNodeFreeListCapacity(this.ptr)
+			: 0;
+		const nodeFreeListCount = typeof this.module._CXNetworkNodeFreeListCount === 'function'
+			? this.module._CXNetworkNodeFreeListCount(this.ptr)
+			: 0;
+		const edgeFreeListCapacity = typeof this.module._CXNetworkEdgeFreeListCapacity === 'function'
+			? this.module._CXNetworkEdgeFreeListCapacity(this.ptr)
+			: 0;
+		const edgeFreeListCount = typeof this.module._CXNetworkEdgeFreeListCount === 'function'
+			? this.module._CXNetworkEdgeFreeListCount(this.ptr)
+			: 0;
+		const nodeFreeListBytes = nodeFreeListCapacity * indexElementBytes;
+		const edgeFreeListBytes = edgeFreeListCapacity * indexElementBytes;
+
+		totals.nodes.activityBytes += nodeActivityBytes;
+		totals.edges.activityBytes += edgeActivityBytes;
+		totals.edges.fromToBytes += fromToBytes;
+		totals.nodes.freeListBytes += nodeFreeListBytes;
+		totals.edges.freeListBytes += edgeFreeListBytes;
+
+		addBuffer('topology.nodeActivity', nodeActivityBytes);
+		addBuffer('topology.edgeActivity', edgeActivityBytes);
+		addBuffer('topology.nodeFreeList', nodeFreeListBytes);
+		addBuffer('topology.edgeFreeList', edgeFreeListBytes);
+		addBuffer('topology.edgeFromTo', fromToBytes);
+
+		for (const scope of ['node', 'edge', 'network']) {
+			for (const name of this._attributeNames(scope)) {
+				const sparseBytes = collectSparseAttributeBytes(scope, name);
+				if (sparseBytes == null) {
+					continue;
+				}
+				addBuffer(`sparse.${scope}.attribute.${name}`, sparseBytes);
+				byAttribute[scope][name] = {
+					sparseBytes,
+					denseBytes: 0,
+					colorEncodedDenseBytes: 0,
+					totalBytes: sparseBytes,
+				};
+				if (scope === 'node') {
+					totals.nodes.sparseAttributeBytes += sparseBytes;
+				} else if (scope === 'edge') {
+					totals.edges.sparseAttributeBytes += sparseBytes;
+				} else {
+					totals.network.sparseAttributeBytes += sparseBytes;
+				}
+			}
+		}
+
+		const denseNodeNames = new Set([
+			...this._registeredDenseNodeAttributes,
+			...this._denseNodeAttributeDescriptors.keys(),
+		]);
+		for (const name of denseNodeNames) {
+			const desc = this._denseNodeAttributeDescriptors.get(name) ?? this._readDenseBufferDescriptor(0);
+			const bytes = collectDenseAttribute('node', name, desc, 'attribute');
+			addBuffer(`dense.node.attribute.${name}`, bytes);
+			totals.nodes.denseAttributeBytes += bytes;
+			if (byAttribute.node[name]) {
+				byAttribute.node[name].denseBytes = bytes;
+				byAttribute.node[name].totalBytes += bytes;
+			} else {
+				byAttribute.node[name] = {
+					sparseBytes: 0,
+					denseBytes: bytes,
+					colorEncodedDenseBytes: 0,
+					totalBytes: bytes,
+				};
+			}
+		}
+
+		const denseEdgeNames = new Set([
+			...this._registeredDenseEdgeAttributes,
+			...this._denseEdgeAttributeDescriptors.keys(),
+		]);
+		for (const name of denseEdgeNames) {
+			const desc = this._denseEdgeAttributeDescriptors.get(name) ?? this._readDenseBufferDescriptor(0);
+			const bytes = collectDenseAttribute('edge', name, desc, 'attribute');
+			addBuffer(`dense.edge.attribute.${name}`, bytes);
+			totals.edges.denseAttributeBytes += bytes;
+			if (byAttribute.edge[name]) {
+				byAttribute.edge[name].denseBytes = bytes;
+				byAttribute.edge[name].totalBytes += bytes;
+			} else {
+				byAttribute.edge[name] = {
+					sparseBytes: 0,
+					denseBytes: bytes,
+					colorEncodedDenseBytes: 0,
+					totalBytes: bytes,
+				};
+			}
+		}
+
+		const denseNodeIndexDesc = this._denseNodeIndexDescriptor ?? this._readDenseBufferDescriptor(0);
+		const denseEdgeIndexDesc = this._denseEdgeIndexDescriptor ?? this._readDenseBufferDescriptor(0);
+		const nodeIndexWasmBytes = denseNodeIndexDesc.pointer ? denseNodeIndexDesc.capacity : 0;
+		const edgeIndexWasmBytes = denseEdgeIndexDesc.pointer ? denseEdgeIndexDesc.capacity : 0;
+		const nodeIndexJsBytes = includeJs && denseNodeIndexDesc?.jsView instanceof Uint32Array ? denseNodeIndexDesc.jsView.byteLength : 0;
+		const edgeIndexJsBytes = includeJs && denseEdgeIndexDesc?.jsView instanceof Uint32Array ? denseEdgeIndexDesc.jsView.byteLength : 0;
+		totals.denseIndex.wasmBytes += nodeIndexWasmBytes + edgeIndexWasmBytes;
+		totals.denseIndex.jsBytes += nodeIndexJsBytes + edgeIndexJsBytes;
+		addBuffer('dense.node.index.wasm', nodeIndexWasmBytes);
+		addBuffer('dense.node.index.js', nodeIndexJsBytes);
+		addBuffer('dense.edge.index.wasm', edgeIndexWasmBytes);
+		addBuffer('dense.edge.index.js', edgeIndexJsBytes);
+
+		const denseColorNodeNames = new Set([
+			...this._denseColorNodeAttributes.keys(),
+			...this._denseColorNodeDescriptors.keys(),
+		]);
+		for (const encodedName of denseColorNodeNames) {
+			const desc = this._denseColorNodeDescriptors.get(encodedName) ?? this._readDenseBufferDescriptor(0);
+			const bytes = collectDenseAttribute('node', encodedName, desc, 'colorEncoded');
+			addBuffer(`denseColor.node.${encodedName}`, bytes);
+			totals.nodes.colorEncodedDenseBytes += bytes;
+		}
+
+		const denseColorEdgeNames = new Set([
+			...this._denseColorEdgeAttributes.keys(),
+			...this._denseColorEdgeDescriptors.keys(),
+		]);
+		for (const encodedName of denseColorEdgeNames) {
+			const desc = this._denseColorEdgeDescriptors.get(encodedName) ?? this._readDenseBufferDescriptor(0);
+			const bytes = collectDenseAttribute('edge', encodedName, desc, 'colorEncoded');
+			addBuffer(`denseColor.edge.${encodedName}`, bytes);
+			totals.edges.colorEncodedDenseBytes += bytes;
+		}
+
+		for (const [encodedName, meta] of this._denseColorNodeAttributes.entries()) {
+			const sourceName = meta?.sourceName;
+			if (typeof sourceName !== 'string' || sourceName === '$index') {
+				continue;
+			}
+			if (!byAttribute.node[sourceName]) {
+				continue;
+			}
+			const desc = this._denseColorNodeDescriptors.get(encodedName);
+			if (!desc) {
+				continue;
+			}
+			const bytes = collectDenseAttribute('node', encodedName, desc, 'colorEncoded');
+			byAttribute.node[sourceName].colorEncodedDenseBytes += bytes;
+			byAttribute.node[sourceName].totalBytes += bytes;
+		}
+
+		for (const [encodedName, meta] of this._denseColorEdgeAttributes.entries()) {
+			const sourceName = meta?.sourceName;
+			if (typeof sourceName !== 'string' || sourceName === '$index') {
+				continue;
+			}
+			if (!byAttribute.edge[sourceName]) {
+				continue;
+			}
+			const desc = this._denseColorEdgeDescriptors.get(encodedName);
+			if (!desc) {
+				continue;
+			}
+			const bytes = collectDenseAttribute('edge', encodedName, desc, 'colorEncoded');
+			byAttribute.edge[sourceName].colorEncodedDenseBytes += bytes;
+			byAttribute.edge[sourceName].totalBytes += bytes;
+		}
+
+		totals.denseIndex.totalBytes = totals.denseIndex.wasmBytes + totals.denseIndex.jsBytes;
+		totals.nodes.totalBytes = totals.nodes.activityBytes
+			+ totals.nodes.freeListBytes
+			+ totals.nodes.sparseAttributeBytes
+			+ totals.nodes.denseAttributeBytes
+			+ totals.nodes.colorEncodedDenseBytes;
+		totals.edges.totalBytes = totals.edges.activityBytes
+			+ totals.edges.freeListBytes
+			+ totals.edges.fromToBytes
+			+ totals.edges.sparseAttributeBytes
+			+ totals.edges.denseAttributeBytes
+			+ totals.edges.colorEncodedDenseBytes;
+		totals.network.totalBytes = totals.network.sparseAttributeBytes;
+
+		const attributes = {
+			node: {
+				sparseBytes: totals.nodes.sparseAttributeBytes,
+				denseBytes: totals.nodes.denseAttributeBytes,
+				colorEncodedDenseBytes: totals.nodes.colorEncodedDenseBytes,
+				totalBytes: totals.nodes.sparseAttributeBytes + totals.nodes.denseAttributeBytes + totals.nodes.colorEncodedDenseBytes,
+			},
+			edge: {
+				fromToBytes: totals.edges.fromToBytes,
+				sparseBytes: totals.edges.sparseAttributeBytes,
+				denseBytes: totals.edges.denseAttributeBytes,
+				colorEncodedDenseBytes: totals.edges.colorEncodedDenseBytes,
+				totalBytes: totals.edges.fromToBytes + totals.edges.sparseAttributeBytes + totals.edges.denseAttributeBytes + totals.edges.colorEncodedDenseBytes,
+			},
+			network: {
+				sparseBytes: totals.network.sparseAttributeBytes,
+				totalBytes: totals.network.totalBytes,
+			},
+		};
+
+		const wasm = {
+			heapBytes: totals.wasmHeapBytes,
+		};
+
+		return {
+			totals,
+			attributes,
+			byAttribute,
+			buffers,
+			wasm,
+		};
+	}
+
+	/**
+	 * Returns a dictionary containing version counters for all tracked items.
+	 * Values are the version numbers only (no metadata).
+	 *
+	 * @param {{refreshDense?:boolean}} [options]
+	 * @returns {object}
+	 */
+	getBufferVersions(options = {}) {
+		this._ensureActive();
+		this._assertCanAllocate('getBufferVersions');
+		const { refreshDense = false } = options;
+
+		if (refreshDense) {
+			this._assertCanAllocate('getBufferVersions(refreshDense)');
+			this.updateDenseNodeIndexBuffer();
+			this.updateDenseEdgeIndexBuffer();
+			for (const name of this._registeredDenseNodeAttributes) {
+				this.updateDenseNodeAttributeBuffer(name);
+			}
+			for (const name of this._registeredDenseEdgeAttributes) {
+				this.updateDenseEdgeAttributeBuffer(name);
+			}
+			for (const encodedName of this._denseColorNodeAttributes.keys()) {
+				this.updateDenseColorEncodedNodeAttribute(encodedName);
+			}
+			for (const encodedName of this._denseColorEdgeAttributes.keys()) {
+				this.updateDenseColorEncodedEdgeAttribute(encodedName);
+			}
+		}
+
+		const topology = this.getTopologyVersions();
+
+		const attributes = {
+			node: Object.create(null),
+			edge: Object.create(null),
+			network: Object.create(null),
+		};
+		for (const name of this.getNodeAttributeNames()) {
+			attributes.node[name] = this.getNodeAttributeVersion(name);
+		}
+		for (const name of this.getEdgeAttributeNames()) {
+			attributes.edge[name] = this.getEdgeAttributeVersion(name);
+		}
+		for (const name of this.getNetworkAttributeNames()) {
+			attributes.network[name] = this.getNetworkAttributeVersion(name);
+		}
+
+		const dense = {
+			node: {
+				index: (this._denseNodeIndexDescriptor?.version ?? 0) >>> 0,
+				attributes: Object.create(null),
+			},
+			edge: {
+				index: (this._denseEdgeIndexDescriptor?.version ?? 0) >>> 0,
+				attributes: Object.create(null),
+			},
+		};
+		for (const name of new Set([...this._registeredDenseNodeAttributes, ...this._denseNodeAttributeDescriptors.keys()])) {
+			dense.node.attributes[name] = (this._denseNodeAttributeDescriptors.get(name)?.version ?? 0) >>> 0;
+		}
+		for (const name of new Set([...this._registeredDenseEdgeAttributes, ...this._denseEdgeAttributeDescriptors.keys()])) {
+			dense.edge.attributes[name] = (this._denseEdgeAttributeDescriptors.get(name)?.version ?? 0) >>> 0;
+		}
+
+		const colorEncodedDense = {
+			node: Object.create(null),
+			edge: Object.create(null),
+		};
+		for (const name of new Set([...this._denseColorNodeAttributes.keys(), ...this._denseColorNodeDescriptors.keys()])) {
+			colorEncodedDense.node[name] = (this._denseColorNodeDescriptors.get(name)?.version ?? 0) >>> 0;
+		}
+		for (const name of new Set([...this._denseColorEdgeAttributes.keys(), ...this._denseColorEdgeDescriptors.keys()])) {
+			colorEncodedDense.edge[name] = (this._denseColorEdgeDescriptors.get(name)?.version ?? 0) >>> 0;
+		}
+
+		return {
+			topology,
+			attributes,
+			dense,
+			colorEncodedDense,
+		};
 	}
 
 	/**
@@ -3452,7 +3885,7 @@ export class HeliosNetwork {
 		if (!useIndex) {
 			const meta = this._ensureAttributeMetadata(scope, sourceName);
 			if (meta.type !== AttributeType.Integer && meta.type !== AttributeType.UnsignedInteger) {
-				throw new Error('Color encoding only supports integer or unsigned integer attributes');
+				throw new Error('Color encoding only supports 32-bit integer attributes');
 			}
 			const dimension = Math.max(1, meta.dimension || 1);
 			if (dimension !== 1) {
@@ -4086,7 +4519,9 @@ export class HeliosNetwork {
 		return type === AttributeType.Float
 			|| type === AttributeType.Double
 			|| type === AttributeType.Integer
-			|| type === AttributeType.UnsignedInteger;
+			|| type === AttributeType.UnsignedInteger
+			|| type === AttributeType.BigInteger
+			|| type === AttributeType.UnsignedBigInteger;
 	}
 
 	_normalizeEndpointMode(endpoints) {
