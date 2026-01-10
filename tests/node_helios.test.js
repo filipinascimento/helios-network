@@ -222,6 +222,36 @@ describe('HeliosNetwork (Node runtime)', () => {
 		}
 	});
 
+	test('omits node-to-edge passthrough attributes when saving', async () => {
+		const net = await HeliosNetwork.create({ directed: false, initialNodes: 0, initialEdges: 0 });
+		try {
+			const nodes = net.addNodes(2);
+			net.addEdges([{ from: nodes[0], to: nodes[1] }]);
+			net.defineNodeAttribute('score', AttributeType.Float, 1);
+			net.defineNodeToEdgeAttribute('score', 'score_passthrough', 'both', true);
+
+			const passthroughsBefore = net.getNodeToEdgePassthroughs().map((p) => p.edgeName);
+			expect(passthroughsBefore).toContain('score_passthrough');
+
+			const bytes = await net.saveXNet({ format: 'uint8array' });
+			const text = Buffer.from(bytes).toString('utf8');
+			expect(text).not.toContain('#e "score_passthrough"');
+
+			const loaded = await HeliosNetwork.fromXNet(bytes);
+			try {
+				expect(loaded.hasEdgeAttribute('score_passthrough')).toBe(false);
+			} finally {
+				loaded.dispose();
+			}
+
+			const passthroughsAfter = net.getNodeToEdgePassthroughs().map((p) => p.edgeName);
+			expect(passthroughsAfter).toContain('score_passthrough');
+			expect(net.hasEdgeAttribute('score_passthrough')).toBe(true);
+		} finally {
+			net.dispose();
+		}
+	});
+
 	test('checks active index membership', async () => {
 		const net = await HeliosNetwork.create({ directed: true, initialNodes: 0, initialEdges: 0 });
 		try {

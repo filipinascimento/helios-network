@@ -111,7 +111,7 @@ Legacy files omit the version banner and are more permissive:
 
 ```
 legacy_file    := vertices legacy_labels? legacy_edges? vertex_attrs edge_attrs
-vertices       := "#vertices" SP count
+vertices       := "#vertices" SP count { legacy_token }
 legacy_labels  := string_line{count}   // optional; aborted if next line starts with '#'
 legacy_edges   := legacy_edges_header legacy_edge_list?
 legacy_edges_header := "#edges" { legacy_token }

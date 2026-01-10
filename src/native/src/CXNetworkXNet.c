@@ -476,7 +476,7 @@ static CXBool XNetDecodeString(const char *input, CXBool quoted, char **outValue
 	return CXTrue;
 }
 
-static CXBool XNetParseStringValue(const char *line, char **out, XNetError *error, size_t lineNumber) {
+static CXBool XNetParseStringValue(const char *line, CXBool legacy, char **out, XNetError *error, size_t lineNumber) {
 	if (!line || !out) {
 		return CXFalse;
 	}
@@ -505,7 +505,17 @@ static CXBool XNetParseStringValue(const char *line, char **out, XNetError *erro
 		memcpy(payload, trimmed + 1, len - 2);
 		payload[len - 2] = '\0';
 		char *decoded = NULL;
-		CXBool ok = XNetDecodeString(payload, CXTrue, &decoded, error, lineNumber);
+		CXBool ok = CXFalse;
+		if (legacy) {
+			ok = XNetDecodeString(payload, CXTrue, &decoded, NULL, lineNumber);
+			if (!ok) {
+				*out = CXNewStringFromString(payload);
+				free(payload);
+				return *out != NULL;
+			}
+		} else {
+			ok = XNetDecodeString(payload, CXTrue, &decoded, error, lineNumber);
+		}
 		free(payload);
 		if (!ok) {
 			return CXFalse;
@@ -770,7 +780,7 @@ static CXBool XNetParseQuotedName(const char *line, char **out, XNetError *error
 	return CXTrue;
 }
 
-static CXBool XNetParseVertices(XNetParser *parser, const char *directiveLine, XNetError *error, size_t lineNumber) {
+static CXBool XNetParseVertices(XNetParser *parser, const char *directiveLine, CXBool legacy, XNetError *error, size_t lineNumber) {
 	if (!parser || !directiveLine) {
 		return CXFalse;
 	}
@@ -797,8 +807,41 @@ static CXBool XNetParseVertices(XNetParser *parser, const char *directiveLine, X
 		end++;
 	}
 	if (*end != '\0') {
-		XNetErrorSet(error, lineNumber, "Unexpected trailing characters in #vertices directive");
-		return CXFalse;
+		if (!legacy) {
+			XNetErrorSet(error, lineNumber, "Unexpected trailing characters in #vertices directive");
+			return CXFalse;
+		}
+		while (*end) {
+			while (*end && isspace((unsigned char)*end)) {
+				end++;
+			}
+			if (*end == '\0') {
+				break;
+			}
+			const char *tokenStart = end;
+			while (*end && !isspace((unsigned char)*end)) {
+				end++;
+			}
+			size_t tokenLen = (size_t)(end - tokenStart);
+			char token[32];
+			if (tokenLen == 0) {
+				continue;
+			}
+			if (tokenLen >= sizeof(token)) {
+				XNetErrorSet(error, lineNumber, "Invalid token in #vertices directive");
+				return CXFalse;
+			}
+			memcpy(token, tokenStart, tokenLen);
+			token[tokenLen] = '\0';
+			if (strcmp(token, "weighted") == 0 ||
+			    strcmp(token, "nonweighted") == 0 ||
+			    strcmp(token, "directed") == 0 ||
+			    strcmp(token, "undirected") == 0) {
+				continue;
+			}
+			XNetErrorSet(error, lineNumber, "Unknown token '%s' in #vertices directive", token);
+			return CXFalse;
+		}
 	}
 	parser->vertexCount = (CXSize)count;
 	parser->verticesSeen = CXTrue;
@@ -935,7 +978,7 @@ static CXBool XNetConsumeLegacyLabels(XNetParser *parser, XNetError *error) {
 		}
 		XNetTrimTrailing(line);
 		char *value = NULL;
-		if (!XNetParseStringValue(line, &value, error, lineNumber)) {
+		if (!XNetParseStringValue(line, parser->legacy, &value, error, lineNumber)) {
 			free(line);
 			return CXFalse;
 		}
@@ -1021,7 +1064,7 @@ static CXBool XNetParseVertexAttribute(XNetParser *parser, const char *line, XNe
 		CXBool ok = CXFalse;
 		if (block->base == XNetBaseString) {
 			char *decoded = NULL;
-			ok = XNetParseStringValue(valueLine, &decoded, error, valueLineNumber);
+			ok = XNetParseStringValue(valueLine, parser->legacy, &decoded, error, valueLineNumber);
 			if (ok) {
 				block->values.asString[idx] = decoded;
 			}
@@ -1121,7 +1164,7 @@ static CXBool XNetParseEdgeAttribute(XNetParser *parser, const char *line, XNetE
 		CXBool ok = CXFalse;
 		if (block->base == XNetBaseString) {
 			char *decoded = NULL;
-			ok = XNetParseStringValue(valueLine, &decoded, error, valueLineNumber);
+			ok = XNetParseStringValue(valueLine, parser->legacy, &decoded, error, valueLineNumber);
 			if (ok) {
 				block->values.asString[idx] = decoded;
 			}
@@ -1220,7 +1263,7 @@ static CXBool XNetParseGraphAttribute(XNetParser *parser, const char *line, XNet
 	CXBool ok = CXFalse;
 	if (block->base == XNetBaseString) {
 		char *decoded = NULL;
-		ok = XNetParseStringValue(valueLine, &decoded, error, valueLineNumber);
+		ok = XNetParseStringValue(valueLine, CXFalse, &decoded, error, valueLineNumber);
 		if (ok) {
 			block->values.asString[0] = decoded;
 		}
@@ -1411,7 +1454,7 @@ static CXBool XNetParserRun(XNetParser *parser, XNetError *error) {
 			if (strncmp(trimLeading, "#vertices", 9) == 0) {
 				parser->legacy = CXTrue;
 				parser->headerSeen = CXTrue;
-				if (!XNetParseVertices(parser, trimLeading, error, lineNumber)) {
+				if (!XNetParseVertices(parser, trimLeading, CXTrue, error, lineNumber)) {
 					free(line);
 					return CXFalse;
 				}
@@ -1427,7 +1470,7 @@ static CXBool XNetParserRun(XNetParser *parser, XNetError *error) {
 		}
 
 		if (strncmp(trimLeading, "#vertices", 9) == 0) {
-			if (!XNetParseVertices(parser, trimLeading, error, lineNumber)) {
+			if (!XNetParseVertices(parser, trimLeading, parser->legacy, error, lineNumber)) {
 				free(line);
 				return CXFalse;
 			}
@@ -1875,9 +1918,6 @@ static CXBool XNetCollectAttributes(CXStringDictionaryRef dictionary, XNetAttrib
 		return CXFalse;
 	}
 	size_t count = CXStringDictionaryCount(dictionary);
-	if (skipName && CXStringDictionaryEntryForKey(dictionary, (CXString)skipName)) {
-		count--;
-	}
 	if (!XNetAttributeViewListEnsure(outList, outList->count + count)) {
 		return CXFalse;
 	}

@@ -108,6 +108,24 @@ typedef struct {
 	CXIndex index;
 } EdgeRecord;
 
+static CXSize find_node_position(const CXIndex *nodes, CXSize count, uint64_t needle) {
+	for (CXSize i = 0; i < count; i++) {
+		if ((uint64_t)nodes[i] == needle) {
+			return i;
+		}
+	}
+	return (CXSize)-1;
+}
+
+static const EdgeRecord *find_edge_record(const EdgeRecord *edges, CXSize count, uint64_t needle) {
+	for (CXSize i = 0; i < count; i++) {
+		if ((uint64_t)edges[i].index == needle) {
+			return &edges[i];
+		}
+	}
+	return NULL;
+}
+
 static double random_unit(void) {
 	return (double)rand() / (double)RAND_MAX;
 }
@@ -374,28 +392,70 @@ static void verify_compaction(CXNetworkRef net, const CXIndex *activeNodes, CXSi
 	CXAttributeRef nodeAttr = CXNetworkGetNodeAttribute(net, "__orig_node");
 	if (nodeActiveCount > 0) {
 		assert(nodeAttr && nodeAttr->data);
-		const uint64_t *orig = (const uint64_t *)nodeAttr->data;
+		uint8_t *seen = calloc(nodeActiveCount, sizeof(uint8_t));
+		assert(seen);
 		for (CXSize i = 0; i < nodeActiveCount; i++) {
-			assert(orig[i] == (uint64_t)activeNodes[i]);
+			uint64_t originalIndex = 0;
+			if (nodeAttr->elementSize == sizeof(uint32_t)) {
+				originalIndex = (uint64_t)((const uint32_t *)nodeAttr->data)[i];
+			} else {
+				originalIndex = ((const uint64_t *)nodeAttr->data)[i];
+			}
+			CXSize pos = find_node_position(activeNodes, nodeActiveCount, originalIndex);
+			assert(pos != (CXSize)-1);
+			assert(!seen[pos]);
+			seen[pos] = 1;
 		}
+		for (CXSize i = 0; i < nodeActiveCount; i++) {
+			assert(seen[i]);
+		}
+		free(seen);
 	}
 	CXAttributeRef edgeAttr = CXNetworkGetEdgeAttribute(net, "__orig_edge");
 	if (edgeActiveCount > 0) {
 		assert(edgeAttr && edgeAttr->data);
-		const uint64_t *edgeOrig = (const uint64_t *)edgeAttr->data;
-		const uint64_t *nodeOrig = nodeAttr && nodeAttr->data ? (const uint64_t *)nodeAttr->data : NULL;
+		const void *nodeOrigData = nodeAttr && nodeAttr->data ? nodeAttr->data : NULL;
+		uint8_t *seen = calloc(edgeActiveCount, sizeof(uint8_t));
+		assert(seen);
 		for (CXSize i = 0; i < edgeActiveCount; i++) {
-			assert(edgeOrig[i] == (uint64_t)activeEdges[i].index);
-			CXEdge expected = activeEdges[i].edge;
+			uint64_t originalEdgeIndex = 0;
+			if (edgeAttr->elementSize == sizeof(uint32_t)) {
+				originalEdgeIndex = (uint64_t)((const uint32_t *)edgeAttr->data)[i];
+			} else {
+				originalEdgeIndex = ((const uint64_t *)edgeAttr->data)[i];
+			}
+			const EdgeRecord *record = find_edge_record(activeEdges, edgeActiveCount, originalEdgeIndex);
+			assert(record);
+			CXSize pos = (CXSize)(record - activeEdges);
+			assert(pos < edgeActiveCount);
+			assert(!seen[pos]);
+			seen[pos] = 1;
+
+			CXEdge expected = record->edge;
 			CXEdge actual = net->edges[i];
-			if (nodeOrig) {
-				assert(nodeOrig[actual.from] == (uint64_t)expected.from);
-				assert(nodeOrig[actual.to] == (uint64_t)expected.to);
+			if (nodeOrigData) {
+				uint64_t fromOrig = 0;
+				uint64_t toOrig = 0;
+				if (nodeAttr->elementSize == sizeof(uint32_t)) {
+					const uint32_t *nodeOrig = (const uint32_t *)nodeOrigData;
+					fromOrig = (uint64_t)nodeOrig[actual.from];
+					toOrig = (uint64_t)nodeOrig[actual.to];
+				} else {
+					const uint64_t *nodeOrig = (const uint64_t *)nodeOrigData;
+					fromOrig = nodeOrig[actual.from];
+					toOrig = nodeOrig[actual.to];
+				}
+				assert(fromOrig == (uint64_t)expected.from);
+				assert(toOrig == (uint64_t)expected.to);
 			} else {
 				assert(actual.from == expected.from);
 				assert(actual.to == expected.to);
 			}
 		}
+		for (CXSize i = 0; i < edgeActiveCount; i++) {
+			assert(seen[i]);
+		}
+		free(seen);
 	}
 }
 
@@ -472,7 +532,7 @@ static void test_xnet_round_trip(void) {
 	labels[nodes[2]] = CXNewStringFromString("Gamma#Tag");
 
 	assert(CXNetworkDefineNodeAttribute(net, "coord", CXIntegerAttributeType, 3));
-	int64_t *coords = (int64_t *)CXNetworkGetNodeAttributeBuffer(net, "coord");
+	int32_t *coords = (int32_t *)CXNetworkGetNodeAttributeBuffer(net, "coord");
 	for (int i = 0; i < 3; i++) {
 		coords[nodes[i] * 3 + 0] = i;
 		coords[nodes[i] * 3 + 1] = i + 10;
@@ -522,7 +582,7 @@ static void test_xnet_round_trip(void) {
 	assert(strcmp(loadedLabels[1], "Beta Value") == 0);
 	assert(strcmp(loadedLabels[2], "Gamma#Tag") == 0);
 
-	int64_t *loadedCoords = (int64_t *)CXNetworkGetNodeAttributeBuffer(loaded, "coord");
+	int32_t *loadedCoords = (int32_t *)CXNetworkGetNodeAttributeBuffer(loaded, "coord");
 	assert(loadedCoords);
 	for (int i = 0; i < 3; i++) {
 		assert(loadedCoords[i * 3 + 0] == i);
@@ -623,6 +683,50 @@ static void test_xnet_legacy_upgrade(void) {
 	CXFreeNetwork(net);
 }
 
+static void test_xnet_legacy_vertices_tokens_and_unescaped_strings(void) {
+	const char *legacy =
+		"#vertices 3 nonweighted\n"
+		"\"Monkey\"\n"
+		"\"Fish\"\n"
+		"\"Cat\\Dog\"\n"
+		"#edges nonweighted undirected\n"
+		"0 1\n"
+		"#v \"Category\" s\n"
+		"\"Monkey\"\n"
+		"\"Fish\"\n"
+		"\"Cat\\Dog\"\n";
+
+	char legacyPath[] = "/tmp/cxnet-legacy-tokens-XXXXXX";
+	int fd = mkstemp(legacyPath);
+	assert(fd >= 0);
+	size_t legacyLen = strlen(legacy);
+	assert(write(fd, legacy, legacyLen) == (ssize_t)legacyLen);
+	close(fd);
+
+	CXNetworkRef net = CXNetworkReadXNet(legacyPath);
+	assert(net);
+	unlink(legacyPath);
+
+	assert(net->nodeCount == 3);
+	assert(net->edgeCount == 1);
+	assert(!CXNetworkIsDirected(net));
+
+	CXString *labels = (CXString *)CXNetworkGetNodeAttributeBuffer(net, "Label");
+	assert(labels);
+	assert(strcmp(labels[0], "Monkey") == 0);
+	assert(strcmp(labels[1], "Fish") == 0);
+	assert(strcmp(labels[2], "Cat\\Dog") == 0);
+
+	CXString *categories = (CXString *)CXNetworkGetNodeAttributeBuffer(net, "Category");
+	assert(categories);
+	assert(strcmp(categories[0], "Monkey") == 0);
+	assert(strcmp(categories[1], "Fish") == 0);
+	assert(strcmp(categories[2], "Cat\\Dog") == 0);
+
+	release_all_string_attributes(net);
+	CXFreeNetwork(net);
+}
+
 static void test_xnet_string_escaping(void) {
 	const char *content =
 		"#XNET 1.0.0\n"
@@ -687,6 +791,10 @@ static void test_xnet_invalid_inputs(void) {
 			"#XNET 1.0.0\n#vertices 2\n#edges undirected\n0 2\n",
 		},
 		{
+			"invalid escape sequence",
+			"#XNET 1.0.0\n#vertices 1\n#edges undirected\n#v \"Label\" s\n\"Cat\\Dog\"\n",
+		},
+		{
 			"vector arity mismatch",
 			"#XNET 1.0.0\n#vertices 2\n#edges undirected\n0 1\n#v \"Vec\" f3\n1 2\n3 4 5\n",
 		},
@@ -732,7 +840,7 @@ static void test_xnet_compaction_mapping(void) {
 	assert(CXNetworkAddEdges(net, edges, 3, NULL));
 
 	assert(CXNetworkDefineNodeAttribute(net, "value", CXIntegerAttributeType, 1));
-	int64_t *values = (int64_t *)CXNetworkGetNodeAttributeBuffer(net, "value");
+	int32_t *values = (int32_t *)CXNetworkGetNodeAttributeBuffer(net, "value");
 	for (int i = 0; i < 5; i++) {
 		values[nodes[i]] = i * 10;
 	}
@@ -756,7 +864,7 @@ static void test_xnet_compaction_mapping(void) {
 	assert(compact->edgeCount == 3);
 	assert(!CXNetworkIsDirected(compact));
 
-	int64_t *loadedValues = (int64_t *)CXNetworkGetNodeAttributeBuffer(compact, "value");
+	int32_t *loadedValues = (int32_t *)CXNetworkGetNodeAttributeBuffer(compact, "value");
 	assert(loadedValues);
 	assert(loadedValues[0] == 0);
 	assert(loadedValues[1] == 20);
@@ -807,6 +915,7 @@ int main(void) {
 	test_attributes();
 	test_xnet_round_trip();
 	test_xnet_legacy_upgrade();
+	test_xnet_legacy_vertices_tokens_and_unescaped_strings();
 	test_xnet_string_escaping();
 	test_xnet_invalid_inputs();
 	test_xnet_compaction_mapping();

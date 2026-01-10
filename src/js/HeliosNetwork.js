@@ -4932,7 +4932,21 @@ export class HeliosNetwork {
 
 		const cPath = new CString(module, pathForNative);
 		let success = false;
+		const passthroughSnapshot = [];
+		for (const [edgeName, entry] of this._nodeToEdgePassthrough.entries()) {
+			passthroughSnapshot.push({
+				edgeName,
+				sourceName: entry.sourceName,
+				endpointMode: entry.endpointMode,
+				doubleWidth: entry.doubleWidth,
+			});
+		}
 		try {
+			if (passthroughSnapshot.length) {
+				for (const entry of passthroughSnapshot) {
+					this.removeEdgeAttribute(entry.edgeName);
+				}
+			}
 			if (kind === 'zxnet') {
 				const level = clampCompressionLevel(options?.compressionLevel ?? 6);
 				success = writeFn.call(module, this.ptr, cPath.ptr, level);
@@ -4941,6 +4955,11 @@ export class HeliosNetwork {
 			}
 		} finally {
 			cPath.dispose();
+			if (passthroughSnapshot.length) {
+				for (const entry of passthroughSnapshot) {
+					this.defineNodeToEdgeAttribute(entry.sourceName, entry.edgeName, entry.endpointMode, entry.doubleWidth);
+				}
+			}
 		}
 
 		if (!success) {
