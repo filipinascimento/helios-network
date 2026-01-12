@@ -39,43 +39,9 @@ else
   zlib_dep = dependency('zlib')
 endif
 
-exported_functions = [
-  '_malloc','_free','_calloc',
-  '_CXNetworkVersionString',
-  '_CXNewNetwork','_CXNewNetworkWithCapacity','_CXFreeNetwork',
-  '_CXNetworkAddNodes','_CXNetworkRemoveNodes','_CXNetworkAddEdges','_CXNetworkRemoveEdges',
-  '_CXNetworkNodeCount','_CXNetworkEdgeCount','_CXNetworkNodeCapacity','_CXNetworkEdgeCapacity',
-  '_CXNetworkNodeFreeListCount','_CXNetworkNodeFreeListCapacity','_CXNetworkEdgeFreeListCount','_CXNetworkEdgeFreeListCapacity',
-  '_CXNetworkNodeActivityBuffer','_CXNetworkEdgeActivityBuffer','_CXNetworkEdgesBuffer',
-  '_CXNetworkWriteActiveNodes','_CXNetworkWriteActiveEdges','_CXNetworkWriteActiveEdgeSegments','_CXNetworkWriteActiveEdgeNodeAttributes','_CXNetworkWriteEdgeNodeAttributesInOrder','_CXNetworkCopyNodeAttributesToEdgeAttributes',
-  '_CXNetworkAddDenseNodeAttribute','_CXNetworkAddDenseEdgeAttribute','_CXNetworkRemoveDenseNodeAttribute','_CXNetworkRemoveDenseEdgeAttribute',
-  '_CXNetworkMarkDenseNodeAttributeDirty','_CXNetworkMarkDenseEdgeAttributeDirty',
-  '_CXNetworkRemoveNodeAttribute','_CXNetworkRemoveEdgeAttribute','_CXNetworkRemoveNetworkAttribute',
-  '_CXNetworkUpdateDenseNodeAttribute','_CXNetworkUpdateDenseEdgeAttribute','_CXNetworkUpdateDenseNodeIndexBuffer','_CXNetworkUpdateDenseEdgeIndexBuffer',
-  '_CXNetworkDefineDenseColorEncodedNodeAttribute','_CXNetworkDefineDenseColorEncodedEdgeAttribute',
-  '_CXNetworkRemoveDenseColorEncodedNodeAttribute','_CXNetworkRemoveDenseColorEncodedEdgeAttribute',
-  '_CXNetworkMarkDenseColorEncodedNodeAttributeDirty','_CXNetworkMarkDenseColorEncodedEdgeAttributeDirty',
-  '_CXNetworkUpdateDenseColorEncodedNodeAttribute','_CXNetworkUpdateDenseColorEncodedEdgeAttribute',
-  '_CXNetworkSetDenseNodeOrder','_CXNetworkSetDenseEdgeOrder',
-  '_CXNetworkGetNodeValidRange','_CXNetworkGetEdgeValidRange',
-  '_CXNetworkIsDirected',
-  '_CXNetworkOutNeighbors','_CXNetworkInNeighbors',
-  '_CXNetworkIsNodeActive','_CXNetworkIsEdgeActive',
-  '_CXNetworkDefineNodeAttribute','_CXNetworkDefineEdgeAttribute','_CXNetworkDefineNetworkAttribute',
-  '_CXNetworkGetNodeAttribute','_CXNetworkGetEdgeAttribute','_CXNetworkGetNetworkAttribute',
-  '_CXNetworkGetNodeAttributeBuffer','_CXNetworkGetEdgeAttributeBuffer','_CXNetworkGetNetworkAttributeBuffer',
-  '_CXAttributeStride','_CXAttributeData',
-  '_CXDenseAttributeBufferVersion','_CXDenseAttributeBufferSourceVersion','_CXAttributeVersion',
-  '_CXNetworkNodeTopologyVersion','_CXNetworkEdgeTopologyVersion',
-  '_CXNetworkBumpNodeAttributeVersion','_CXNetworkBumpEdgeAttributeVersion','_CXNetworkBumpNetworkAttributeVersion',
-  '_CXNodeSelectorCreate','_CXNodeSelectorDestroy','_CXNodeSelectorFillAll','_CXNodeSelectorFillFromArray','_CXNodeSelectorData','_CXNodeSelectorCount',
-  '_CXEdgeSelectorCreate','_CXEdgeSelectorDestroy','_CXEdgeSelectorFillAll','_CXEdgeSelectorFillFromArray','_CXEdgeSelectorData','_CXEdgeSelectorCount',
-  '_CXNeighborContainerCount','_CXNeighborContainerGetNodes','_CXNeighborContainerGetEdges',
-  '_CXNetworkWriteBXNet','_CXNetworkWriteZXNet','_CXNetworkWriteXNet',
-  '_CXNetworkReadBXNet','_CXNetworkReadZXNet','_CXNetworkReadXNet',
-  '_CXNetworkCompact',
-  '_CXNetworkLeidenModularity'
-]
+py = import('python').find_installation(required : true)
+exported_functions_output = run_command(py, files('scripts/exported-functions.py'), '--format', 'lines', check: true).stdout().strip()
+exported_functions = exported_functions_output == '' ? [] : exported_functions_output.split('\n')
 
 emcc_args = [
   '-O3',
@@ -106,7 +72,6 @@ cxnetwork_js = executable(
 )
 
 compiled_dir = meson.current_source_dir() / 'compiled'
-py = import('python').find_installation(required : true)
 copy_script = [py.path(), '-c',
   'import os, shutil, sys; src, dst_dir, name = sys.argv[1:4]; os.makedirs(dst_dir, exist_ok=True); shutil.copy(src, os.path.join(dst_dir, name))'
 ]
@@ -116,6 +81,7 @@ custom_target(
   input: cxnetwork_js,
   output: 'CXNetwork.mjs',
   command: copy_script + ['@INPUT@', compiled_dir, '@OUTPUT@'],
+  build_always_stale: true,
   build_by_default: true,
 )
 
@@ -124,5 +90,6 @@ custom_target(
   output: 'CXNetwork.wasm',
   command: copy_script + ['CXNetwork.wasm', compiled_dir, 'CXNetwork.wasm'],
   depends: cxnetwork_js,
+  build_always_stale: true,
   build_by_default: true,
 )
