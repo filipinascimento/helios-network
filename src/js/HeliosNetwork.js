@@ -1,4 +1,5 @@
 import createHeliosModule from './moduleFactory.js';
+import { WasmSteppableSession } from './sessions/WasmSteppableSession.js';
 
 /**
  * Enumeration of attribute types supported by the WASM network core.
@@ -1206,234 +1207,10 @@ class EdgeSelector extends Selector {
 	}
 	}
 
-	class WasmSteppableSession {
-		constructor(module, network, ptr, handlers) {
-			this.module = module;
-			this.network = network;
-			this.ptr = ptr;
-			this._scratch = 0;
-			this._scratchBytes = handlers.scratchBytes ?? 0;
-			this._destroy = handlers.destroy;
-			this._step = handlers.step;
-			this._getProgress = handlers.getProgress;
-			this._cancelOn = handlers.cancelOn ?? null;
-			this._isTerminalPhase = handlers.isTerminalPhase ?? null;
-			this._isDonePhase = handlers.isDonePhase ?? null;
-			this._isFailedPhase = handlers.isFailedPhase ?? null;
-			this._canceledReason = null;
-			this._versionBaseline = this._cancelOn ? this._captureVersions(this._cancelOn) : null;
-		}
-
-		_ensureActive() {
-			if (this._canceledReason) {
-				throw new Error(`Session canceled: ${this._canceledReason}`);
-			}
-			if (!this.ptr) {
-				throw new Error('Session has been disposed');
-			}
-			this.network._ensureActive();
-		}
-
-		_captureVersions(cancelOn) {
-			const versions = {};
-			const topology = cancelOn.topology ?? null;
-			if (topology) {
-				versions.topology = this.network.getTopologyVersions();
-			}
-
-			const attributes = cancelOn.attributes ?? null;
-			if (attributes) {
-				const out = { node: {}, edge: {}, network: {} };
-				for (const name of attributes.node ?? []) {
-					out.node[name] = this.network.getNodeAttributeVersion(name);
-				}
-				for (const name of attributes.edge ?? []) {
-					out.edge[name] = this.network.getEdgeAttributeVersion(name);
-				}
-				for (const name of attributes.network ?? []) {
-					out.network[name] = this.network.getNetworkAttributeVersion(name);
-				}
-				versions.attributes = out;
-			}
-
-			return versions;
-		}
-
-		_checkCancellation() {
-			if (!this._cancelOn || !this._versionBaseline) {
-				return;
-			}
-
-			const baseline = this._versionBaseline;
-			let reason = null;
-			const topologyMode = this._cancelOn.topology ?? null;
-			if (topologyMode && baseline.topology) {
-				const current = this.network.getTopologyVersions();
-				if (!reason && (topologyMode === 'node' || topologyMode === 'both') && current.node !== baseline.topology.node) {
-					reason = 'node topology changed';
-				}
-				if (!reason && (topologyMode === 'edge' || topologyMode === 'both') && current.edge !== baseline.topology.edge) {
-					reason = 'edge topology changed';
-				}
-			}
-
-			const baselineAttributes = baseline.attributes;
-			if (!reason && baselineAttributes) {
-				for (const [name, version] of Object.entries(baselineAttributes.node ?? {})) {
-					if (this.network.getNodeAttributeVersion(name) !== version) {
-						reason = `node attribute "${name}" changed`;
-						break;
-					}
-				}
-				for (const [name, version] of Object.entries(baselineAttributes.edge ?? {})) {
-					if (reason) break;
-					if (this.network.getEdgeAttributeVersion(name) !== version) {
-						reason = `edge attribute "${name}" changed`;
-						break;
-					}
-				}
-				for (const [name, version] of Object.entries(baselineAttributes.network ?? {})) {
-					if (reason) break;
-					if (this.network.getNetworkAttributeVersion(name) !== version) {
-						reason = `network attribute "${name}" changed`;
-						break;
-					}
-				}
-			}
-
-			if (reason) {
-				this.cancel(reason);
-				throw new Error(`Session canceled: ${reason}`);
-			}
-		}
-
-		_ensureScratch() {
-			if (!this._scratchBytes) {
-				throw new Error('Session scratch storage is not configured');
-			}
-			if (this._scratch) {
-				return this._scratch;
-			}
-			this.network._assertCanAllocate('session scratch allocation');
-			const ptr = this.module._malloc(this._scratchBytes);
-			if (!ptr) {
-				throw new Error('Failed to allocate session scratch memory');
-			}
-			this._scratch = ptr;
-			return ptr;
-		}
-
-		dispose() {
-			if (this.ptr && this._destroy) {
-				this._destroy(this.ptr);
-				this.ptr = 0;
-			}
-			if (this._scratch) {
-				this.module._free(this._scratch);
-				this._scratch = 0;
-			}
-		}
-
-		cancel(reason = 'canceled') {
-			if (this._canceledReason) {
-				return;
-			}
-			this._canceledReason = String(reason || 'canceled');
-			this.dispose();
-		}
-
-		getProgress() {
-			this._ensureActive();
-			this._checkCancellation();
-			if (!this._getProgress) {
-				throw new Error('Session does not support progress reporting');
-			}
-			return this._getProgress(this.ptr, this._ensureScratch());
-		}
-
-		step(options = {}) {
-			this._ensureActive();
-			this.network._assertCanAllocate('session step');
-			this._checkCancellation();
-			if (!this._step) {
-				throw new Error('Session does not support stepping');
-			}
-			const {
-				budget = 5000,
-				timeoutMs = null,
-				chunkBudget = 5000,
-			} = options;
-
-			const now = typeof globalThis !== 'undefined' && globalThis.performance && typeof globalThis.performance.now === 'function'
-				? globalThis.performance.now.bind(globalThis.performance)
-				: Date.now;
-
-			const isTerminalPhase = this._isTerminalPhase ?? (() => false);
-
-			if (timeoutMs == null) {
-				const phase = this._step(this.ptr, budget >>> 0);
-				return { phase, ...this.getProgress() };
-			}
-
-			const deadline = now() + Math.max(0, Number(timeoutMs) || 0);
-			const budgetPerChunk = Math.max(1, chunkBudget >>> 0);
-			let phase = 0;
-			do {
-				phase = this._step(this.ptr, budgetPerChunk);
-				if (isTerminalPhase(phase)) {
-					break;
-				}
-			} while (now() < deadline);
-
-			return { phase, ...this.getProgress() };
-		}
-
-		async run(options = {}) {
-			this._ensureActive();
-			const {
-				stepOptions = {},
-				yieldMs = 0,
-				yield: yieldFn = null,
-				onProgress = null,
-				signal = null,
-				maxIterations = Infinity,
-			} = options;
-
-			const defer = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-			const isTerminal = this._isTerminalPhase ?? (() => false);
-			const isDone = this._isDonePhase ?? ((phase) => isTerminal(phase));
-			const isFailed = this._isFailedPhase ?? (() => false);
-
-			let last = null;
-			for (let iteration = 0; iteration < maxIterations; iteration += 1) {
-				if (signal && signal.aborted) {
-					this.cancel('aborted');
-					throw new Error('Session canceled: aborted');
-				}
-				last = this.step(stepOptions);
-				if (typeof onProgress === 'function') {
-					onProgress(last);
-				}
-				if (isDone(last.phase)) {
-					return last;
-				}
-				if (isFailed(last.phase)) {
-					throw new Error('Session failed');
-				}
-				if (typeof yieldFn === 'function') {
-					await yieldFn(last);
-				} else {
-					await defer(Math.max(0, Number(yieldMs) || 0));
-				}
-			}
-
-			return last;
-		}
-	}
-
 	class LeidenSession {
 		constructor(module, network, ptr, options) {
 			this.options = options;
+			this._finalized = false;
 			const cancelOn = {
 				topology: 'both',
 				attributes: {
@@ -1448,51 +1225,55 @@ class EdgeSelector extends Selector {
 				isDonePhase: (phase) => phase === 5,
 				isFailedPhase: (phase) => phase === 6,
 				cancelOn,
-				getProgress: (sessionPtr, scratchPtr) => {
-					if (typeof module._CXLeidenSessionGetProgress !== 'function') {
-						throw new Error('CXLeidenSessionGetProgress is not available in this WASM build.');
-					}
-					const base = scratchPtr;
-				const progressPtr = base + 0; // f64
-				const phasePtr = base + 8; // u32
-				const levelPtr = base + 12; // u32
-				const maxLevelsPtr = base + 16; // u32
-				const passPtr = base + 20; // u32
-				const maxPassesPtr = base + 24; // u32
-				const visitedPtr = base + 28; // u32
-				const nodeCountPtr = base + 32; // u32
-				const communityCountPtr = base + 36; // u32
+					getProgress: (sessionPtr, scratchPtr) => {
+						if (typeof module._CXLeidenSessionGetProgress !== 'function') {
+							throw new Error('CXLeidenSessionGetProgress is not available in this WASM build.');
+						}
+						const base = scratchPtr;
+					const progressCurrentPtr = base + 0; // f64
+					const progressTotalPtr = base + 8; // f64
+					const phasePtr = base + 16; // u32
+					const levelPtr = base + 20; // u32
+					const maxLevelsPtr = base + 24; // u32
+					const passPtr = base + 28; // u32
+					const maxPassesPtr = base + 32; // u32
+					const visitedPtr = base + 36; // u32
+					const nodeCountPtr = base + 40; // u32
+					const communityCountPtr = base + 44; // u32
 
-				module._CXLeidenSessionGetProgress(
-					sessionPtr,
-					progressPtr,
-					phasePtr,
-					levelPtr,
-					maxLevelsPtr,
-					passPtr,
-					maxPassesPtr,
+					module._CXLeidenSessionGetProgress(
+						sessionPtr,
+						progressCurrentPtr,
+						progressTotalPtr,
+						phasePtr,
+						levelPtr,
+						maxLevelsPtr,
+						passPtr,
+						maxPassesPtr,
 					visitedPtr,
-					nodeCountPtr,
-					communityCountPtr
-				);
+						nodeCountPtr,
+						communityCountPtr
+					);
 
-				const progress01 = module.HEAPF64[progressPtr / Float64Array.BYTES_PER_ELEMENT] ?? 0;
-				const phase = module.HEAPU32[phasePtr / Uint32Array.BYTES_PER_ELEMENT] ?? 0;
-				const level = module.HEAPU32[levelPtr / Uint32Array.BYTES_PER_ELEMENT] ?? 0;
-				const maxLevels = module.HEAPU32[maxLevelsPtr / Uint32Array.BYTES_PER_ELEMENT] ?? 0;
-				const pass = module.HEAPU32[passPtr / Uint32Array.BYTES_PER_ELEMENT] ?? 0;
+					const progressCurrent = module.HEAPF64[progressCurrentPtr / Float64Array.BYTES_PER_ELEMENT] ?? 0;
+					const progressTotal = module.HEAPF64[progressTotalPtr / Float64Array.BYTES_PER_ELEMENT] ?? 0;
+					const phase = module.HEAPU32[phasePtr / Uint32Array.BYTES_PER_ELEMENT] ?? 0;
+					const level = module.HEAPU32[levelPtr / Uint32Array.BYTES_PER_ELEMENT] ?? 0;
+					const maxLevels = module.HEAPU32[maxLevelsPtr / Uint32Array.BYTES_PER_ELEMENT] ?? 0;
+					const pass = module.HEAPU32[passPtr / Uint32Array.BYTES_PER_ELEMENT] ?? 0;
 				const maxPasses = module.HEAPU32[maxPassesPtr / Uint32Array.BYTES_PER_ELEMENT] ?? 0;
 				const visitedThisPass = module.HEAPU32[visitedPtr / Uint32Array.BYTES_PER_ELEMENT] ?? 0;
 				const nodeCount = module.HEAPU32[nodeCountPtr / Uint32Array.BYTES_PER_ELEMENT] ?? 0;
-				const communityCount = module.HEAPU32[communityCountPtr / Uint32Array.BYTES_PER_ELEMENT] ?? 0;
+					const communityCount = module.HEAPU32[communityCountPtr / Uint32Array.BYTES_PER_ELEMENT] ?? 0;
 
-					return {
-						progress01,
-						phase,
-						level,
-						maxLevels,
-						pass,
-						maxPasses,
+						return {
+							progressCurrent,
+							progressTotal,
+							phase,
+							level,
+							maxLevels,
+							pass,
+							maxPasses,
 						visitedThisPass,
 						nodeCount,
 						communityCount,
@@ -1515,9 +1296,18 @@ class EdgeSelector extends Selector {
 		this._base.dispose();
 	}
 
-	getProgress() {
-		return this._base.getProgress();
-	}
+		getProgress() {
+			return this._base.getProgress();
+		}
+
+		isComplete() {
+			const { phase } = this.getProgress();
+			return phase === 5;
+		}
+
+		isFinalized() {
+			return this._finalized;
+		}
 
 		step(options = {}) {
 			return this._base.step(options);
@@ -1566,13 +1356,14 @@ class EdgeSelector extends Selector {
 			module._free(modularityPtr);
 			module._free(communityCountPtr);
 		}
-		if (!ok) {
-			throw new Error('Leiden session is not ready to finalize (run step() until done)');
-		}
+			if (!ok) {
+				throw new Error('Leiden session is not ready to finalize (run step() until done)');
+			}
+			this._finalized = true;
 
-		if (!network._nodeAttributes.has(outNodeCommunityAttribute)) {
-			network._nodeAttributes.set(outNodeCommunityAttribute, {
-				type: AttributeType.UnsignedInteger,
+			if (!network._nodeAttributes.has(outNodeCommunityAttribute)) {
+				network._nodeAttributes.set(outNodeCommunityAttribute, {
+					type: AttributeType.UnsignedInteger,
 				dimension: 1,
 				complex: false,
 				jsStore: new Map(),

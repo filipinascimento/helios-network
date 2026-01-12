@@ -20,6 +20,8 @@ A steppable session exposes:
 - `finalize(...)` - write results into attributes / buffers (when done)
 - `dispose()` - free native session state
 
+For completion checks, use `phase` (or an algorithm-specific helper like `session.isComplete()` when provided). A session being complete is separate from being finalized (writing results); `finalize(...)` performs that write, and some sessions may expose `isFinalized()` to reflect that the write has happened.
+
 ### 2) Version-based cancellation (safety)
 
 The network is mutable. If the topology (nodes/edges) or relevant attributes change while an algorithm is mid-run, the session can become invalid.
@@ -43,7 +45,8 @@ const session = network.createLeidenSession({ edgeWeightAttribute: 'w', seed: 1 
 
 // Option A: manual stepping
 for (;;) {
-  const { phase, progress01 } = session.step({ timeoutMs: 4, chunkBudget: 20000 });
+  const { phase, progressCurrent, progressTotal } = session.step({ timeoutMs: 4, chunkBudget: 20000 });
+  const progress01 = progressTotal ? progressCurrent / progressTotal : 0;
   if (phase === 5) break; // done
   if (phase === 6) throw new Error('failed');
   // UI can update here before next step
@@ -54,7 +57,10 @@ session.dispose();
 // Option B: run loop with cooperative yielding
 await session.run({
   stepOptions: { timeoutMs: 4, chunkBudget: 20000 },
-  onProgress: ({ progress01 }) => { /* update UI */ },
+  onProgress: ({ progressCurrent, progressTotal }) => {
+    const progress01 = progressTotal ? progressCurrent / progressTotal : 0;
+    /* update UI */
+  },
   yieldMs: 0, // yield to event loop between chunks
 });
 ```
@@ -86,7 +92,7 @@ Progress should be **small and fixed-size** (numbers written into out-pointers),
 
 ### B) JS side (plumbing + cancellation policy)
 
-`WasmSteppableSession` (in `src/js/HeliosNetwork.js`) is the reusable engine:
+`WasmSteppableSession` (in `src/js/sessions/WasmSteppableSession.js`) is the reusable engine:
 
 - owns the native pointer
 - allocates a small scratch buffer once (optional)
@@ -121,4 +127,3 @@ WASM memory can grow; `TypedArray` views can become invalid after allocation. As
 - Don’t cache `TypedArray` views across session steps if any step might allocate.
 - Treat `step()` / `run()` as allocation-prone.
 - Allocate first, view second; use `withBufferAccess(...)` for safe view lifetimes when needed.
-

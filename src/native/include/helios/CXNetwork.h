@@ -433,17 +433,19 @@ CX_EXTERN void CXLeidenSessionDestroy(CXLeidenSessionRef session);
  */
 CX_EXTERN CXLeidenPhase CXLeidenSessionStep(CXLeidenSessionRef session, CXSize budget);
 
-/**
- * Returns current progress metrics. Any output pointer may be NULL.
- * `outProgress01` is a best-effort estimate in [0,1].
- */
-CX_EXTERN void CXLeidenSessionGetProgress(
-	CXLeidenSessionRef session,
-	double *outProgress01,
-	CXLeidenPhase *outPhase,
-	CXSize *outLevel,
-	CXSize *outMaxLevels,
-	CXSize *outPass,
+	/**
+	 * Returns current progress metrics. Any output pointer may be NULL.
+	 * `outProgressCurrent` and `outProgressTotal` are best-effort and may change
+	 * as the algorithm advances (i.e. the total may be revised).
+	 */
+	CX_EXTERN void CXLeidenSessionGetProgress(
+		CXLeidenSessionRef session,
+		double *outProgressCurrent,
+		double *outProgressTotal,
+		CXLeidenPhase *outPhase,
+		CXSize *outLevel,
+		CXSize *outMaxLevels,
+		CXSize *outPass,
 	CXSize *outMaxPasses,
 	CXSize *outVisitedThisPass,
 	CXSize *outNodeCount,

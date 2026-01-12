@@ -1351,7 +1351,8 @@ CXLeidenPhase CXLeidenSessionStep(CXLeidenSessionRef sessionRef, CXSize budget) 
 
 void CXLeidenSessionGetProgress(
 	CXLeidenSessionRef sessionRef,
-	double *outProgress01,
+	double *outProgressCurrent,
+	double *outProgressTotal,
 	CXLeidenPhase *outPhase,
 	CXSize *outLevel,
 	CXSize *outMaxLevels,
@@ -1363,7 +1364,8 @@ void CXLeidenSessionGetProgress(
 ) {
 	CXLeidenSession *session = (CXLeidenSession *)sessionRef;
 	if (!session) {
-		if (outProgress01) *outProgress01 = 0.0;
+		if (outProgressCurrent) *outProgressCurrent = 0.0;
+		if (outProgressTotal) *outProgressTotal = 0.0;
 		if (outPhase) *outPhase = CXLeidenPhaseFailed;
 		if (outLevel) *outLevel = 0;
 		if (outMaxLevels) *outMaxLevels = 0;
@@ -1376,7 +1378,7 @@ void CXLeidenSessionGetProgress(
 	}
 
 	const CXSize n = session->graph ? session->graph->nodeCount : 0;
-	const double levelProgress = (double)session->level / (double)(session->maxLevels ? session->maxLevels : 1);
+	const double totalLevels = (double)(session->maxLevels ? session->maxLevels : 1);
 	double phaseBase = 0.0;
 	double phaseSpan = 1.0;
 	switch (session->phase) {
@@ -1403,11 +1405,19 @@ void CXLeidenSessionGetProgress(
 	}
 	double withinPhase = 0.0;
 	if (session->moveState.active && n > 0) {
-		withinPhase = (double)session->moveState.orderPos / (double)n;
+		const double pass = (double)session->moveState.pass;
+		const double passCount = (double)(session->maxPasses ? session->maxPasses : 1);
+		const double withinPass = (double)session->moveState.orderPos / (double)n;
+		withinPhase = CXMIN(1.0, (pass + withinPass) / passCount);
 	}
-	double progress01 = CXMIN(1.0, levelProgress + (phaseBase + phaseSpan * withinPhase) / (double)(session->maxLevels ? session->maxLevels : 1));
+	const double perLevelProgress01 = CXMIN(1.0, CXMAX(0.0, phaseBase + phaseSpan * withinPhase));
+	const double progressTotal = totalLevels;
+	double progressCurrent = (double)session->level + perLevelProgress01;
+	if (progressCurrent < 0.0) progressCurrent = 0.0;
+	if (progressCurrent > progressTotal) progressCurrent = progressTotal;
 
-	if (outProgress01) *outProgress01 = progress01;
+	if (outProgressCurrent) *outProgressCurrent = progressCurrent;
+	if (outProgressTotal) *outProgressTotal = progressTotal;
 	if (outPhase) *outPhase = session->phase;
 	if (outLevel) *outLevel = session->level;
 	if (outMaxLevels) *outMaxLevels = session->maxLevels;

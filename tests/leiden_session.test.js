@@ -61,8 +61,13 @@ test('steppable Leiden session reports progress and finalizes', async () => {
 
 		try {
 			let last = session.getProgress();
-			expect(last.progress01).toBeGreaterThanOrEqual(0);
-			expect(last.progress01).toBeLessThanOrEqual(1);
+			expect(Number.isFinite(last.progressCurrent)).toBe(true);
+			expect(Number.isFinite(last.progressTotal)).toBe(true);
+			expect(last.progressCurrent).toBeGreaterThanOrEqual(0);
+			expect(last.progressTotal).toBeGreaterThanOrEqual(0);
+			if (last.progressTotal > 0) {
+				expect(last.progressCurrent).toBeLessThanOrEqual(last.progressTotal);
+			}
 
 			last = await session.run({
 				stepOptions: { timeoutMs: 0, chunkBudget: 25 },
@@ -70,10 +75,12 @@ test('steppable Leiden session reports progress and finalizes', async () => {
 				maxIterations: 5000,
 			});
 			expect(last.phase).toBe(5);
+			expect(session.isComplete()).toBe(true);
 
 			const { communityCount, modularity } = session.finalize();
 			expect(communityCount).toBeGreaterThan(1);
 			expect(modularity).toBeGreaterThanOrEqual(0);
+			expect(session.isFinalized()).toBe(true);
 			const view = network.getNodeAttributeBuffer('community_session').view;
 			expect(view.length).toBeGreaterThanOrEqual(network.nodeCount);
 		} finally {
