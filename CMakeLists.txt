@@ -16,6 +16,7 @@ set(HELIOS_SOURCES
   src/native/src/CXDistribution.c
   src/native/src/CXIndexManager.c
   src/native/src/CXNeighborStorage.c
+  src/native/src/CXLeiden.c
   src/native/src/CXNetwork.c
   src/native/src/CXNetworkBXNet.c
   src/native/src/CXNetworkXNet.c

@@ -353,6 +353,8 @@ CX_EXTERN void* CXNetworkGetNetworkAttributeBuffer(CXNetworkRef network, const C
 
 /** Returns the byte stride between consecutive entries of an attribute. */
 CX_EXTERN CXSize CXAttributeStride(CXAttributeRef attribute);
+/** Returns a pointer to the raw backing buffer for an attribute (or NULL when missing). */
+CX_EXTERN void* CXAttributeData(CXAttributeRef attribute);
 
 /**
  * Compacts the network so that node and edge indices become contiguous starting
@@ -366,6 +368,31 @@ CX_EXTERN CXBool CXNetworkCompact(
 	CXNetworkRef network,
 	const CXString nodeOriginalIndexAttr,
 	const CXString edgeOriginalIndexAttr
+);
+
+// Community detection --------------------------------------------------------
+/**
+ * Runs Leiden community detection optimizing (weighted) modularity.
+ *
+ * - For undirected graphs, uses the standard modularity objective.
+ * - For directed graphs, uses the directed modularity formulation.
+ * - `resolution` corresponds to the modularity resolution parameter (gamma).
+ * - When `edgeWeightAttribute` is NULL/empty, every edge has weight 1.
+ *
+ * Writes the resulting community id into a node attribute (created when missing)
+ * of type `CXUnsignedIntegerAttributeType` and dimension 1.
+ *
+ * Returns the number of detected communities, or 0 on failure.
+ */
+CX_EXTERN CXSize CXNetworkLeidenModularity(
+	CXNetworkRef network,
+	const CXString edgeWeightAttribute,
+	double resolution,
+	uint32_t seed,
+	CXSize maxLevels,
+	CXSize maxPasses,
+	const CXString outNodeCommunityAttribute,
+	double *outModularity
 );
 
 // Dense attribute buffers ----------------------------------------------------

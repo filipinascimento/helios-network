@@ -14,6 +14,7 @@ cvnetwork_src = files(
   'src/native/src/CXDistribution.c',
   'src/native/src/CXIndexManager.c',
   'src/native/src/CXNeighborStorage.c',
+  'src/native/src/CXLeiden.c',
   'src/native/src/CXNetwork.c',
   'src/native/src/CXNetworkBXNet.c',
   'src/native/src/CXNetworkXNet.c',
@@ -63,7 +64,7 @@ exported_functions = [
   '_CXNetworkDefineNodeAttribute','_CXNetworkDefineEdgeAttribute','_CXNetworkDefineNetworkAttribute',
   '_CXNetworkGetNodeAttribute','_CXNetworkGetEdgeAttribute','_CXNetworkGetNetworkAttribute',
   '_CXNetworkGetNodeAttributeBuffer','_CXNetworkGetEdgeAttributeBuffer','_CXNetworkGetNetworkAttributeBuffer',
-  '_CXAttributeStride',
+  '_CXAttributeStride','_CXAttributeData',
   '_CXDenseAttributeBufferVersion','_CXDenseAttributeBufferSourceVersion','_CXAttributeVersion',
   '_CXNetworkNodeTopologyVersion','_CXNetworkEdgeTopologyVersion',
   '_CXNetworkBumpNodeAttributeVersion','_CXNetworkBumpEdgeAttributeVersion','_CXNetworkBumpNetworkAttributeVersion',
@@ -72,7 +73,8 @@ exported_functions = [
   '_CXNeighborContainerCount','_CXNeighborContainerGetNodes','_CXNeighborContainerGetEdges',
   '_CXNetworkWriteBXNet','_CXNetworkWriteZXNet','_CXNetworkWriteXNet',
   '_CXNetworkReadBXNet','_CXNetworkReadZXNet','_CXNetworkReadXNet',
-  '_CXNetworkCompact'
+  '_CXNetworkCompact',
+  '_CXNetworkLeidenModularity'
 ]
 
 emcc_args = [

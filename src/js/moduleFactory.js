@@ -1,6 +1,15 @@
 import defaultFactory from '../../compiled/CXNetwork.mjs';
+import { getInlineWasmBinary } from './inline/wasm-inline.js';
 
 let activeFactory = defaultFactory;
+let cachedInlineBinary = null;
+
+function ensureInlineBinary() {
+	if (!cachedInlineBinary) {
+		cachedInlineBinary = getInlineWasmBinary();
+	}
+	return cachedInlineBinary;
+}
 
 /**
  * Replaces the active WASM module factory used by Helios.
@@ -36,5 +45,12 @@ export function getDefaultHeliosModuleFactory() {
  * @returns {Promise<object>} Resolves with the initialized module.
  */
 export default function createHeliosModule(options) {
+	if (activeFactory === defaultFactory) {
+		const wasmBinary = options?.wasmBinary ?? ensureInlineBinary();
+		return defaultFactory({
+			...options,
+			wasmBinary,
+		});
+	}
 	return activeFactory(options);
 }
