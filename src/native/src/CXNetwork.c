@@ -1921,6 +1921,10 @@ CXSize CXAttributeStride(CXAttributeRef attribute) {
 	return attribute ? attribute->stride : 0;
 }
 
+void* CXAttributeData(CXAttributeRef attribute) {
+	return attribute ? attribute->data : NULL;
+}
+
 uint64_t CXDenseAttributeBufferVersion(const CXDenseAttributeBuffer *buffer) {
 	return buffer ? buffer->version : 0;
 }
