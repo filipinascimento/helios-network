@@ -19,6 +19,11 @@ def load_symbols(path: Path) -> list[str]:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
+        "--file",
+        default=None,
+        help="Path to exported-functions.txt (defaults to scripts/exported-functions.txt next to this script).",
+    )
+    parser.add_argument(
         "--format",
         choices=("make", "lines"),
         default="lines",
@@ -26,7 +31,7 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    symbols_file = Path(__file__).with_name("exported-functions.txt")
+    symbols_file = Path(args.file) if args.file else Path(__file__).with_name("exported-functions.txt")
     symbols = load_symbols(symbols_file)
 
     if args.format == "make":
@@ -39,4 +44,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

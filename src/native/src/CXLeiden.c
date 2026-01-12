@@ -612,6 +612,264 @@ static CXSize CXLeidenMoveNodes(
 	return movedTotal;
 }
 
+typedef struct {
+	const CXLeidenGraph *graph;
+	uint32_t *community;
+	const uint32_t *restriction;
+	double resolution;
+	CXLeidenRng *rng;
+	CXSize maxPasses;
+
+	CXIndex *order;
+	CXSize orderPos;
+	CXSize pass;
+	CXSize movedInPass;
+	CXSize movedTotal;
+	CXBool active;
+
+	uint32_t epoch;
+	uint32_t *stamp;
+	uint32_t *position;
+	double *totOut;
+	double *totIn;
+	uint32_t *sizes;
+
+	uint32_t *candidate;
+	double *candOutW;
+	double *candInW;
+	CXSize candidateCap;
+} CXLeidenMoveState;
+
+static CXSize CXLeidenGraphMaxCandidateCount(const CXLeidenGraph *graph) {
+	if (!graph) {
+		return 0;
+	}
+	CXSize max = 0;
+	for (CXSize u = 0; u < graph->nodeCount; u++) {
+		CXSize c = (CXSize)(graph->outOffsets[u + 1] - graph->outOffsets[u]);
+		if (graph->isDirected) {
+			c += (CXSize)(graph->inOffsets[u + 1] - graph->inOffsets[u]);
+		}
+		if (c > max) {
+			max = c;
+		}
+	}
+	return max;
+}
+
+static void CXLeidenMoveStateClear(CXLeidenMoveState *state) {
+	if (!state) {
+		return;
+	}
+	memset(state, 0, sizeof(*state));
+	state->epoch = 1;
+}
+
+static void CXLeidenMoveStateDestroy(CXLeidenMoveState *state) {
+	if (!state) {
+		return;
+	}
+	free(state->order);
+	free(state->stamp);
+	free(state->position);
+	free(state->totOut);
+	free(state->totIn);
+	free(state->sizes);
+	free(state->candidate);
+	free(state->candOutW);
+	free(state->candInW);
+	CXLeidenMoveStateClear(state);
+}
+
+static CXBool CXLeidenMoveStateInit(
+	CXLeidenMoveState *state,
+	const CXLeidenGraph *graph,
+	uint32_t *community,
+	const uint32_t *restriction,
+	double resolution,
+	CXLeidenRng *rng,
+	CXSize maxPasses
+) {
+	if (!state || !graph || !community || !rng || maxPasses == 0) {
+		return CXFalse;
+	}
+	CXLeidenMoveStateDestroy(state);
+	state->graph = graph;
+	state->community = community;
+	state->restriction = restriction;
+	state->resolution = resolution;
+	state->rng = rng;
+	state->maxPasses = maxPasses;
+	state->active = CXTrue;
+	state->epoch = 1;
+
+	const CXSize n = graph->nodeCount;
+	state->order = malloc(sizeof(CXIndex) * n);
+	state->stamp = malloc(sizeof(uint32_t) * n);
+	state->position = malloc(sizeof(uint32_t) * n);
+	state->totOut = malloc(sizeof(double) * n);
+	state->totIn = graph->isDirected ? malloc(sizeof(double) * n) : NULL;
+	state->sizes = malloc(sizeof(uint32_t) * n);
+	if (!state->order || !state->stamp || !state->position || !state->totOut || (graph->isDirected && !state->totIn) || !state->sizes) {
+		return CXFalse;
+	}
+	for (CXSize i = 0; i < n; i++) {
+		state->order[i] = (CXIndex)i;
+		state->stamp[i] = 0;
+		state->position[i] = 0;
+	}
+	if (!CXLeidenInitCommunityTotals(graph, community, state->totOut, state->totIn, state->sizes)) {
+		return CXFalse;
+	}
+	state->candidateCap = CXLeidenGraphMaxCandidateCount(graph);
+	if (state->candidateCap > 0) {
+		state->candidate = malloc(sizeof(uint32_t) * state->candidateCap);
+		state->candOutW = malloc(sizeof(double) * state->candidateCap);
+		state->candInW = graph->isDirected ? malloc(sizeof(double) * state->candidateCap) : NULL;
+		if (!state->candidate || !state->candOutW || (graph->isDirected && !state->candInW)) {
+			return CXFalse;
+		}
+	}
+	CXLeidenShuffle(rng, state->order, n);
+	return CXTrue;
+}
+
+static CXBool CXLeidenMoveStateStep(CXLeidenMoveState *state, CXSize budget) {
+	if (!state || !state->active || !state->graph || !state->community || !state->rng) {
+		return CXTrue;
+	}
+	const CXLeidenGraph *graph = state->graph;
+	const CXSize n = graph->nodeCount;
+	if (n == 0 || graph->totalOutWeight <= 0.0) {
+		state->active = CXFalse;
+		return CXTrue;
+	}
+
+	const double invTotal = 1.0 / graph->totalOutWeight;
+	if (budget == 0) {
+		budget = 1;
+	}
+
+	CXSize steps = 0;
+	while (steps < budget && state->pass < state->maxPasses) {
+		if (state->orderPos >= n) {
+			state->movedTotal += state->movedInPass;
+			if (state->movedInPass == 0) {
+				state->active = CXFalse;
+				return CXTrue;
+			}
+			state->pass += 1;
+			if (state->pass >= state->maxPasses) {
+				state->active = CXFalse;
+				return CXTrue;
+			}
+			state->orderPos = 0;
+			state->movedInPass = 0;
+			CXLeidenShuffle(state->rng, state->order, n);
+			continue;
+		}
+
+		CXSize u = (CXSize)state->order[state->orderPos++];
+		steps += 1;
+
+		uint32_t current = state->community[u];
+		const uint32_t restrictLabel = state->restriction ? state->restriction[u] : UINT32_MAX;
+
+		double degOut = graph->outDegree[u];
+		double degIn = graph->isDirected ? graph->inDegree[u] : 0.0;
+
+		state->totOut[current] -= degOut;
+		if (graph->isDirected) {
+			state->totIn[current] -= degIn;
+		}
+		state->sizes[current] -= 1;
+
+		CXSize candidateCount = 0;
+		state->epoch += 1;
+		if (state->epoch == 0) {
+			for (CXSize i = 0; i < n; i++) {
+				state->stamp[i] = 0;
+			}
+			state->epoch = 1;
+		}
+
+		for (CXIndex idx = graph->outOffsets[u]; idx < graph->outOffsets[u + 1]; idx++) {
+			uint32_t v = (uint32_t)graph->outNeighbors[idx];
+			uint32_t c = state->community[v];
+			if (state->restriction && state->restriction[v] != restrictLabel) {
+				continue;
+			}
+			if (state->stamp[c] != state->epoch) {
+				state->stamp[c] = state->epoch;
+				state->position[c] = (uint32_t)candidateCount;
+				state->candidate[candidateCount] = c;
+				state->candOutW[candidateCount] = graph->outWeights[idx];
+				if (graph->isDirected) {
+					state->candInW[candidateCount] = 0.0;
+				}
+				candidateCount++;
+			} else {
+				state->candOutW[state->position[c]] += graph->outWeights[idx];
+			}
+		}
+
+		if (graph->isDirected) {
+			for (CXIndex idx = graph->inOffsets[u]; idx < graph->inOffsets[u + 1]; idx++) {
+				uint32_t v = (uint32_t)graph->inNeighbors[idx];
+				uint32_t c = state->community[v];
+				if (state->restriction && state->restriction[v] != restrictLabel) {
+					continue;
+				}
+				if (state->stamp[c] != state->epoch) {
+					state->stamp[c] = state->epoch;
+					state->position[c] = (uint32_t)candidateCount;
+					state->candidate[candidateCount] = c;
+					state->candOutW[candidateCount] = 0.0;
+					state->candInW[candidateCount] = graph->inWeights[idx];
+					candidateCount++;
+				} else {
+					state->candInW[state->position[c]] += graph->inWeights[idx];
+				}
+			}
+		}
+
+		uint32_t bestCommunity = current;
+		double bestGain = 0.0;
+		for (CXSize ci = 0; ci < candidateCount; ci++) {
+			uint32_t c = state->candidate[ci];
+			double gain = 0.0;
+			if (graph->isDirected) {
+				double wOut = state->candOutW[ci];
+				double wIn = state->candInW[ci];
+				gain = (wOut + wIn) - state->resolution * ((degOut * state->totIn[c] + degIn * state->totOut[c]) * invTotal);
+			} else {
+				double w = state->candOutW[ci];
+				gain = w - state->resolution * (degOut * state->totOut[c] * invTotal);
+			}
+			if (gain > bestGain + 1e-12 || (fabs(gain - bestGain) <= 1e-12 && CXLeidenRngUnit(state->rng) < 0.5)) {
+				bestGain = gain;
+				bestCommunity = c;
+			}
+		}
+
+		state->community[u] = bestCommunity;
+		state->totOut[bestCommunity] += degOut;
+		if (graph->isDirected) {
+			state->totIn[bestCommunity] += degIn;
+		}
+		state->sizes[bestCommunity] += 1;
+		if (bestCommunity != current) {
+			state->movedInPass += 1;
+		}
+	}
+
+	if (state->pass >= state->maxPasses) {
+		state->active = CXFalse;
+		return CXTrue;
+	}
+	return CXFalse;
+}
+
 static uint32_t* CXLeidenRefinePartition(
 	const CXLeidenGraph *graph,
 	const uint32_t *coarse,
@@ -837,6 +1095,385 @@ static double CXLeidenModularity(const CXLeidenGraph *graph, const uint32_t *com
 	return q;
 }
 
+struct CXLeidenSession {
+	CXNetworkRef network;
+	CXLeidenEdgeWeights weights;
+	double resolution;
+	CXSize maxLevels;
+	CXSize maxPasses;
+	CXSize level;
+	CXLeidenPhase phase;
+	CXLeidenRng rng;
+
+	CXLeidenGraph *baseGraph;
+	CXLeidenGraph *graph;
+	CXIndex *compactToNode;
+	uint32_t *origToNode;
+	CXSize originalCount;
+
+	uint32_t *coarse;
+	uint32_t coarseCount;
+	uint32_t *refined;
+	uint32_t refinedCount;
+
+	CXLeidenMoveState moveState;
+};
+
+static void CXLeidenSessionReleaseLevelState(CXLeidenSession *session) {
+	if (!session) {
+		return;
+	}
+	free(session->coarse);
+	free(session->refined);
+	session->coarse = NULL;
+	session->refined = NULL;
+	session->coarseCount = 0;
+	session->refinedCount = 0;
+	CXLeidenMoveStateDestroy(&session->moveState);
+}
+
+CXLeidenSessionRef CXLeidenSessionCreate(
+	CXNetworkRef network,
+	const CXString edgeWeightAttribute,
+	double resolution,
+	uint32_t seed,
+	CXSize maxLevels,
+	CXSize maxPasses
+) {
+	if (!network || resolution <= 0.0 || maxLevels == 0 || maxPasses == 0) {
+		return NULL;
+	}
+
+	CXLeidenSession *session = calloc(1, sizeof(CXLeidenSession));
+	if (!session) {
+		return NULL;
+	}
+	session->network = network;
+	session->resolution = resolution;
+	session->maxLevels = maxLevels;
+	session->maxPasses = maxPasses;
+	session->level = 0;
+	session->phase = CXLeidenPhaseBuildGraph;
+	CXLeidenRngSeed(&session->rng, seed);
+	CXLeidenMoveStateClear(&session->moveState);
+
+	if (!CXLeidenResolveEdgeWeights(network, edgeWeightAttribute, &session->weights)) {
+		session->phase = CXLeidenPhaseFailed;
+		return session;
+	}
+
+	CXIndex *nodeToCompact = NULL;
+	session->baseGraph = CXLeidenGraphFromNetwork(network, &session->weights, &session->compactToNode, &nodeToCompact);
+	free(nodeToCompact);
+	if (!session->baseGraph) {
+		session->phase = CXLeidenPhaseFailed;
+		return session;
+	}
+	session->graph = session->baseGraph;
+	session->originalCount = session->baseGraph->nodeCount;
+	if (session->originalCount == 0) {
+		session->phase = CXLeidenPhaseFailed;
+		return session;
+	}
+	session->origToNode = malloc(sizeof(uint32_t) * session->originalCount);
+	if (!session->origToNode) {
+		session->phase = CXLeidenPhaseFailed;
+		return session;
+	}
+	for (CXSize i = 0; i < session->originalCount; i++) {
+		session->origToNode[i] = (uint32_t)i;
+	}
+
+	session->phase = CXLeidenPhaseCoarseMove;
+	return session;
+}
+
+void CXLeidenSessionDestroy(CXLeidenSessionRef sessionRef) {
+	CXLeidenSession *session = (CXLeidenSession *)sessionRef;
+	if (!session) {
+		return;
+	}
+	CXLeidenSessionReleaseLevelState(session);
+	if (session->graph && session->graph != session->baseGraph) {
+		CXLeidenGraphDestroy(session->graph);
+	}
+	CXLeidenGraphDestroy(session->baseGraph);
+	free(session->compactToNode);
+	free(session->origToNode);
+	free(session);
+}
+
+static CXBool CXLeidenSessionStartCoarse(CXLeidenSession *session) {
+	if (!session || !session->graph) {
+		return CXFalse;
+	}
+	CXLeidenSessionReleaseLevelState(session);
+	const CXSize n = session->graph->nodeCount;
+	session->coarse = malloc(sizeof(uint32_t) * n);
+	if (!session->coarse) {
+		return CXFalse;
+	}
+	for (CXSize i = 0; i < n; i++) {
+		session->coarse[i] = (uint32_t)i;
+	}
+	if (!CXLeidenMoveStateInit(&session->moveState, session->graph, session->coarse, NULL, session->resolution, &session->rng, session->maxPasses)) {
+		return CXFalse;
+	}
+	session->phase = CXLeidenPhaseCoarseMove;
+	return CXTrue;
+}
+
+static CXBool CXLeidenSessionFinishCoarse(CXLeidenSession *session) {
+	if (!session || !session->coarse || !session->graph) {
+		return CXFalse;
+	}
+	session->coarseCount = CXLeidenRelabelCommunities(session->coarse, session->graph->nodeCount);
+	return session->coarseCount > 0;
+}
+
+static CXBool CXLeidenSessionStartRefine(CXLeidenSession *session) {
+	if (!session || !session->graph || !session->coarse) {
+		return CXFalse;
+	}
+	CXLeidenMoveStateDestroy(&session->moveState);
+	const CXSize n = session->graph->nodeCount;
+	session->refined = malloc(sizeof(uint32_t) * n);
+	if (!session->refined) {
+		return CXFalse;
+	}
+	for (CXSize i = 0; i < n; i++) {
+		session->refined[i] = (uint32_t)i;
+	}
+	if (!CXLeidenMoveStateInit(&session->moveState, session->graph, session->refined, session->coarse, session->resolution, &session->rng, session->maxPasses)) {
+		return CXFalse;
+	}
+	session->phase = CXLeidenPhaseRefineMove;
+	return CXTrue;
+}
+
+static CXBool CXLeidenSessionFinishRefine(CXLeidenSession *session) {
+	if (!session || !session->refined || !session->graph) {
+		return CXFalse;
+	}
+	session->refinedCount = CXLeidenRelabelCommunities(session->refined, session->graph->nodeCount);
+	if (session->refinedCount == 0) {
+		return CXFalse;
+	}
+	for (CXSize i = 0; i < session->originalCount; i++) {
+		uint32_t nodeId = session->origToNode[i];
+		if (nodeId < session->graph->nodeCount) {
+			session->origToNode[i] = session->refined[nodeId];
+		}
+	}
+	return CXTrue;
+}
+
+static CXBool CXLeidenSessionAggregate(CXLeidenSession *session) {
+	if (!session || !session->graph || !session->refined || session->refinedCount == 0) {
+		return CXFalse;
+	}
+	CXLeidenGraph *next = CXLeidenGraphAggregate(session->graph, session->refined, session->refinedCount);
+	if (!next) {
+		return CXFalse;
+	}
+	if (session->graph != session->baseGraph) {
+		CXLeidenGraphDestroy(session->graph);
+	}
+	session->graph = next;
+	session->level += 1;
+	return CXTrue;
+}
+
+CXLeidenPhase CXLeidenSessionStep(CXLeidenSessionRef sessionRef, CXSize budget) {
+	CXLeidenSession *session = (CXLeidenSession *)sessionRef;
+	if (!session) {
+		return CXLeidenPhaseFailed;
+	}
+	if (session->phase == CXLeidenPhaseFailed || session->phase == CXLeidenPhaseDone) {
+		return session->phase;
+	}
+	if (session->level >= session->maxLevels) {
+		session->phase = CXLeidenPhaseDone;
+		return session->phase;
+	}
+
+	if (session->phase == CXLeidenPhaseCoarseMove && !session->moveState.active) {
+		if (!CXLeidenSessionStartCoarse(session)) {
+			session->phase = CXLeidenPhaseFailed;
+			return session->phase;
+		}
+	}
+
+	if (session->phase == CXLeidenPhaseCoarseMove) {
+		if (!CXLeidenMoveStateStep(&session->moveState, budget)) {
+			return session->phase;
+		}
+		CXLeidenMoveStateDestroy(&session->moveState);
+		if (!CXLeidenSessionFinishCoarse(session) || !CXLeidenSessionStartRefine(session)) {
+			session->phase = CXLeidenPhaseFailed;
+			return session->phase;
+		}
+		return session->phase;
+	}
+
+	if (session->phase == CXLeidenPhaseRefineMove) {
+		if (!CXLeidenMoveStateStep(&session->moveState, budget)) {
+			return session->phase;
+		}
+		CXLeidenMoveStateDestroy(&session->moveState);
+		if (!CXLeidenSessionFinishRefine(session)) {
+			session->phase = CXLeidenPhaseFailed;
+			return session->phase;
+		}
+		if (session->refinedCount == session->graph->nodeCount) {
+			session->phase = CXLeidenPhaseDone;
+			return session->phase;
+		}
+		session->phase = CXLeidenPhaseAggregate;
+	}
+
+	if (session->phase == CXLeidenPhaseAggregate) {
+		if (!CXLeidenSessionAggregate(session)) {
+			session->phase = CXLeidenPhaseFailed;
+			return session->phase;
+		}
+		if (session->level >= session->maxLevels) {
+			session->phase = CXLeidenPhaseDone;
+			return session->phase;
+		}
+		session->phase = CXLeidenPhaseCoarseMove;
+		return session->phase;
+	}
+
+	session->phase = CXLeidenPhaseFailed;
+	return session->phase;
+}
+
+void CXLeidenSessionGetProgress(
+	CXLeidenSessionRef sessionRef,
+	double *outProgress01,
+	CXLeidenPhase *outPhase,
+	CXSize *outLevel,
+	CXSize *outMaxLevels,
+	CXSize *outPass,
+	CXSize *outMaxPasses,
+	CXSize *outVisitedThisPass,
+	CXSize *outNodeCount,
+	uint32_t *outCommunityCount
+) {
+	CXLeidenSession *session = (CXLeidenSession *)sessionRef;
+	if (!session) {
+		if (outProgress01) *outProgress01 = 0.0;
+		if (outPhase) *outPhase = CXLeidenPhaseFailed;
+		if (outLevel) *outLevel = 0;
+		if (outMaxLevels) *outMaxLevels = 0;
+		if (outPass) *outPass = 0;
+		if (outMaxPasses) *outMaxPasses = 0;
+		if (outVisitedThisPass) *outVisitedThisPass = 0;
+		if (outNodeCount) *outNodeCount = 0;
+		if (outCommunityCount) *outCommunityCount = 0;
+		return;
+	}
+
+	const CXSize n = session->graph ? session->graph->nodeCount : 0;
+	const double levelProgress = (double)session->level / (double)(session->maxLevels ? session->maxLevels : 1);
+	double phaseBase = 0.0;
+	double phaseSpan = 1.0;
+	switch (session->phase) {
+		case CXLeidenPhaseCoarseMove:
+			phaseBase = 0.15;
+			phaseSpan = 0.45;
+			break;
+		case CXLeidenPhaseRefineMove:
+			phaseBase = 0.60;
+			phaseSpan = 0.30;
+			break;
+		case CXLeidenPhaseAggregate:
+			phaseBase = 0.90;
+			phaseSpan = 0.10;
+			break;
+		case CXLeidenPhaseDone:
+			phaseBase = 1.0;
+			phaseSpan = 0.0;
+			break;
+		default:
+			phaseBase = 0.0;
+			phaseSpan = 0.15;
+			break;
+	}
+	double withinPhase = 0.0;
+	if (session->moveState.active && n > 0) {
+		withinPhase = (double)session->moveState.orderPos / (double)n;
+	}
+	double progress01 = CXMIN(1.0, levelProgress + (phaseBase + phaseSpan * withinPhase) / (double)(session->maxLevels ? session->maxLevels : 1));
+
+	if (outProgress01) *outProgress01 = progress01;
+	if (outPhase) *outPhase = session->phase;
+	if (outLevel) *outLevel = session->level;
+	if (outMaxLevels) *outMaxLevels = session->maxLevels;
+	if (outPass) *outPass = session->moveState.active ? session->moveState.pass : 0;
+	if (outMaxPasses) *outMaxPasses = session->maxPasses;
+	if (outVisitedThisPass) *outVisitedThisPass = session->moveState.active ? session->moveState.orderPos : 0;
+	if (outNodeCount) *outNodeCount = n;
+	if (outCommunityCount) *outCommunityCount = session->refinedCount ? session->refinedCount : session->coarseCount;
+}
+
+CXBool CXLeidenSessionFinalize(
+	CXLeidenSessionRef sessionRef,
+	const CXString outNodeCommunityAttribute,
+	double *outModularity,
+	uint32_t *outCommunityCount
+) {
+	CXLeidenSession *session = (CXLeidenSession *)sessionRef;
+	if (!session || session->phase != CXLeidenPhaseDone || !outNodeCommunityAttribute) {
+		return CXFalse;
+	}
+	if (!session->baseGraph || !session->origToNode || session->originalCount == 0) {
+		return CXFalse;
+	}
+
+	uint32_t communityCount = 0;
+	for (CXSize i = 0; i < session->originalCount; i++) {
+		uint32_t c = session->origToNode[i];
+		if (c + 1 > communityCount) {
+			communityCount = c + 1;
+		}
+	}
+	if (communityCount == 0) {
+		return CXFalse;
+	}
+
+	if (outModularity) {
+		*outModularity = CXLeidenModularity(session->baseGraph, session->origToNode, communityCount, session->resolution);
+	}
+
+	CXAttributeRef attr = CXNetworkGetNodeAttribute(session->network, outNodeCommunityAttribute);
+	if (!attr) {
+		if (!CXNetworkDefineNodeAttribute(session->network, outNodeCommunityAttribute, CXUnsignedIntegerAttributeType, 1)) {
+			return CXFalse;
+		}
+		attr = CXNetworkGetNodeAttribute(session->network, outNodeCommunityAttribute);
+	}
+	if (!attr || attr->type != CXUnsignedIntegerAttributeType || attr->dimension != 1 || !attr->data) {
+		return CXFalse;
+	}
+
+	uint32_t *out = (uint32_t *)attr->data;
+	for (CXIndex i = 0; i < session->network->nodeCapacity; i++) {
+		out[i] = 0;
+	}
+	for (CXSize i = 0; i < session->originalCount; i++) {
+		CXIndex nodeIndex = session->compactToNode[i];
+		out[nodeIndex] = session->origToNode[i];
+	}
+
+	CXNetworkBumpNodeAttributeVersion(session->network, outNodeCommunityAttribute);
+	if (outCommunityCount) {
+		*outCommunityCount = communityCount;
+	}
+	return CXTrue;
+}
+
 CXSize CXNetworkLeidenModularity(
 	CXNetworkRef network,
 	const CXString edgeWeightAttribute,
@@ -851,146 +1488,16 @@ CXSize CXNetworkLeidenModularity(
 		return 0;
 	}
 
-	CXLeidenEdgeWeights weights;
-	if (!CXLeidenResolveEdgeWeights(network, edgeWeightAttribute, &weights)) {
+	CXLeidenSessionRef session = CXLeidenSessionCreate(network, edgeWeightAttribute, resolution, seed, maxLevels, maxPasses);
+	if (!session) {
 		return 0;
 	}
-
-	CXIndex *compactToNode = NULL;
-	CXIndex *nodeToCompact = NULL;
-	CXLeidenGraph *baseGraph = CXLeidenGraphFromNetwork(network, &weights, &compactToNode, &nodeToCompact);
-	free(nodeToCompact);
-	nodeToCompact = NULL;
-	if (!baseGraph) {
-		free(compactToNode);
-		return 0;
+	CXLeidenPhase phase = CXLeidenPhaseBuildGraph;
+	while (phase != CXLeidenPhaseDone && phase != CXLeidenPhaseFailed) {
+		phase = CXLeidenSessionStep(session, 1000000);
 	}
-
-	const CXSize originalCount = baseGraph->nodeCount;
-	if (originalCount == 0) {
-		CXLeidenGraphDestroy(baseGraph);
-		free(compactToNode);
-		return 0;
-	}
-
-	uint32_t *origToNode = malloc(sizeof(uint32_t) * originalCount);
-	if (!origToNode) {
-		CXLeidenGraphDestroy(baseGraph);
-		free(compactToNode);
-		return 0;
-	}
-	for (CXSize i = 0; i < originalCount; i++) {
-		origToNode[i] = (uint32_t)i;
-	}
-
-	CXLeidenRng rng;
-	CXLeidenRngSeed(&rng, seed);
-
-	CXLeidenGraph *graph = baseGraph;
-	uint32_t finalCommunityCount = 0;
-
-	for (CXSize level = 0; level < maxLevels; level++) {
-		const CXSize n = graph->nodeCount;
-		uint32_t *coarse = malloc(sizeof(uint32_t) * n);
-		if (!coarse) {
-			break;
-		}
-		for (CXSize i = 0; i < n; i++) {
-			coarse[i] = (uint32_t)i;
-		}
-
-		CXSize moved = CXLeidenMoveNodes(graph, coarse, NULL, resolution, &rng, maxPasses);
-		uint32_t coarseCount = CXLeidenRelabelCommunities(coarse, n);
-		if (coarseCount == 0) {
-			free(coarse);
-			break;
-		}
-
-		uint32_t *refined = CXLeidenRefinePartition(graph, coarse, resolution, &rng, maxPasses);
-		free(coarse);
-		if (!refined) {
-			break;
-		}
-		uint32_t refinedCount = CXLeidenRelabelCommunities(refined, n);
-		if (refinedCount == 0) {
-			free(refined);
-			break;
-		}
-
-		for (CXSize i = 0; i < originalCount; i++) {
-			uint32_t nodeId = origToNode[i];
-			if (nodeId < n) {
-				origToNode[i] = refined[nodeId];
-			}
-		}
-
-		finalCommunityCount = refinedCount;
-
-		if (moved == 0 && refinedCount == n) {
-			free(refined);
-			break;
-		}
-		if (refinedCount == n) {
-			free(refined);
-			break;
-		}
-
-		CXLeidenGraph *next = CXLeidenGraphAggregate(graph, refined, refinedCount);
-		free(refined);
-		if (!next) {
-			break;
-		}
-		if (graph != baseGraph) {
-			CXLeidenGraphDestroy(graph);
-		}
-		graph = next;
-	}
-
-	if (graph != baseGraph) {
-		CXLeidenGraphDestroy(graph);
-	}
-
-	if (finalCommunityCount == 0) {
-		CXLeidenGraphDestroy(baseGraph);
-		free(compactToNode);
-		free(origToNode);
-		return 0;
-	}
-
-	if (outModularity) {
-		*outModularity = CXLeidenModularity(baseGraph, origToNode, finalCommunityCount, resolution);
-	}
-
-	CXAttributeRef attr = CXNetworkGetNodeAttribute(network, outNodeCommunityAttribute);
-	if (!attr) {
-		if (!CXNetworkDefineNodeAttribute(network, outNodeCommunityAttribute, CXUnsignedIntegerAttributeType, 1)) {
-			CXLeidenGraphDestroy(baseGraph);
-			free(compactToNode);
-			free(origToNode);
-			return 0;
-		}
-		attr = CXNetworkGetNodeAttribute(network, outNodeCommunityAttribute);
-	}
-	if (!attr || attr->type != CXUnsignedIntegerAttributeType || attr->dimension != 1 || !attr->data) {
-		CXLeidenGraphDestroy(baseGraph);
-		free(compactToNode);
-		free(origToNode);
-		return 0;
-	}
-
-	uint32_t *out = (uint32_t *)attr->data;
-	for (CXIndex i = 0; i < network->nodeCapacity; i++) {
-		out[i] = 0;
-	}
-	for (CXSize i = 0; i < originalCount; i++) {
-		CXIndex nodeIndex = compactToNode[i];
-		out[nodeIndex] = origToNode[i];
-	}
-
-	CXNetworkBumpNodeAttributeVersion(network, outNodeCommunityAttribute);
-
-	CXLeidenGraphDestroy(baseGraph);
-	free(compactToNode);
-	free(origToNode);
-	return finalCommunityCount;
+	uint32_t communityCount = 0;
+	CXBool ok = (phase == CXLeidenPhaseDone) && CXLeidenSessionFinalize(session, outNodeCommunityAttribute, outModularity, &communityCount);
+	CXLeidenSessionDestroy(session);
+	return ok ? (CXSize)communityCount : 0;
 }

@@ -100,4 +100,8 @@ _CXNetworkReadZXNet
 _CXNetworkReadXNet
 _CXNetworkCompact
 _CXNetworkLeidenModularity
-
+_CXLeidenSessionCreate
+_CXLeidenSessionDestroy
+_CXLeidenSessionStep
+_CXLeidenSessionGetProgress
+_CXLeidenSessionFinalize

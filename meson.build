@@ -40,7 +40,13 @@ else
 endif
 
 py = import('python').find_installation(required : true)
-exported_functions_output = run_command(py, files('scripts/exported-functions.py'), '--format', 'lines', check: true).stdout().strip()
+exported_functions_output = run_command(
+  py,
+  files('scripts/exported-functions.py'),
+  '--format', 'lines',
+  '--file', files('scripts/exported-functions.txt'),
+  check: true
+).stdout().strip()
 exported_functions = exported_functions_output == '' ? [] : exported_functions_output.split('\n')
 
 emcc_args = [

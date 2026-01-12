@@ -395,6 +395,74 @@ CX_EXTERN CXSize CXNetworkLeidenModularity(
 	double *outModularity
 );
 
+// Incremental Leiden (steppable) --------------------------------------------
+typedef struct CXLeidenSession CXLeidenSession;
+typedef CXLeidenSession* CXLeidenSessionRef;
+
+typedef enum {
+	CXLeidenPhaseInvalid = 0,
+	CXLeidenPhaseBuildGraph = 1,
+	CXLeidenPhaseCoarseMove = 2,
+	CXLeidenPhaseRefineMove = 3,
+	CXLeidenPhaseAggregate = 4,
+	CXLeidenPhaseDone = 5,
+	CXLeidenPhaseFailed = 6
+} CXLeidenPhase;
+
+/**
+ * Creates a steppable Leiden session. The network topology and relevant
+ * edge weight attribute must not change while the session is active.
+ *
+ * Returns NULL on failure.
+ */
+CX_EXTERN CXLeidenSessionRef CXLeidenSessionCreate(
+	CXNetworkRef network,
+	const CXString edgeWeightAttribute,
+	double resolution,
+	uint32_t seed,
+	CXSize maxLevels,
+	CXSize maxPasses
+);
+
+/** Releases all resources held by a Leiden session. */
+CX_EXTERN void CXLeidenSessionDestroy(CXLeidenSessionRef session);
+
+/**
+ * Advances the session by at most `budget` node-visits (best effort).
+ * Returns the current phase after stepping.
+ */
+CX_EXTERN CXLeidenPhase CXLeidenSessionStep(CXLeidenSessionRef session, CXSize budget);
+
+/**
+ * Returns current progress metrics. Any output pointer may be NULL.
+ * `outProgress01` is a best-effort estimate in [0,1].
+ */
+CX_EXTERN void CXLeidenSessionGetProgress(
+	CXLeidenSessionRef session,
+	double *outProgress01,
+	CXLeidenPhase *outPhase,
+	CXSize *outLevel,
+	CXSize *outMaxLevels,
+	CXSize *outPass,
+	CXSize *outMaxPasses,
+	CXSize *outVisitedThisPass,
+	CXSize *outNodeCount,
+	uint32_t *outCommunityCount
+);
+
+/**
+ * Finalizes a completed session, writing the resulting community ids into a
+ * node attribute of type `CXUnsignedIntegerAttributeType` (dimension 1).
+ *
+ * Returns CXFalse if the session has not completed or on failure.
+ */
+CX_EXTERN CXBool CXLeidenSessionFinalize(
+	CXLeidenSessionRef session,
+	const CXString outNodeCommunityAttribute,
+	double *outModularity,
+	uint32_t *outCommunityCount
+);
+
 // Dense attribute buffers ----------------------------------------------------
 /** Registers a dense node attribute buffer that can be refreshed on demand. */
 CX_EXTERN CXBool CXNetworkAddDenseNodeAttribute(CXNetworkRef network, const CXString name, CXSize initialCapacity);
