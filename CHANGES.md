@@ -1,5 +1,11 @@
 # CHANGES
 
+## 2026-01-12
+
+- Added a generic steppable-session runner (`run`) for long-running WASM computations, allowing cooperative yielding between chunks (no worker required).
+- Steppable sessions now auto-cancel if the underlying network becomes out-of-sync (tracked topology/attribute versions change); each session type defines its own cancellation policy internally (e.g. Leiden cancels on topology changes and weight attribute version bumps when weighted).
+- Updated Leiden session tests to cover `run()` and version-based cancellation.
+
 ## 2026-01-02
 
 - Added `getBufferMemoryUsage()` to report WASM buffer memory usage (topology buffers including node/edge free lists, sparse attributes, dense buffers) plus total WASM heap size.

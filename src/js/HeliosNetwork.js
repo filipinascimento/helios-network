@@ -1206,139 +1206,334 @@ class EdgeSelector extends Selector {
 	}
 	}
 
-class LeidenSession {
-	constructor(module, network, ptr, options) {
-		this.module = module;
-		this.network = network;
-		this.ptr = ptr;
-		this.options = options;
-		this._scratch = 0;
-	}
-
-	_ensureActive() {
-		if (!this.ptr) {
-			throw new Error('LeidenSession has been disposed');
-		}
-		this.network._ensureActive();
-	}
-
-	_ensureScratch() {
-		if (this._scratch) {
-			return this._scratch;
-		}
-		this.network._assertCanAllocate('Leiden session scratch allocation');
-		const ptr = this.module._malloc(80);
-		if (!ptr) {
-			throw new Error('Failed to allocate Leiden session scratch memory');
-		}
-		this._scratch = ptr;
-		return ptr;
-	}
-
-	dispose() {
-		if (this.ptr) {
-			if (typeof this.module._CXLeidenSessionDestroy === 'function') {
-				this.module._CXLeidenSessionDestroy(this.ptr);
-			}
-			this.ptr = 0;
-		}
-		if (this._scratch) {
-			this.module._free(this._scratch);
+	class WasmSteppableSession {
+		constructor(module, network, ptr, handlers) {
+			this.module = module;
+			this.network = network;
+			this.ptr = ptr;
 			this._scratch = 0;
-		}
-	}
-
-	getProgress() {
-		this._ensureActive();
-		if (typeof this.module._CXLeidenSessionGetProgress !== 'function') {
-			throw new Error('CXLeidenSessionGetProgress is not available in this WASM build.');
-		}
-
-		const base = this._ensureScratch();
-		const progressPtr = base + 0; // f64
-		const phasePtr = base + 8; // u32
-		const levelPtr = base + 12; // u32
-		const maxLevelsPtr = base + 16; // u32
-		const passPtr = base + 20; // u32
-		const maxPassesPtr = base + 24; // u32
-		const visitedPtr = base + 28; // u32
-		const nodeCountPtr = base + 32; // u32
-		const communityCountPtr = base + 36; // u32
-
-		this.module._CXLeidenSessionGetProgress(
-			this.ptr,
-			progressPtr,
-			phasePtr,
-			levelPtr,
-			maxLevelsPtr,
-			passPtr,
-			maxPassesPtr,
-			visitedPtr,
-			nodeCountPtr,
-			communityCountPtr
-		);
-
-		const progress01 = this.module.HEAPF64[progressPtr / Float64Array.BYTES_PER_ELEMENT] ?? 0;
-		const phase = this.module.HEAPU32[phasePtr / Uint32Array.BYTES_PER_ELEMENT] ?? 0;
-		const level = this.module.HEAPU32[levelPtr / Uint32Array.BYTES_PER_ELEMENT] ?? 0;
-		const maxLevels = this.module.HEAPU32[maxLevelsPtr / Uint32Array.BYTES_PER_ELEMENT] ?? 0;
-		const pass = this.module.HEAPU32[passPtr / Uint32Array.BYTES_PER_ELEMENT] ?? 0;
-		const maxPasses = this.module.HEAPU32[maxPassesPtr / Uint32Array.BYTES_PER_ELEMENT] ?? 0;
-		const visitedThisPass = this.module.HEAPU32[visitedPtr / Uint32Array.BYTES_PER_ELEMENT] ?? 0;
-		const nodeCount = this.module.HEAPU32[nodeCountPtr / Uint32Array.BYTES_PER_ELEMENT] ?? 0;
-		const communityCount = this.module.HEAPU32[communityCountPtr / Uint32Array.BYTES_PER_ELEMENT] ?? 0;
-
-		return {
-			progress01,
-			phase,
-			level,
-			maxLevels,
-			pass,
-			maxPasses,
-			visitedThisPass,
-			nodeCount,
-			communityCount,
-		};
-	}
-
-	step(options = {}) {
-		this._ensureActive();
-		this.network._assertCanAllocate('Leiden community detection step');
-		const {
-			budget = 5000,
-			timeoutMs = null,
-			chunkBudget = 5000,
-		} = options;
-		if (typeof this.module._CXLeidenSessionStep !== 'function') {
-			throw new Error('CXLeidenSessionStep is not available in this WASM build.');
+			this._scratchBytes = handlers.scratchBytes ?? 0;
+			this._destroy = handlers.destroy;
+			this._step = handlers.step;
+			this._getProgress = handlers.getProgress;
+			this._cancelOn = handlers.cancelOn ?? null;
+			this._isTerminalPhase = handlers.isTerminalPhase ?? null;
+			this._isDonePhase = handlers.isDonePhase ?? null;
+			this._isFailedPhase = handlers.isFailedPhase ?? null;
+			this._canceledReason = null;
+			this._versionBaseline = this._cancelOn ? this._captureVersions(this._cancelOn) : null;
 		}
 
-		const now = typeof globalThis !== 'undefined' && globalThis.performance && typeof globalThis.performance.now === 'function'
-			? globalThis.performance.now.bind(globalThis.performance)
-			: Date.now;
+		_ensureActive() {
+			if (this._canceledReason) {
+				throw new Error(`Session canceled: ${this._canceledReason}`);
+			}
+			if (!this.ptr) {
+				throw new Error('Session has been disposed');
+			}
+			this.network._ensureActive();
+		}
 
-		if (timeoutMs == null) {
-			const phase = this.module._CXLeidenSessionStep(this.ptr, budget >>> 0);
+		_captureVersions(cancelOn) {
+			const versions = {};
+			const topology = cancelOn.topology ?? null;
+			if (topology) {
+				versions.topology = this.network.getTopologyVersions();
+			}
+
+			const attributes = cancelOn.attributes ?? null;
+			if (attributes) {
+				const out = { node: {}, edge: {}, network: {} };
+				for (const name of attributes.node ?? []) {
+					out.node[name] = this.network.getNodeAttributeVersion(name);
+				}
+				for (const name of attributes.edge ?? []) {
+					out.edge[name] = this.network.getEdgeAttributeVersion(name);
+				}
+				for (const name of attributes.network ?? []) {
+					out.network[name] = this.network.getNetworkAttributeVersion(name);
+				}
+				versions.attributes = out;
+			}
+
+			return versions;
+		}
+
+		_checkCancellation() {
+			if (!this._cancelOn || !this._versionBaseline) {
+				return;
+			}
+
+			const baseline = this._versionBaseline;
+			let reason = null;
+			const topologyMode = this._cancelOn.topology ?? null;
+			if (topologyMode && baseline.topology) {
+				const current = this.network.getTopologyVersions();
+				if (!reason && (topologyMode === 'node' || topologyMode === 'both') && current.node !== baseline.topology.node) {
+					reason = 'node topology changed';
+				}
+				if (!reason && (topologyMode === 'edge' || topologyMode === 'both') && current.edge !== baseline.topology.edge) {
+					reason = 'edge topology changed';
+				}
+			}
+
+			const baselineAttributes = baseline.attributes;
+			if (!reason && baselineAttributes) {
+				for (const [name, version] of Object.entries(baselineAttributes.node ?? {})) {
+					if (this.network.getNodeAttributeVersion(name) !== version) {
+						reason = `node attribute "${name}" changed`;
+						break;
+					}
+				}
+				for (const [name, version] of Object.entries(baselineAttributes.edge ?? {})) {
+					if (reason) break;
+					if (this.network.getEdgeAttributeVersion(name) !== version) {
+						reason = `edge attribute "${name}" changed`;
+						break;
+					}
+				}
+				for (const [name, version] of Object.entries(baselineAttributes.network ?? {})) {
+					if (reason) break;
+					if (this.network.getNetworkAttributeVersion(name) !== version) {
+						reason = `network attribute "${name}" changed`;
+						break;
+					}
+				}
+			}
+
+			if (reason) {
+				this.cancel(reason);
+				throw new Error(`Session canceled: ${reason}`);
+			}
+		}
+
+		_ensureScratch() {
+			if (!this._scratchBytes) {
+				throw new Error('Session scratch storage is not configured');
+			}
+			if (this._scratch) {
+				return this._scratch;
+			}
+			this.network._assertCanAllocate('session scratch allocation');
+			const ptr = this.module._malloc(this._scratchBytes);
+			if (!ptr) {
+				throw new Error('Failed to allocate session scratch memory');
+			}
+			this._scratch = ptr;
+			return ptr;
+		}
+
+		dispose() {
+			if (this.ptr && this._destroy) {
+				this._destroy(this.ptr);
+				this.ptr = 0;
+			}
+			if (this._scratch) {
+				this.module._free(this._scratch);
+				this._scratch = 0;
+			}
+		}
+
+		cancel(reason = 'canceled') {
+			if (this._canceledReason) {
+				return;
+			}
+			this._canceledReason = String(reason || 'canceled');
+			this.dispose();
+		}
+
+		getProgress() {
+			this._ensureActive();
+			this._checkCancellation();
+			if (!this._getProgress) {
+				throw new Error('Session does not support progress reporting');
+			}
+			return this._getProgress(this.ptr, this._ensureScratch());
+		}
+
+		step(options = {}) {
+			this._ensureActive();
+			this.network._assertCanAllocate('session step');
+			this._checkCancellation();
+			if (!this._step) {
+				throw new Error('Session does not support stepping');
+			}
+			const {
+				budget = 5000,
+				timeoutMs = null,
+				chunkBudget = 5000,
+			} = options;
+
+			const now = typeof globalThis !== 'undefined' && globalThis.performance && typeof globalThis.performance.now === 'function'
+				? globalThis.performance.now.bind(globalThis.performance)
+				: Date.now;
+
+			const isTerminalPhase = this._isTerminalPhase ?? (() => false);
+
+			if (timeoutMs == null) {
+				const phase = this._step(this.ptr, budget >>> 0);
+				return { phase, ...this.getProgress() };
+			}
+
+			const deadline = now() + Math.max(0, Number(timeoutMs) || 0);
+			const budgetPerChunk = Math.max(1, chunkBudget >>> 0);
+			let phase = 0;
+			do {
+				phase = this._step(this.ptr, budgetPerChunk);
+				if (isTerminalPhase(phase)) {
+					break;
+				}
+			} while (now() < deadline);
+
 			return { phase, ...this.getProgress() };
 		}
 
-		const deadline = now() + Math.max(0, Number(timeoutMs) || 0);
-		const budgetPerChunk = Math.max(1, chunkBudget >>> 0);
-		let phase = 0;
-		do {
-			phase = this.module._CXLeidenSessionStep(this.ptr, budgetPerChunk);
-			if (phase === 5 || phase === 6) {
-				break;
-			}
-		} while (now() < deadline);
+		async run(options = {}) {
+			this._ensureActive();
+			const {
+				stepOptions = {},
+				yieldMs = 0,
+				yield: yieldFn = null,
+				onProgress = null,
+				signal = null,
+				maxIterations = Infinity,
+			} = options;
 
-		return { phase, ...this.getProgress() };
+			const defer = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+			const isTerminal = this._isTerminalPhase ?? (() => false);
+			const isDone = this._isDonePhase ?? ((phase) => isTerminal(phase));
+			const isFailed = this._isFailedPhase ?? (() => false);
+
+			let last = null;
+			for (let iteration = 0; iteration < maxIterations; iteration += 1) {
+				if (signal && signal.aborted) {
+					this.cancel('aborted');
+					throw new Error('Session canceled: aborted');
+				}
+				last = this.step(stepOptions);
+				if (typeof onProgress === 'function') {
+					onProgress(last);
+				}
+				if (isDone(last.phase)) {
+					return last;
+				}
+				if (isFailed(last.phase)) {
+					throw new Error('Session failed');
+				}
+				if (typeof yieldFn === 'function') {
+					await yieldFn(last);
+				} else {
+					await defer(Math.max(0, Number(yieldMs) || 0));
+				}
+			}
+
+			return last;
+		}
 	}
 
-	finalize(options = {}) {
-		this._ensureActive();
-		this.network._assertCanAllocate('Leiden community detection finalization');
-		if (typeof this.module._CXLeidenSessionFinalize !== 'function') {
+	class LeidenSession {
+		constructor(module, network, ptr, options) {
+			this.options = options;
+			const cancelOn = {
+				topology: 'both',
+				attributes: {
+					edge: options.edgeWeightAttribute ? [options.edgeWeightAttribute] : [],
+				},
+			};
+			const handlers = {
+				scratchBytes: 80,
+				destroy: typeof module._CXLeidenSessionDestroy === 'function' ? module._CXLeidenSessionDestroy.bind(module) : null,
+				step: typeof module._CXLeidenSessionStep === 'function' ? module._CXLeidenSessionStep.bind(module) : null,
+				isTerminalPhase: (phase) => phase === 5 || phase === 6,
+				isDonePhase: (phase) => phase === 5,
+				isFailedPhase: (phase) => phase === 6,
+				cancelOn,
+				getProgress: (sessionPtr, scratchPtr) => {
+					if (typeof module._CXLeidenSessionGetProgress !== 'function') {
+						throw new Error('CXLeidenSessionGetProgress is not available in this WASM build.');
+					}
+					const base = scratchPtr;
+				const progressPtr = base + 0; // f64
+				const phasePtr = base + 8; // u32
+				const levelPtr = base + 12; // u32
+				const maxLevelsPtr = base + 16; // u32
+				const passPtr = base + 20; // u32
+				const maxPassesPtr = base + 24; // u32
+				const visitedPtr = base + 28; // u32
+				const nodeCountPtr = base + 32; // u32
+				const communityCountPtr = base + 36; // u32
+
+				module._CXLeidenSessionGetProgress(
+					sessionPtr,
+					progressPtr,
+					phasePtr,
+					levelPtr,
+					maxLevelsPtr,
+					passPtr,
+					maxPassesPtr,
+					visitedPtr,
+					nodeCountPtr,
+					communityCountPtr
+				);
+
+				const progress01 = module.HEAPF64[progressPtr / Float64Array.BYTES_PER_ELEMENT] ?? 0;
+				const phase = module.HEAPU32[phasePtr / Uint32Array.BYTES_PER_ELEMENT] ?? 0;
+				const level = module.HEAPU32[levelPtr / Uint32Array.BYTES_PER_ELEMENT] ?? 0;
+				const maxLevels = module.HEAPU32[maxLevelsPtr / Uint32Array.BYTES_PER_ELEMENT] ?? 0;
+				const pass = module.HEAPU32[passPtr / Uint32Array.BYTES_PER_ELEMENT] ?? 0;
+				const maxPasses = module.HEAPU32[maxPassesPtr / Uint32Array.BYTES_PER_ELEMENT] ?? 0;
+				const visitedThisPass = module.HEAPU32[visitedPtr / Uint32Array.BYTES_PER_ELEMENT] ?? 0;
+				const nodeCount = module.HEAPU32[nodeCountPtr / Uint32Array.BYTES_PER_ELEMENT] ?? 0;
+				const communityCount = module.HEAPU32[communityCountPtr / Uint32Array.BYTES_PER_ELEMENT] ?? 0;
+
+					return {
+						progress01,
+						phase,
+						level,
+						maxLevels,
+						pass,
+						maxPasses,
+						visitedThisPass,
+						nodeCount,
+						communityCount,
+					};
+				},
+			};
+
+			this._base = new WasmSteppableSession(module, network, ptr, handlers);
+		}
+
+	_ensureActive() {
+		this._base._ensureActive();
+	}
+
+	_ensureScratch() {
+		return this._base._ensureScratch();
+	}
+
+	dispose() {
+		this._base.dispose();
+	}
+
+	getProgress() {
+		return this._base.getProgress();
+	}
+
+		step(options = {}) {
+			return this._base.step(options);
+		}
+
+		run(options = {}) {
+			return this._base.run(options);
+		}
+
+		finalize(options = {}) {
+			this._ensureActive();
+			const module = this._base.module;
+			const network = this._base.network;
+			const ptr = this._base.ptr;
+		network._assertCanAllocate('Leiden community detection finalization');
+		if (typeof module._CXLeidenSessionFinalize !== 'function') {
 			throw new Error('CXLeidenSessionFinalize is not available in this WASM build.');
 		}
 
@@ -1347,36 +1542,36 @@ class LeidenSession {
 			throw new Error('outNodeCommunityAttribute is required');
 		}
 
-		const outName = new CString(this.module, outNodeCommunityAttribute);
-		const modularityPtr = this.module._malloc(Float64Array.BYTES_PER_ELEMENT);
-		const communityCountPtr = this.module._malloc(Uint32Array.BYTES_PER_ELEMENT);
+		const outName = new CString(module, outNodeCommunityAttribute);
+		const modularityPtr = module._malloc(Float64Array.BYTES_PER_ELEMENT);
+		const communityCountPtr = module._malloc(Uint32Array.BYTES_PER_ELEMENT);
 		if (!modularityPtr || !communityCountPtr) {
 			outName.dispose();
-			if (modularityPtr) this.module._free(modularityPtr);
-			if (communityCountPtr) this.module._free(communityCountPtr);
+			if (modularityPtr) module._free(modularityPtr);
+			if (communityCountPtr) module._free(communityCountPtr);
 			throw new Error('Failed to allocate Leiden finalize buffers');
 		}
-		this.module.HEAPF64[modularityPtr / Float64Array.BYTES_PER_ELEMENT] = 0;
-		this.module.HEAPU32[communityCountPtr / Uint32Array.BYTES_PER_ELEMENT] = 0;
+		module.HEAPF64[modularityPtr / Float64Array.BYTES_PER_ELEMENT] = 0;
+		module.HEAPU32[communityCountPtr / Uint32Array.BYTES_PER_ELEMENT] = 0;
 
 		let ok = 0;
 		let modularity = 0;
 		let communityCount = 0;
 		try {
-			ok = this.module._CXLeidenSessionFinalize(this.ptr, outName.ptr, modularityPtr, communityCountPtr);
-			modularity = this.module.HEAPF64[modularityPtr / Float64Array.BYTES_PER_ELEMENT] ?? 0;
-			communityCount = this.module.HEAPU32[communityCountPtr / Uint32Array.BYTES_PER_ELEMENT] ?? 0;
+			ok = module._CXLeidenSessionFinalize(ptr, outName.ptr, modularityPtr, communityCountPtr);
+			modularity = module.HEAPF64[modularityPtr / Float64Array.BYTES_PER_ELEMENT] ?? 0;
+			communityCount = module.HEAPU32[communityCountPtr / Uint32Array.BYTES_PER_ELEMENT] ?? 0;
 		} finally {
 			outName.dispose();
-			this.module._free(modularityPtr);
-			this.module._free(communityCountPtr);
+			module._free(modularityPtr);
+			module._free(communityCountPtr);
 		}
 		if (!ok) {
 			throw new Error('Leiden session is not ready to finalize (run step() until done)');
 		}
 
-		if (!this.network._nodeAttributes.has(outNodeCommunityAttribute)) {
-			this.network._nodeAttributes.set(outNodeCommunityAttribute, {
+		if (!network._nodeAttributes.has(outNodeCommunityAttribute)) {
+			network._nodeAttributes.set(outNodeCommunityAttribute, {
 				type: AttributeType.UnsignedInteger,
 				dimension: 1,
 				complex: false,
@@ -5163,44 +5358,44 @@ export class HeliosNetwork {
 		return { communityCount, modularity };
 	}
 
-	/**
-	 * Creates a steppable Leiden session for incremental execution.
-	 *
-	 * Run `session.step({budget})` in a loop until `phase` becomes `5` (done),
-	 * then call `session.finalize()` to write the output attribute.
-	 *
-	 * @param {object} [options]
-	 * @param {number} [options.resolution=1] - Modularity resolution parameter (gamma).
-	 * @param {string|null} [options.edgeWeightAttribute=null] - Edge weight attribute name (dimension 1).
-	 * @param {number} [options.seed=0] - RNG seed (0 uses a default seed).
-	 * @param {number} [options.maxLevels=32] - Maximum aggregation levels.
-	 * @param {number} [options.maxPasses=8] - Max local-moving passes per phase.
-	 * @param {string} [options.outNodeCommunityAttribute='community'] - Default output name for finalize().
-	 * @returns {LeidenSession} Session handle.
-	 */
-	createLeidenSession(options = {}) {
-		this._ensureActive();
-		this._assertCanAllocate('Leiden session creation');
+		/**
+		 * Creates a steppable Leiden session for incremental execution.
+		 *
+		 * Run `session.step({budget})` in a loop until `phase` becomes `5` (done),
+		 * then call `session.finalize()` to write the output attribute.
+		 *
+		 * @param {object} [options]
+		 * @param {number} [options.resolution=1] - Modularity resolution parameter (gamma).
+		 * @param {string|null} [options.edgeWeightAttribute=null] - Edge weight attribute name (dimension 1).
+		 * @param {number} [options.seed=0] - RNG seed (0 uses a default seed).
+		 * @param {number} [options.maxLevels=32] - Maximum aggregation levels.
+		 * @param {number} [options.maxPasses=8] - Max local-moving passes per phase.
+		 * @param {string} [options.outNodeCommunityAttribute='community'] - Default output name for finalize().
+		 * @returns {LeidenSession} Session handle.
+		 */
+		createLeidenSession(options = {}) {
+			this._ensureActive();
+			this._assertCanAllocate('Leiden session creation');
 		const {
 			resolution = 1,
 			edgeWeightAttribute = null,
-			seed = 0,
-			maxLevels = 32,
-			maxPasses = 8,
-			outNodeCommunityAttribute = 'community',
-		} = options;
+				seed = 0,
+				maxLevels = 32,
+				maxPasses = 8,
+				outNodeCommunityAttribute = 'community',
+			} = options;
 
 		if (typeof this.module._CXLeidenSessionCreate !== 'function') {
 			throw new Error('CXLeidenSessionCreate is not available in this WASM build. Rebuild the module to enable createLeidenSession().');
 		}
-		if (!Number.isFinite(resolution) || resolution <= 0) {
-			throw new Error('resolution must be a positive finite number');
-		}
+			if (!Number.isFinite(resolution) || resolution <= 0) {
+				throw new Error('resolution must be a positive finite number');
+			}
 
-		const weightName = edgeWeightAttribute ? new CString(this.module, edgeWeightAttribute) : null;
-		let ptr = 0;
-		try {
-			ptr = this.module._CXLeidenSessionCreate(
+			const weightName = edgeWeightAttribute ? new CString(this.module, edgeWeightAttribute) : null;
+			let ptr = 0;
+			try {
+				ptr = this.module._CXLeidenSessionCreate(
 				this.ptr,
 				weightName ? weightName.ptr : 0,
 				resolution,
@@ -5214,11 +5409,11 @@ export class HeliosNetwork {
 			}
 		}
 
-		if (!ptr) {
-			throw new Error('Failed to create Leiden session');
+			if (!ptr) {
+				throw new Error('Failed to create Leiden session');
+			}
+			return new LeidenSession(this.module, this, ptr, { outNodeCommunityAttribute, edgeWeightAttribute });
 		}
-		return new LeidenSession(this.module, this, ptr, { outNodeCommunityAttribute });
-	}
 
 	/**
 	 * Internal helper that creates a network backed by the provided module.

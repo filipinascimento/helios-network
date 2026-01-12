@@ -64,16 +64,11 @@ test('steppable Leiden session reports progress and finalizes', async () => {
 			expect(last.progress01).toBeGreaterThanOrEqual(0);
 			expect(last.progress01).toBeLessThanOrEqual(1);
 
-			let iterations = 0;
-			while (last.phase !== 5 && last.phase !== 6) {
-				last = session.step({ timeoutMs: 0, chunkBudget: 25 });
-				expect(last.progress01).toBeGreaterThanOrEqual(0);
-				expect(last.progress01).toBeLessThanOrEqual(1);
-				iterations += 1;
-				if (iterations > 5000) {
-					throw new Error('Leiden session did not converge in expected steps');
-				}
-			}
+			last = await session.run({
+				stepOptions: { timeoutMs: 0, chunkBudget: 25 },
+				yield: () => Promise.resolve(),
+				maxIterations: 5000,
+			});
 			expect(last.phase).toBe(5);
 
 			const { communityCount, modularity } = session.finalize();
@@ -81,6 +76,37 @@ test('steppable Leiden session reports progress and finalizes', async () => {
 			expect(modularity).toBeGreaterThanOrEqual(0);
 			const view = network.getNodeAttributeBuffer('community_session').view;
 			expect(view.length).toBeGreaterThanOrEqual(network.nodeCount);
+		} finally {
+			session.dispose();
+		}
+	} finally {
+		network.dispose();
+	}
+}, 30000);
+
+test('steppable sessions cancel when tracked versions change', async () => {
+	const network = await HeliosNetwork.create({ directed: false, initialNodes: 10, initialEdges: 10 });
+	try {
+		network.defineEdgeAttribute('w', AttributeType.Float, 1);
+		network.addEdges([
+			{ from: 0, to: 1 },
+			{ from: 1, to: 2 },
+			{ from: 2, to: 3 },
+			{ from: 3, to: 4 },
+			{ from: 4, to: 0 },
+		]);
+
+		const session = network.createLeidenSession({
+			edgeWeightAttribute: 'w',
+			seed: 1,
+			maxLevels: 2,
+			maxPasses: 2,
+		});
+
+		try {
+			network.bumpEdgeAttributeVersion('w');
+			expect(() => session.step({ budget: 10 })).toThrow(/Session canceled/i);
+			expect(() => session.getProgress()).toThrow(/Session canceled/i);
 		} finally {
 			session.dispose();
 		}
