@@ -1,3 +1,5 @@
+import { createHeliosSessionWorker, WorkerSessionClient } from './worker/WorkerClient.js';
+
 export class WasmSteppableSession {
 	constructor(module, network, ptr, handlers) {
 		this.module = module;
@@ -12,6 +14,7 @@ export class WasmSteppableSession {
 		this._isTerminalPhase = handlers.isTerminalPhase ?? null;
 		this._isDonePhase = handlers.isDonePhase ?? null;
 		this._isFailedPhase = handlers.isFailedPhase ?? null;
+		this._workerSpec = handlers.workerSpec ?? null;
 		this._canceledReason = null;
 		this._versionBaseline = this._cancelOn ? this._captureVersions(this._cancelOn) : null;
 	}
@@ -150,11 +153,10 @@ export class WasmSteppableSession {
 		if (!this._step) {
 			throw new Error('Session does not support stepping');
 		}
-		const {
-			budget = 5000,
-			timeoutMs = null,
-			chunkBudget = 5000,
-		} = options;
+		const hasTimeout = Object.prototype.hasOwnProperty.call(options, 'timeoutMs');
+		const budget = options.budget == null ? 5000 : (options.budget >>> 0);
+		const timeoutMs = hasTimeout ? options.timeoutMs : 4;
+		const chunkBudget = options.chunkBudget == null ? 5000 : (options.chunkBudget >>> 0);
 
 		const now = typeof globalThis !== 'undefined' && globalThis.performance && typeof globalThis.performance.now === 'function'
 			? globalThis.performance.now.bind(globalThis.performance)
@@ -238,5 +240,83 @@ export class WasmSteppableSession {
 		const progress = this.getProgress();
 		const phase = progress?.phase ?? 0;
 		return this._isFailedPhase ? Boolean(this._isFailedPhase(phase)) : false;
+	}
+
+	async runWorker(options = {}) {
+		this._ensureActive();
+		if (!this._workerSpec) {
+			throw new Error('Session does not support worker execution');
+		}
+
+		const {
+			stepOptions = {},
+			yieldMs = 0,
+			onProgress = null,
+			signal = null,
+		} = options;
+
+		if (signal && signal.aborted) {
+			this.cancel('aborted');
+			throw new Error('Session canceled: aborted');
+		}
+
+		this.network._assertCanAllocate('worker snapshot');
+		const { kind, buildSnapshot, applyResult, buildPayload } = this._workerSpec;
+		if (typeof kind !== 'string' || !kind) {
+			throw new Error('Invalid worker session kind');
+		}
+		if (typeof buildSnapshot !== 'function' || typeof applyResult !== 'function' || typeof buildPayload !== 'function') {
+			throw new Error('Invalid worker session specification');
+		}
+
+		const snapshot = buildSnapshot();
+		const { payload, transfer } = buildPayload(snapshot);
+
+		const worker = await createHeliosSessionWorker();
+		const client = new WorkerSessionClient(worker);
+		let createdSessionId = 0;
+		let cancellationError = null;
+		try {
+			createdSessionId = await client.create(kind, payload, transfer);
+			client.onProgress((progress) => {
+				if (signal && signal.aborted) {
+					client.cancel().catch(() => {});
+					return;
+				}
+				if (!cancellationError) {
+					try {
+						this._checkCancellation();
+					} catch (e) {
+						cancellationError = e instanceof Error ? e : new Error(String(e));
+						client.cancel().catch(() => {});
+						return;
+					}
+				}
+				if (typeof onProgress === 'function') {
+					onProgress(progress);
+				}
+			});
+
+			if (signal) {
+				signal.addEventListener?.('abort', () => {
+					client.cancel().catch(() => {});
+				}, { once: true });
+			}
+
+			const response = await client.run({ stepOptions, yieldMs });
+			if (cancellationError) {
+				throw cancellationError;
+			}
+			const result = response.result;
+			applyResult(result, snapshot);
+			return result;
+		} finally {
+			try {
+				if (createdSessionId) {
+					await client.dispose();
+				}
+			} catch {}
+			client.terminate();
+		}
 	}
 }

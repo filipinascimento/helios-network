@@ -3,6 +3,7 @@
 ## 2026-01-12
 
 - Added a generic steppable-session runner (`run`) for long-running WASM computations, allowing cooperative yielding between chunks (no worker required).
+- Added worker execution for supported steppable sessions (`runWorker`), which snapshots only the required topology/attributes and runs the native session in a separate WASM instance.
 - Steppable sessions now auto-cancel if the underlying network becomes out-of-sync (tracked topology/attribute versions change); each session type defines its own cancellation policy internally (e.g. Leiden cancels on topology changes and weight attribute version bumps when weighted).
 - Leiden session progress now reports `progressCurrent`/`progressTotal` (instead of a non-monotonic `progress01`), and exposes convenience helpers like `isComplete()` and `isFinalized()`.
 - Updated Leiden session tests to cover `run()` and version-based cancellation.

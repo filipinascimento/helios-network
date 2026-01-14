@@ -17,6 +17,7 @@ A steppable session exposes:
 - `step(...)` - run a bounded amount of work, return `{ phase, progress... }`
 - `getProgress()` - read current progress without advancing
 - `run(...)` - repeatedly `step(...)` and yield between chunks (Promise-based)
+- `runWorker(...)` - run in a dedicated worker (when supported)
 - `finalize(...)` - write results into attributes / buffers (when done)
 - `dispose()` - free native session state
 
@@ -71,6 +72,35 @@ Notes:
 - If the graph topology/attribute versions change while the session is running, `step()`/`run()` will throw a cancellation error.
 - Always call `dispose()` when you’re done (or use `try/finally`).
 
+## Running in a worker
+
+Supported sessions can run in a dedicated worker via `runWorker(...)`. This:
+
+- creates a fresh WASM module instance in the worker,
+- snapshots only the required topology/attributes from the main-thread network,
+- runs the native session in the worker (step-by-step, posting progress events),
+- applies the result back onto the original network (main thread).
+
+Example:
+
+```js
+const session = network.createLeidenSession({ edgeWeightAttribute: 'w', seed: 1 });
+await session.runWorker({
+  stepOptions: { timeoutMs: 4, chunkBudget: 20000 },
+  onProgress: ({ progressCurrent, progressTotal }) => {
+    const progress01 = progressTotal ? progressCurrent / progressTotal : 0;
+    /* update UI */
+  },
+});
+```
+
+Notes:
+
+- `runWorker` still respects the session cancellation policy: if the tracked topology/attribute versions change on the main thread, the worker run is canceled.
+- The session object is disposed after `runWorker` completes (use `create*Session(...)` again if you want to run another pass).
+- Worker execution uses data snapshots (no `SharedArrayBuffer`); only the required inputs for the session are copied.
+- In the browser, `runWorker` requires serving the ES module build from a real URL so the worker module can be loaded; it will not work if the library is loaded from a `data:`/`blob:` URL.
+
 ## Implementing a new steppable algorithm
 
 There are two parts: a native session API (C) and a JS wrapper that plugs into `WasmSteppableSession`.
@@ -107,6 +137,7 @@ To add a new session type, create a wrapper class that *composes* a `WasmSteppab
 - `getProgress` - reads native progress into JS values
 - `isDonePhase` / `isFailedPhase` - phase decoding
 - `cancelOn` - the algorithm’s private cancellation policy (topology + relevant attributes)
+- `workerSpec` - how to snapshot required inputs + apply results back when running in a worker
 
 The important rule is: **cancellation policy is defined by the session type**, not by the user at creation time.
 

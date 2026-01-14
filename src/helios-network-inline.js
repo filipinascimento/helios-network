@@ -20,12 +20,14 @@ function ensureInlineBinary() {
 	return cachedBinary;
 }
 
+const isNode = typeof process !== 'undefined' && !!process.versions?.node && process.type !== 'renderer';
+
 setHeliosModuleFactory((options = {}) => {
-	const wasmBinary = ensureInlineBinary();
-	return defaultFactory({
-		...options,
-		wasmBinary,
-	});
+	if (isNode && !options.wasmBinary) {
+		return defaultFactory(options);
+	}
+	const wasmBinary = options.wasmBinary ?? ensureInlineBinary();
+	return defaultFactory({ ...options, wasmBinary });
 });
 
 export { AttributeType, NodeSelector, EdgeSelector, getHeliosModule };

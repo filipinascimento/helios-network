@@ -48,7 +48,7 @@
   "module": "./dist/helios-network.js",
   "exports": {
     ".": {
-      "browser": "./dist/helios-network.inline.js",
+      "browser": "./dist/helios-network.js",
       "import": "./dist/helios-network.js",
       "require": "./dist/helios-network.umd.cjs"
     },

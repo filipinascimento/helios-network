@@ -1217,6 +1217,100 @@ class EdgeSelector extends Selector {
 					edge: options.edgeWeightAttribute ? [options.edgeWeightAttribute] : [],
 				},
 			};
+			const workerSpec = {
+				kind: 'leiden',
+				buildSnapshot: () => {
+					const sessionOptions = this.options ?? {};
+					const activeNodes = network.nodeIndices;
+					const nodeToCompact = new Map();
+					for (let i = 0; i < activeNodes.length; i += 1) {
+						nodeToCompact.set(activeNodes[i], i);
+					}
+
+					const edgeIds = network.edgeIndices;
+					const edgePairs = new Uint32Array(edgeIds.length * 2);
+					const edgeWeightAttribute = sessionOptions.edgeWeightAttribute ?? null;
+					const edgeWeights = edgeWeightAttribute ? new Float64Array(edgeIds.length) : null;
+
+					network.withBufferAccess(() => {
+						const edgesView = network.edgesView;
+						const weightView = edgeWeightAttribute ? network.getEdgeAttributeBuffer(edgeWeightAttribute).view : null;
+						for (let i = 0; i < edgeIds.length; i += 1) {
+							const edgeId = edgeIds[i];
+							const base = edgeId * 2;
+							const u = edgesView[base];
+							const v = edgesView[base + 1];
+							const cu = nodeToCompact.get(u);
+							const cv = nodeToCompact.get(v);
+							if (cu == null || cv == null) {
+								throw new Error('Encountered edge endpoint for inactive node during worker snapshot');
+							}
+							edgePairs[i * 2] = cu >>> 0;
+							edgePairs[i * 2 + 1] = cv >>> 0;
+							if (edgeWeights && weightView) {
+								const raw = weightView[edgeId];
+								edgeWeights[i] = typeof raw === 'bigint' ? Number(raw) : Number(raw ?? 0);
+							}
+						}
+					});
+
+					return {
+						directed: Boolean(network.directed),
+						activeNodes,
+						edgePairs,
+						edgeWeights,
+						edgeWeightAttribute,
+						resolution: sessionOptions.resolution ?? 1,
+						seed: sessionOptions.seed ?? 0,
+						maxLevels: sessionOptions.maxLevels ?? 32,
+						maxPasses: sessionOptions.maxPasses ?? 8,
+						outNodeCommunityAttribute: sessionOptions.outNodeCommunityAttribute ?? 'community',
+					};
+				},
+				buildPayload: (snapshot) => {
+					const payload = {
+						directed: snapshot.directed,
+						nodeCount: snapshot.activeNodes.length >>> 0,
+						edgePairsBuffer: snapshot.edgePairs.buffer,
+						edgeWeightsBuffer: snapshot.edgeWeights ? snapshot.edgeWeights.buffer : null,
+						edgeWeightAttribute: snapshot.edgeWeightAttribute,
+						resolution: snapshot.resolution,
+						seed: snapshot.seed,
+						maxLevels: snapshot.maxLevels,
+						maxPasses: snapshot.maxPasses,
+						outNodeCommunityAttribute: snapshot.outNodeCommunityAttribute,
+					};
+					const transfer = [snapshot.edgePairs.buffer];
+					if (snapshot.edgeWeights) transfer.push(snapshot.edgeWeights.buffer);
+					return { payload, transfer };
+				},
+				applyResult: (result, snapshot) => {
+					const outName = snapshot.outNodeCommunityAttribute;
+					if (!outName) {
+						throw new Error('outNodeCommunityAttribute is required');
+					}
+					if (!network._nodeAttributes.has(outName)) {
+						network.defineNodeAttribute(outName, AttributeType.UnsignedInteger, 1);
+					} else {
+						const meta = network._nodeAttributes.get(outName);
+						if (meta && meta.type !== AttributeType.UnsignedInteger) {
+							throw new Error(`Node attribute "${outName}" must be UnsignedInteger`);
+						}
+					}
+
+					const communities = new Uint32Array(result.communitiesBuffer);
+					if (communities.length !== snapshot.activeNodes.length) {
+						throw new Error('Worker community payload does not match snapshot node count');
+					}
+					const { view, bumpVersion } = network.getNodeAttributeBuffer(outName);
+					view.fill(0);
+					for (let i = 0; i < snapshot.activeNodes.length; i += 1) {
+						view[snapshot.activeNodes[i]] = communities[i];
+					}
+					bumpVersion();
+					this._finalized = true;
+				},
+			};
 			const handlers = {
 				scratchBytes: 80,
 				destroy: typeof module._CXLeidenSessionDestroy === 'function' ? module._CXLeidenSessionDestroy.bind(module) : null,
@@ -1225,11 +1319,12 @@ class EdgeSelector extends Selector {
 				isDonePhase: (phase) => phase === 5,
 				isFailedPhase: (phase) => phase === 6,
 				cancelOn,
-					getProgress: (sessionPtr, scratchPtr) => {
-						if (typeof module._CXLeidenSessionGetProgress !== 'function') {
-							throw new Error('CXLeidenSessionGetProgress is not available in this WASM build.');
-						}
-						const base = scratchPtr;
+				workerSpec,
+				getProgress: (sessionPtr, scratchPtr) => {
+					if (typeof module._CXLeidenSessionGetProgress !== 'function') {
+						throw new Error('CXLeidenSessionGetProgress is not available in this WASM build.');
+					}
+					const base = scratchPtr;
 					const progressCurrentPtr = base + 0; // f64
 					const progressTotalPtr = base + 8; // f64
 					const phasePtr = base + 16; // u32
@@ -1315,6 +1410,18 @@ class EdgeSelector extends Selector {
 
 		run(options = {}) {
 			return this._base.run(options);
+		}
+
+		async runWorker(options = {}) {
+			const { outNodeCommunityAttribute, ...runnerOptions } = options ?? {};
+			if (outNodeCommunityAttribute) {
+				this.options = { ...this.options, outNodeCommunityAttribute: String(outNodeCommunityAttribute) };
+			}
+			try {
+				return await this._base.runWorker(runnerOptions);
+			} finally {
+				this.dispose();
+			}
 		}
 
 		finalize(options = {}) {
@@ -5203,7 +5310,14 @@ export class HeliosNetwork {
 			if (!ptr) {
 				throw new Error('Failed to create Leiden session');
 			}
-			return new LeidenSession(this.module, this, ptr, { outNodeCommunityAttribute, edgeWeightAttribute });
+			return new LeidenSession(this.module, this, ptr, {
+				outNodeCommunityAttribute,
+				edgeWeightAttribute,
+				resolution,
+				seed,
+				maxLevels,
+				maxPasses,
+			});
 		}
 
 	/**

@@ -11,6 +11,14 @@ function ensureInlineBinary() {
 	return cachedInlineBinary;
 }
 
+function isNodeRuntime() {
+	try {
+		return typeof process !== 'undefined' && !!process.versions?.node && process.type !== 'renderer';
+	} catch {
+		return false;
+	}
+}
+
 /**
  * Replaces the active WASM module factory used by Helios.
  *
@@ -46,11 +54,11 @@ export function getDefaultHeliosModuleFactory() {
  */
 export default function createHeliosModule(options) {
 	if (activeFactory === defaultFactory) {
+		if (isNodeRuntime() && !options?.wasmBinary) {
+			return defaultFactory(options);
+		}
 		const wasmBinary = options?.wasmBinary ?? ensureInlineBinary();
-		return defaultFactory({
-			...options,
-			wasmBinary,
-		});
+		return defaultFactory({ ...options, wasmBinary });
 	}
 	return activeFactory(options);
 }
