@@ -158,6 +158,10 @@ Tests currently cover:
 - Node/edge creation/removal
 - Primitive, string, and JavaScript-managed attributes
 - Selector behaviour and typed-array exports
+- Event subscriptions (`on`/`listen`/`AbortSignal`) and change notifications
+
+Additional docs:
+- `docs/events.md` for the HeliosNetwork events system
 
 Run the Playwright browser suite (this command starts the Vite dev server automatically):
 

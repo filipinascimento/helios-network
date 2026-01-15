@@ -143,6 +143,114 @@ function setToUint32Array(values) {
 
 const EMPTY_UINT32 = new Uint32Array(0);
 
+const BaseEventTarget = typeof globalThis.EventTarget === 'function'
+	? globalThis.EventTarget
+	: class {
+		constructor() {
+			this.__listeners = new Map();
+		}
+		addEventListener(type, handler, options = undefined) {
+			if (!type || typeof handler !== 'function') {
+				return;
+			}
+			const once = Boolean(options && typeof options === 'object' && options.once);
+			if (!this.__listeners.has(type)) {
+				this.__listeners.set(type, []);
+			}
+			const bucket = this.__listeners.get(type);
+			const entry = {
+				original: handler,
+				listener: handler,
+				once,
+			};
+			bucket.push(entry);
+		}
+		removeEventListener(type, handler) {
+			const bucket = this.__listeners.get(type);
+			if (!bucket || !bucket.length) {
+				return;
+			}
+			for (let i = bucket.length - 1; i >= 0; i -= 1) {
+				if (bucket[i].original === handler || bucket[i].listener === handler) {
+					bucket.splice(i, 1);
+				}
+			}
+			if (bucket.length === 0) {
+				this.__listeners.delete(type);
+			}
+		}
+		dispatchEvent(event) {
+			const type = event?.type;
+			if (!type) {
+				return true;
+			}
+			const bucket = this.__listeners.get(type);
+			if (!bucket || !bucket.length) {
+				return true;
+			}
+			const snapshot = bucket.slice();
+			for (const entry of snapshot) {
+				try {
+					event.target = event.target ?? this;
+					event.currentTarget = event.currentTarget ?? this;
+					entry.listener.call(this, event);
+				} catch (_) {
+					/* no-op */
+				}
+				if (entry.once) {
+					this.removeEventListener(type, entry.original);
+				}
+			}
+			return true;
+		}
+	};
+
+function createDetailEvent(type, detail) {
+	if (typeof globalThis.CustomEvent === 'function') {
+		return new CustomEvent(type, { detail });
+	}
+	if (typeof globalThis.Event === 'function') {
+		const event = new Event(type);
+		try {
+			Object.defineProperty(event, 'detail', { value: detail });
+		} catch (_) {
+			try {
+				event.detail = detail;
+			} catch (_) {
+				/* no-op */
+			}
+		}
+		return event;
+	}
+	return { type, detail };
+}
+
+function parseNamespacedType(typeWithNamespace) {
+	if (typeof typeWithNamespace !== 'string' || typeWithNamespace.length === 0) {
+		throw new TypeError('Event type must be a non-empty string');
+	}
+	const splitAt = typeWithNamespace.lastIndexOf('.');
+	if (splitAt <= 0 || splitAt === typeWithNamespace.length - 1) {
+		throw new Error('Namespaced event types must be in the form "type.namespace"');
+	}
+	return {
+		type: typeWithNamespace.slice(0, splitAt),
+		namespace: typeWithNamespace.slice(splitAt + 1),
+	};
+}
+
+const HELIOS_NETWORK_EVENTS = Object.freeze({
+	topologyChanged: 'topology:changed',
+	nodesAdded: 'nodes:added',
+	nodesRemoved: 'nodes:removed',
+	edgesAdded: 'edges:added',
+	edgesRemoved: 'edges:removed',
+
+	attributeDefined: 'attribute:defined',
+	attributeRemoved: 'attribute:removed',
+	attributeChanged: 'attribute:changed',
+});
+
 const NODE_RUNTIME = typeof process !== 'undefined' && !!process.versions?.node;
 const VIRTUAL_TEMP_DIR = '/tmp/helios';
 
@@ -1487,7 +1595,7 @@ class EdgeSelector extends Selector {
  * High-level JavaScript wrapper around the Helios WASM network implementation.
  * Manages lifetime, attribute registration, and buffer views.
  */
-export class HeliosNetwork {
+export class HeliosNetwork extends BaseEventTarget {
 	/**
 	 * Asynchronously constructs and initializes a network instance.
 	 *
@@ -1599,10 +1707,14 @@ export class HeliosNetwork {
 	 * @param {boolean} directed - Indicates whether the network is directed.
 	 */
 	constructor(module, ptr, directed) {
+		super();
 		this.module = module;
 		this.ptr = ptr;
 		this.directed = directed;
 		this._disposed = false;
+
+		this._anyEventListeners = new Set();
+		this._namespacedEventBindings = new Map();
 
 		this._nodeAttributes = new Map();
 		this._edgeAttributes = new Map();
@@ -1634,6 +1746,157 @@ export class HeliosNetwork {
 		this._nodeValidRangeCache = null;
 		this._edgeValidRangeCache = null;
 		this._validRangeScratchPtr = 0;
+	}
+
+	/**
+	 * Registers an event listener. Wrapper over `addEventListener`.
+	 *
+	 * If `options.signal` is provided, the listener is automatically removed on abort.
+	 *
+	 * @param {string} type
+	 * @param {(event: any) => void} handler
+	 * @param {AddEventListenerOptions} [options]
+	 * @returns {() => void} Unsubscribe function.
+	 */
+	on(type, handler, options = undefined) {
+		this.addEventListener(type, handler, options);
+		const signal = options && typeof options === 'object' ? options.signal : undefined;
+		if (signal && typeof signal.addEventListener === 'function') {
+			if (signal.aborted) {
+				this.removeEventListener(type, handler, options);
+			} else {
+				const abortHandler = () => {
+					try {
+						this.removeEventListener(type, handler, options);
+					} catch (_) {
+						/* no-op */
+					}
+				};
+				signal.addEventListener('abort', abortHandler, { once: true });
+			}
+		}
+		return () => this.removeEventListener(type, handler, options);
+	}
+
+	/**
+	 * Removes a listener previously added with `on`/`addEventListener`.
+	 * @param {string} type
+	 * @param {(event: any) => void} handler
+	 * @param {EventListenerOptions} [options]
+	 */
+	off(type, handler, options = undefined) {
+		this.removeEventListener(type, handler, options);
+	}
+
+	/**
+	 * Registers a handler that runs for every emitted event.
+	 *
+	 * The handler is invoked as `handler({ type, detail, event, target })`.
+	 *
+	 * @param {(payload: {type: string, detail: any, event: any, target: HeliosNetwork}) => void} handler
+	 * @param {{signal?: AbortSignal}} [options]
+	 * @returns {() => void} Unsubscribe function.
+	 */
+	onAny(handler, options = {}) {
+		this._anyEventListeners.add(handler);
+		const signal = options?.signal;
+		if (signal && typeof signal.addEventListener === 'function') {
+			if (signal.aborted) {
+				this._anyEventListeners.delete(handler);
+			} else {
+				const abortHandler = () => {
+					this._anyEventListeners.delete(handler);
+				};
+				signal.addEventListener('abort', abortHandler, { once: true });
+			}
+		}
+		return () => {
+			this._anyEventListeners.delete(handler);
+		};
+	}
+
+	/**
+	 * Emits an event using a `CustomEvent` (or `Event` fallback) with the payload in `event.detail`.
+	 * Also forwards the emission to any `onAny` subscribers.
+	 *
+	 * @param {string} type
+	 * @param {any} [detail]
+	 * @returns {any} The dispatched event instance.
+	 */
+	emit(type, detail = undefined) {
+		const event = createDetailEvent(type, detail);
+		this.dispatchEvent(event);
+		if (this._anyEventListeners && this._anyEventListeners.size) {
+			for (const handler of this._anyEventListeners) {
+				try {
+					handler({ type, detail, event, target: this });
+				} catch (_) {
+					/* no-op */
+				}
+			}
+		}
+		return event;
+	}
+
+	/**
+	 * Namespaced binding helper.
+	 *
+	 * `listen("type.namespace", handler)` guarantees there is only one active handler
+	 * per (type, namespace) pair. Re-calling replaces the previous handler.
+	 * Pass `handler = null` to remove the binding.
+	 *
+	 * @param {string} typeWithNamespace
+	 * @param {(event: any) => void | null} handler
+	 * @param {AddEventListenerOptions} [options]
+	 * @returns {(() => void) | undefined}
+	 */
+	listen(typeWithNamespace, handler, options = undefined) {
+		const { type, namespace } = parseNamespacedType(typeWithNamespace);
+		const key = `${type}::${namespace}`;
+		const existing = this._namespacedEventBindings.get(key);
+		if (existing && typeof existing.unsubscribe === 'function') {
+			try {
+				existing.unsubscribe();
+			} catch (_) {
+				/* no-op */
+			}
+			this._namespacedEventBindings.delete(key);
+		}
+
+		if (!handler) {
+			return undefined;
+		}
+
+		const unsubscribe = this.on(type, handler, options);
+		this._namespacedEventBindings.set(key, { unsubscribe });
+		const signal = options && typeof options === 'object' ? options.signal : undefined;
+		if (signal && typeof signal.addEventListener === 'function') {
+			if (signal.aborted) {
+				this._namespacedEventBindings.delete(key);
+			} else {
+				const abortHandler = () => {
+					this._namespacedEventBindings.delete(key);
+				};
+				signal.addEventListener('abort', abortHandler, { once: true });
+			}
+		}
+		return unsubscribe;
+	}
+
+	_emitTopologyChanged(detail) {
+		try {
+			this.emit(HELIOS_NETWORK_EVENTS.topologyChanged, detail);
+		} catch (_) {
+			/* no-op */
+		}
+	}
+
+	_emitAttributeEvent(type, detail) {
+		try {
+			this.emit(type, detail);
+		} catch (_) {
+			/* no-op */
+		}
 	}
 
 	/**
@@ -3129,7 +3392,7 @@ export class HeliosNetwork {
 		const sliceStart = start * meta.dimension;
 		const sliceEnd = end * meta.dimension;
 		const view = fullView.subarray(sliceStart, sliceEnd);
-		return { view, start, end, stride, version: this._getAttributeVersion('node', name), bumpVersion: () => this._bumpAttributeVersion('node', name) };
+		return { view, start, end, stride, version: this._getAttributeVersion('node', name), bumpVersion: () => this._bumpAttributeVersion('node', name, { op: 'bump' }) };
 	}
 
 	/**
@@ -3156,7 +3419,7 @@ export class HeliosNetwork {
 		const sliceStart = start * meta.dimension;
 		const sliceEnd = end * meta.dimension;
 		const view = fullView.subarray(sliceStart, sliceEnd);
-		return { view, start, end, stride, version: this._getAttributeVersion('edge', name), bumpVersion: () => this._bumpAttributeVersion('edge', name) };
+		return { view, start, end, stride, version: this._getAttributeVersion('edge', name), bumpVersion: () => this._bumpAttributeVersion('edge', name, { op: 'bump' }) };
 	}
 
 	/**
@@ -3336,6 +3599,9 @@ export class HeliosNetwork {
 	addNodes(count) {
 		this._assertCanAllocate('addNodes');
 		this._ensureActive();
+		const prevNodeCount = this.nodeCount;
+		const prevEdgeCount = this.edgeCount;
+		const prevTopology = this.getTopologyVersions();
 		if (!count) {
 			return new Uint32Array();
 		}
@@ -3352,6 +3618,23 @@ export class HeliosNetwork {
 		this.module._free(ptr);
 		this._markAllPassthroughEdgesDirty();
 		this._bumpTopology('node');
+		const topology = this.getTopologyVersions();
+		this.emit(HELIOS_NETWORK_EVENTS.nodesAdded, {
+			indices,
+			count: indices.length >>> 0,
+			oldNodeCount: prevNodeCount,
+			nodeCount: this.nodeCount,
+			oldEdgeCount: prevEdgeCount,
+			edgeCount: this.edgeCount,
+			topology,
+			oldTopology: prevTopology,
+		});
+		this._emitTopologyChanged({
+			kind: 'nodes',
+			op: 'added',
+			topology,
+			oldTopology: prevTopology,
+		});
 		return indices;
 	}
 
@@ -3368,6 +3651,9 @@ export class HeliosNetwork {
 	removeNodes(indices) {
 		this._assertCanAllocate('removeNodes');
 		this._ensureActive();
+		const prevNodeCount = this.nodeCount;
+		const prevEdgeCount = this.edgeCount;
+		const prevTopology = this.getTopologyVersions();
 		const array = Array.isArray(indices) ? Uint32Array.from(indices) : new Uint32Array(indices);
 		if (array.length === 0) {
 			return;
@@ -3402,6 +3688,23 @@ export class HeliosNetwork {
 		}
 		this._markAllPassthroughEdgesDirty();
 		this._bumpTopology('node', true); // removing nodes also removes incident edges
+		const topology = this.getTopologyVersions();
+		this.emit(HELIOS_NETWORK_EVENTS.nodesRemoved, {
+			indices: array,
+			count: array.length >>> 0,
+			oldNodeCount: prevNodeCount,
+			nodeCount: this.nodeCount,
+			oldEdgeCount: prevEdgeCount,
+			edgeCount: this.edgeCount,
+			topology,
+			oldTopology: prevTopology,
+		});
+		this._emitTopologyChanged({
+			kind: 'nodes',
+			op: 'removed',
+			topology,
+			oldTopology: prevTopology,
+		});
 	}
 
 	/**
@@ -3425,6 +3728,9 @@ export class HeliosNetwork {
 	addEdges(edgeList) {
 		this._assertCanAllocate('addEdges');
 		this._ensureActive();
+		const prevNodeCount = this.nodeCount;
+		const prevEdgeCount = this.edgeCount;
+		const prevTopology = this.getTopologyVersions();
 		if (!edgeList || edgeList.length === 0) {
 			return new Uint32Array();
 		}
@@ -3486,6 +3792,23 @@ export class HeliosNetwork {
 		this.module._free(outPtr);
 		this._markAllPassthroughEdgesDirty();
 		this._bumpTopology('edge');
+		const topology = this.getTopologyVersions();
+		this.emit(HELIOS_NETWORK_EVENTS.edgesAdded, {
+			indices,
+			count: indices.length >>> 0,
+			oldNodeCount: prevNodeCount,
+			nodeCount: this.nodeCount,
+			oldEdgeCount: prevEdgeCount,
+			edgeCount: this.edgeCount,
+			topology,
+			oldTopology: prevTopology,
+		});
+		this._emitTopologyChanged({
+			kind: 'edges',
+			op: 'added',
+			topology,
+			oldTopology: prevTopology,
+		});
 		return indices;
 	}
 
@@ -3503,6 +3826,9 @@ export class HeliosNetwork {
 	removeEdges(indices) {
 		this._assertCanAllocate('removeEdges');
 		this._ensureActive();
+		const prevNodeCount = this.nodeCount;
+		const prevEdgeCount = this.edgeCount;
+		const prevTopology = this.getTopologyVersions();
 		const array = Array.isArray(indices) ? Uint32Array.from(indices) : new Uint32Array(indices);
 		if (array.length === 0) {
 			return;
@@ -3537,6 +3863,23 @@ export class HeliosNetwork {
 		}
 		this._markAllPassthroughEdgesDirty();
 		this._bumpTopology('edge');
+		const topology = this.getTopologyVersions();
+		this.emit(HELIOS_NETWORK_EVENTS.edgesRemoved, {
+			indices: array,
+			count: array.length >>> 0,
+			oldNodeCount: prevNodeCount,
+			nodeCount: this.nodeCount,
+			oldEdgeCount: prevEdgeCount,
+			edgeCount: this.edgeCount,
+			topology,
+			oldTopology: prevTopology,
+		});
+		this._emitTopologyChanged({
+			kind: 'edges',
+			op: 'removed',
+			topology,
+			oldTopology: prevTopology,
+		});
 	}
 
 	/**
@@ -3724,15 +4067,15 @@ export class HeliosNetwork {
 	}
 
 	bumpNodeAttributeVersion(name) {
-		return this._bumpAttributeVersion('node', name);
+		return this._bumpAttributeVersion('node', name, { op: 'bump' });
 	}
 
 	bumpEdgeAttributeVersion(name) {
-		return this._bumpAttributeVersion('edge', name);
+		return this._bumpAttributeVersion('edge', name, { op: 'bump' });
 	}
 
 	bumpNetworkAttributeVersion(name) {
-		return this._bumpAttributeVersion('network', name);
+		return this._bumpAttributeVersion('network', name, { op: 'bump' });
 	}
 
 	getTopologyVersions() {
@@ -3820,6 +4163,13 @@ export class HeliosNetwork {
 			jsStore: new Map(),
 			stringPointers: new Map(),
 			nextHandle: 1,
+		});
+		this._emitAttributeEvent(HELIOS_NETWORK_EVENTS.attributeDefined, {
+			scope,
+			name,
+			type,
+			dimension,
+			version: this._getAttributeVersion(scope, name),
 		});
 	}
 
@@ -3967,7 +4317,7 @@ export class HeliosNetwork {
 		return version ?? 0;
 	}
 
-	_bumpAttributeVersion(scope, name) {
+	_bumpAttributeVersion(scope, name, change = null) {
 		const bumpFn = scope === 'node'
 			? this.module._CXNetworkBumpNodeAttributeVersion
 			: scope === 'edge'
@@ -3984,7 +4334,15 @@ export class HeliosNetwork {
 			} else if (scope === 'edge') {
 				this._markColorEncodedDirtyForSource('edge', name);
 			}
-			return this._nextLocalVersion(`attr:${scope}:${name}`);
+			const version = this._nextLocalVersion(`attr:${scope}:${name}`);
+			this._emitAttributeEvent(HELIOS_NETWORK_EVENTS.attributeChanged, {
+				scope,
+				name,
+				version,
+				op: change?.op ?? 'bump',
+				index: typeof change?.index === 'number' ? change.index : null,
+			});
+			return version;
 		}
 		const meta = this._ensureAttributeMetadata(scope, name);
 		if (!meta) {
@@ -4006,6 +4364,13 @@ export class HeliosNetwork {
 		} else if (scope === 'edge') {
 			this._markColorEncodedDirtyForSource('edge', name);
 		}
+		this._emitAttributeEvent(HELIOS_NETWORK_EVENTS.attributeChanged, {
+			scope,
+			name,
+			version: bumped,
+			op: change?.op ?? 'bump',
+			index: typeof change?.index === 'number' ? change.index : null,
+		});
 		return bumped;
 	}
 
@@ -4036,7 +4401,7 @@ export class HeliosNetwork {
 				set: (index, value) => this._setComplexAttribute(scope, name, meta, index, value, pointer),
 				delete: (index) => this._deleteComplexAttribute(scope, name, meta, index, pointer),
 				store: meta.jsStore,
-				bumpVersion: () => this._bumpAttributeVersion(scope, name),
+				bumpVersion: () => this._bumpAttributeVersion(scope, name, { op: 'bump' }),
 			};
 		}
 
@@ -4050,7 +4415,7 @@ export class HeliosNetwork {
 					const view = new Uint32Array(this.module.HEAPU32.buffer, pointer, capacity * meta.dimension);
 					return this.module.UTF8ToString(view[index]);
 				},
-				bumpVersion: () => this._bumpAttributeVersion(scope, name),
+				bumpVersion: () => this._bumpAttributeVersion(scope, name, { op: 'bump' }),
 			};
 		}
 
@@ -4065,7 +4430,7 @@ export class HeliosNetwork {
 			stride,
 			view: new TypedArrayCtor(this.module.HEAPU8.buffer, pointer, length),
 			version,
-			bumpVersion: () => this._bumpAttributeVersion(scope, name),
+			bumpVersion: () => this._bumpAttributeVersion(scope, name, { op: 'bump' }),
 		};
 	}
 
@@ -4141,7 +4506,7 @@ export class HeliosNetwork {
 		}
 		entry.value = value;
 		buffer[index] = entry.id;
-		this._bumpAttributeVersion(scope, name);
+		this._bumpAttributeVersion(scope, name, { op: 'set', index });
 	}
 
 	/**
@@ -4157,7 +4522,7 @@ export class HeliosNetwork {
 		const buffer = new Uint32Array(this.module.HEAPU32.buffer, pointer, this._capacityForScope(scope));
 		meta.jsStore.delete(index);
 		buffer[index] = 0;
-		this._bumpAttributeVersion(scope, name);
+		this._bumpAttributeVersion(scope, name, { op: 'delete', index });
 	}
 
 	/**
@@ -4809,7 +5174,7 @@ export class HeliosNetwork {
 		if (value == null) {
 			view[index] = 0;
 			meta.stringPointers.delete(index);
-			this._bumpAttributeVersion(scope, name);
+			this._bumpAttributeVersion(scope, name, { op: 'clear', index });
 			return;
 		}
 		const length = this.module.lengthBytesUTF8(value) + 1;
@@ -4820,7 +5185,7 @@ export class HeliosNetwork {
 		this.module.stringToUTF8(value, ptr, length);
 		meta.stringPointers.set(index, ptr);
 		view[index] = ptr;
-		this._bumpAttributeVersion(scope, name);
+		this._bumpAttributeVersion(scope, name, { op: 'set', index });
 	}
 
 	/**
@@ -4921,6 +5286,7 @@ export class HeliosNetwork {
 		if (!meta) {
 			throw new Error(`Attribute "${name}" on ${scope} is not defined`);
 		}
+		const prevVersion = this._getAttributeVersion(scope, name);
 		const remover = scope === 'node'
 			? this.module._CXNetworkRemoveNodeAttribute
 			: scope === 'edge'
@@ -4941,6 +5307,11 @@ export class HeliosNetwork {
 		}
 		this._freeStringPointers(meta);
 		metaMap.delete(name);
+		this._emitAttributeEvent(HELIOS_NETWORK_EVENTS.attributeRemoved, {
+			scope,
+			name,
+			previousVersion: prevVersion,
+		});
 		if (scope === 'node') {
 			const dependents = this._nodeAttributeDependents.get(name);
 			if (dependents) {
@@ -5042,7 +5413,7 @@ export class HeliosNetwork {
 			endpointMode,
 			duplicateSingleEndpoint ? 1 : 0
 		);
-		this._bumpAttributeVersion('edge', destinationName);
+		this._bumpAttributeVersion('edge', destinationName, { op: 'copy' });
 	}
 
 	_registerNodeToEdgeDependency(sourceName, edgeName) {
@@ -5095,6 +5466,9 @@ export class HeliosNetwork {
 	 */
 	compact(options = {}) {
 		this._ensureActive();
+		const prevNodeCount = this.nodeCount;
+		const prevEdgeCount = this.edgeCount;
+		const prevTopology = this.getTopologyVersions();
 		const {
 			nodeOriginalIndexAttribute = null,
 			edgeOriginalIndexAttribute = null,
@@ -5156,6 +5530,17 @@ export class HeliosNetwork {
 		this._remapAttributeStores(this._nodeAttributes, nodeRemap);
 		this._remapAttributeStores(this._edgeAttributes, edgeRemap);
 		this._bumpTopology('node', true);
+		const topology = this.getTopologyVersions();
+		this._emitTopologyChanged({
+			kind: 'network',
+			op: 'compacted',
+			topology,
+			oldTopology: prevTopology,
+			oldNodeCount: prevNodeCount,
+			nodeCount: this.nodeCount,
+			oldEdgeCount: prevEdgeCount,
+			edgeCount: this.edgeCount,
+		});
 		this._invalidateAttributePointerCache();
 		this._nodeValidRangeCache = null;
 		this._edgeValidRangeCache = null;
@@ -5641,6 +6026,8 @@ export class HeliosNetwork {
 		return bytesToFormat(bytes, format);
 	}
 }
+
+HeliosNetwork.EVENTS = HELIOS_NETWORK_EVENTS;
 
 export { AttributeType, DenseColorEncodingFormat, NodeSelector, EdgeSelector, getModule as getHeliosModule };
 export default HeliosNetwork;

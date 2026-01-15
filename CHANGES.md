@@ -1,5 +1,11 @@
 # CHANGES
 
+## 2026-01-14
+
+- Added an EventTarget-based events system to `HeliosNetwork` (helpers: `on`, `off`, `emit`, `onAny`, `listen`) for binding external consumers to topology and attribute changes.
+- New events emitted for topology mutations (`nodes:added`, `nodes:removed`, `edges:added`, `edges:removed`, `topology:changed`) and attribute lifecycle/versioning (`attribute:defined`, `attribute:removed`, `attribute:changed`).
+- Added docs in `docs/events.md` and regression tests in `tests/events_system.test.js`.
+
 ## 2026-01-12
 
 - Added a generic steppable-session runner (`run`) for long-running WASM computations, allowing cooperative yielding between chunks (no worker required).
