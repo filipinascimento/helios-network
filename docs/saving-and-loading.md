@@ -17,6 +17,30 @@ Helios exposes high-level helpers for writing and reading the human-readable `.x
 
 When the serialization exports are not present in the current WASM build, the helpers throw with a clear message. Rebuild the artefacts via `npm run build:wasm` if that happens.
 
+### Attribute Filters
+
+You can optionally filter which attributes are written by passing `allowAttributes` and/or `ignoreAttributes`. Each accepts an object keyed by scope:
+
+```js
+await net.saveBXNet({
+  allowAttributes: {
+    node: ['score', 'label'],
+    edge: ['weight'],
+    network: ['title'],
+  },
+  ignoreAttributes: {
+    edge: ['debugFlag'],
+  },
+});
+```
+
+- `allowAttributes` keeps only the listed names per scope.
+- `ignoreAttributes` removes the listed names per scope.
+- If both are provided, the allow-list is applied first, then the ignore-list.
+- If neither is provided, all supported attributes are saved.
+- `graph` is accepted as an alias for `network`.
+- `saveXNet` still writes `_original_ids_` to preserve compaction metadata.
+
 ---
 
 ## Node.js Workflows

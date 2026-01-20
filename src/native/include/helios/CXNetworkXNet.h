@@ -29,6 +29,20 @@ CX_EXTERN struct CXNetwork* CXNetworkReadXNet(const char *path);
  * @return CXTrue on success, CXFalse on failure.
  */
 CX_EXTERN CXBool CXNetworkWriteXNet(struct CXNetwork *network, const char *path);
+CX_EXTERN CXBool CXNetworkWriteXNetFiltered(struct CXNetwork *network,
+	const char *path,
+	const char **nodeAllow,
+	size_t nodeAllowCount,
+	const char **nodeIgnore,
+	size_t nodeIgnoreCount,
+	const char **edgeAllow,
+	size_t edgeAllowCount,
+	const char **edgeIgnore,
+	size_t edgeIgnoreCount,
+	const char **graphAllow,
+	size_t graphAllowCount,
+	const char **graphIgnore,
+	size_t graphIgnoreCount);
 
 #ifdef __cplusplus
 } // extern "C"

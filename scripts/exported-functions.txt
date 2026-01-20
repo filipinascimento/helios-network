@@ -93,8 +93,11 @@ _CXNeighborContainerCount
 _CXNeighborContainerGetNodes
 _CXNeighborContainerGetEdges
 _CXNetworkWriteBXNet
+_CXNetworkWriteBXNetFiltered
 _CXNetworkWriteZXNet
+_CXNetworkWriteZXNetFiltered
 _CXNetworkWriteXNet
+_CXNetworkWriteXNetFiltered
 _CXNetworkReadBXNet
 _CXNetworkReadZXNet
 _CXNetworkReadXNet

@@ -74,6 +74,35 @@ typedef struct {
 
 CX_EXTERN CXBool CXNetworkWriteBXNet(struct CXNetwork *network, const char *path);
 CX_EXTERN CXBool CXNetworkWriteZXNet(struct CXNetwork *network, const char *path, int compressionLevel);
+CX_EXTERN CXBool CXNetworkWriteBXNetFiltered(struct CXNetwork *network,
+	const char *path,
+	const char **nodeAllow,
+	size_t nodeAllowCount,
+	const char **nodeIgnore,
+	size_t nodeIgnoreCount,
+	const char **edgeAllow,
+	size_t edgeAllowCount,
+	const char **edgeIgnore,
+	size_t edgeIgnoreCount,
+	const char **networkAllow,
+	size_t networkAllowCount,
+	const char **networkIgnore,
+	size_t networkIgnoreCount);
+CX_EXTERN CXBool CXNetworkWriteZXNetFiltered(struct CXNetwork *network,
+	const char *path,
+	int compressionLevel,
+	const char **nodeAllow,
+	size_t nodeAllowCount,
+	const char **nodeIgnore,
+	size_t nodeIgnoreCount,
+	const char **edgeAllow,
+	size_t edgeAllowCount,
+	const char **edgeIgnore,
+	size_t edgeIgnoreCount,
+	const char **networkAllow,
+	size_t networkAllowCount,
+	const char **networkIgnore,
+	size_t networkIgnoreCount);
 CX_EXTERN struct CXNetwork* CXNetworkReadBXNet(const char *path);
 CX_EXTERN struct CXNetwork* CXNetworkReadZXNet(const char *path);
 

@@ -355,6 +355,51 @@ function clampCompressionLevel(level) {
 	return value;
 }
 
+const ATTRIBUTE_FILTER_SCOPE_KEYS = {
+	node: ['node', 'nodes'],
+	edge: ['edge', 'edges'],
+	network: ['network', 'graph', 'graphs'],
+};
+
+function extractAttributeFilterList(source, keys, label) {
+	for (const key of keys) {
+		if (!Object.prototype.hasOwnProperty.call(source, key)) {
+			continue;
+		}
+		const value = source[key];
+		if (value == null) {
+			return [];
+		}
+		if (!Array.isArray(value)) {
+			throw new Error(`${label} must be an array of strings`);
+		}
+		const result = [];
+		for (const entry of value) {
+			if (typeof entry !== 'string') {
+				throw new Error(`${label} must only contain strings`);
+			}
+			result.push(entry);
+		}
+		return result;
+	}
+	return [];
+}
+
+function normalizeAttributeFilter(source, label) {
+	if (!source) {
+		return null;
+	}
+	if (typeof source !== 'object' || Array.isArray(source)) {
+		throw new Error(`${label} must be an object with node/edge/network arrays`);
+	}
+	const filter = {
+		node: extractAttributeFilterList(source, ATTRIBUTE_FILTER_SCOPE_KEYS.node, `${label}.node`),
+		edge: extractAttributeFilterList(source, ATTRIBUTE_FILTER_SCOPE_KEYS.edge, `${label}.edge`),
+		network: extractAttributeFilterList(source, ATTRIBUTE_FILTER_SCOPE_KEYS.network, `${label}.network`),
+	};
+	return (filter.node.length || filter.edge.length || filter.network.length) ? filter : null;
+}
+
 async function resolveInputBytes(source) {
 	if (source == null) {
 		throw new TypeError('No source provided for deserialization');
@@ -526,6 +571,64 @@ class CString {
 			this.module._free(this.ptr);
 			this.ptr = 0;
 		}
+	}
+}
+
+/**
+ * Helper that marshals a list of UTF-8 strings into a WASM pointer array.
+ * @private
+ */
+class CStringArray {
+	/**
+	 * @param {object} module - Emscripten module exposing `_malloc` and UTF-8 helpers.
+	 * @param {string[]} values - Strings to encode into WASM memory.
+	 */
+	constructor(module, values) {
+		this.module = module;
+		this.ptr = 0;
+		this.count = 0;
+		this._strings = [];
+		if (!Array.isArray(values) || values.length === 0) {
+			return;
+		}
+		this.count = values.length;
+		try {
+			for (let i = 0; i < values.length; i += 1) {
+				const value = values[i];
+				if (typeof value !== 'string') {
+					throw new Error('Attribute filter names must be strings');
+				}
+				const cstr = new CString(module, value);
+				this._strings.push(cstr);
+			}
+			this.ptr = module._malloc(values.length * 4);
+			if (!this.ptr) {
+				throw new Error('Failed to allocate string pointer array');
+			}
+			const heap = module.HEAPU32;
+			const baseIndex = this.ptr >>> 2;
+			for (let i = 0; i < this._strings.length; i += 1) {
+				heap[baseIndex + i] = this._strings[i].ptr;
+			}
+		} catch (err) {
+			this.dispose();
+			throw err;
+		}
+	}
+
+	/**
+	 * Releases allocated memory for the string list.
+	 */
+	dispose() {
+		for (const cstr of this._strings) {
+			cstr.dispose();
+		}
+		this._strings = [];
+		if (this.ptr) {
+			this.module._free(this.ptr);
+			this.ptr = 0;
+		}
+		this.count = 0;
 	}
 }
 
@@ -3555,6 +3658,8 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * @param {object} [options]
 	 * @param {string} [options.path] - Node-only destination path. When omitted the bytes are returned.
 	 * @param {'uint8array'|'arraybuffer'|'base64'|'blob'} [options.format='uint8array'] - Desired return representation.
+	 * @param {{node?: string[], edge?: string[], network?: string[], graph?: string[]}} [options.allowAttributes] - Restrict saved attributes to these names per scope.
+	 * @param {{node?: string[], edge?: string[], network?: string[], graph?: string[]}} [options.ignoreAttributes] - Exclude these attribute names per scope.
 	 * @returns {Promise<Uint8Array|ArrayBuffer|string|Blob|undefined>} Serialized payload or void when writing directly to disk.
 	 */
 	async saveBXNet(options = {}) {
@@ -3567,6 +3672,8 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * @param {object} [options]
 	 * @param {string} [options.path] - Node-only destination path. When omitted the bytes are returned.
 	 * @param {'uint8array'|'arraybuffer'|'base64'|'blob'} [options.format='uint8array'] - Desired return representation.
+	 * @param {{node?: string[], edge?: string[], network?: string[], graph?: string[]}} [options.allowAttributes] - Restrict saved attributes to these names per scope.
+	 * @param {{node?: string[], edge?: string[], network?: string[], graph?: string[]}} [options.ignoreAttributes] - Exclude these attribute names per scope.
 	 * @returns {Promise<Uint8Array|ArrayBuffer|string|Blob|undefined>} Serialized payload or void when writing directly to disk.
 	 */
 	async saveXNet(options = {}) {
@@ -3580,6 +3687,8 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * @param {string} [options.path] - Node-only destination path. When omitted the bytes are returned.
 	 * @param {number} [options.compressionLevel=6] - BGZF compression level (0-9).
 	 * @param {'uint8array'|'arraybuffer'|'base64'|'blob'} [options.format='uint8array'] - Desired return representation.
+	 * @param {{node?: string[], edge?: string[], network?: string[], graph?: string[]}} [options.allowAttributes] - Restrict saved attributes to these names per scope.
+	 * @param {{node?: string[], edge?: string[], network?: string[], graph?: string[]}} [options.ignoreAttributes] - Exclude these attribute names per scope.
 	 * @returns {Promise<Uint8Array|ArrayBuffer|string|Blob|undefined>} Serialized payload or void when writing directly to disk.
 	 */
 	async saveZXNet(options = {}) {
@@ -5863,30 +5972,45 @@ export class HeliosNetwork extends BaseEventTarget {
 		const module = this.module;
 		const extension = kind;
 		const format = options?.format ?? 'uint8array';
+		const hasAllowFilter = options && Object.prototype.hasOwnProperty.call(options, 'allowAttributes');
+		const hasIgnoreFilter = options && Object.prototype.hasOwnProperty.call(options, 'ignoreAttributes');
+		const allowFilters = normalizeAttributeFilter(options?.allowAttributes, 'allowAttributes');
+		const ignoreFilters = normalizeAttributeFilter(options?.ignoreAttributes, 'ignoreAttributes');
+		const useFilters = hasAllowFilter || hasIgnoreFilter;
 		let writeFn;
+		let filteredWriteFn;
 		let funcLabel;
+		let filteredLabel;
 		let humanLabel;
 		switch (kind) {
 			case 'bxnet':
 				writeFn = module._CXNetworkWriteBXNet;
+				filteredWriteFn = module._CXNetworkWriteBXNetFiltered;
 				funcLabel = 'WriteBXNet';
+				filteredLabel = 'WriteBXNetFiltered';
 				humanLabel = '.bxnet';
 				break;
 			case 'zxnet':
 				writeFn = module._CXNetworkWriteZXNet;
+				filteredWriteFn = module._CXNetworkWriteZXNetFiltered;
 				funcLabel = 'WriteZXNet';
+				filteredLabel = 'WriteZXNetFiltered';
 				humanLabel = '.zxnet';
 				break;
 			case 'xnet':
 				writeFn = module._CXNetworkWriteXNet;
+				filteredWriteFn = module._CXNetworkWriteXNetFiltered;
 				funcLabel = 'WriteXNet';
+				filteredLabel = 'WriteXNetFiltered';
 				humanLabel = '.xnet';
 				break;
 			default:
 				throw new Error(`Unsupported serialization kind: ${kind}`);
 		}
-		if (typeof writeFn !== 'function') {
-			throw new Error(`CXNetwork${funcLabel} is not available in this WASM build. Rebuild the artefacts to use serialization helpers.`);
+		const selectedWriteFn = useFilters ? filteredWriteFn : writeFn;
+		const selectedLabel = useFilters ? filteredLabel : funcLabel;
+		if (typeof selectedWriteFn !== 'function') {
+			throw new Error(`CXNetwork${selectedLabel} is not available in this WASM build. Rebuild the artefacts to use serialization helpers.`);
 		}
 		const fsApi = getModuleFS(module);
 		const canUseVirtualFS = Boolean(fsApi);
@@ -5932,6 +6056,7 @@ export class HeliosNetwork extends BaseEventTarget {
 
 		const cPath = new CString(module, pathForNative);
 		let success = false;
+		let filterArrays = null;
 		const passthroughSnapshot = [];
 		for (const [edgeName, entry] of this._nodeToEdgePassthrough.entries()) {
 			passthroughSnapshot.push({
@@ -5942,6 +6067,16 @@ export class HeliosNetwork extends BaseEventTarget {
 			});
 		}
 		try {
+			if (useFilters) {
+				filterArrays = {
+					nodeAllow: new CStringArray(module, allowFilters?.node ?? []),
+					nodeIgnore: new CStringArray(module, ignoreFilters?.node ?? []),
+					edgeAllow: new CStringArray(module, allowFilters?.edge ?? []),
+					edgeIgnore: new CStringArray(module, ignoreFilters?.edge ?? []),
+					networkAllow: new CStringArray(module, allowFilters?.network ?? []),
+					networkIgnore: new CStringArray(module, ignoreFilters?.network ?? []),
+				};
+			}
 			if (passthroughSnapshot.length) {
 				for (const entry of passthroughSnapshot) {
 					this.removeEdgeAttribute(entry.edgeName);
@@ -5949,12 +6084,61 @@ export class HeliosNetwork extends BaseEventTarget {
 			}
 			if (kind === 'zxnet') {
 				const level = clampCompressionLevel(options?.compressionLevel ?? 6);
-				success = writeFn.call(module, this.ptr, cPath.ptr, level);
+				if (useFilters) {
+					success = selectedWriteFn.call(
+						module,
+						this.ptr,
+						cPath.ptr,
+						level,
+						filterArrays.nodeAllow.ptr,
+						filterArrays.nodeAllow.count,
+						filterArrays.nodeIgnore.ptr,
+						filterArrays.nodeIgnore.count,
+						filterArrays.edgeAllow.ptr,
+						filterArrays.edgeAllow.count,
+						filterArrays.edgeIgnore.ptr,
+						filterArrays.edgeIgnore.count,
+						filterArrays.networkAllow.ptr,
+						filterArrays.networkAllow.count,
+						filterArrays.networkIgnore.ptr,
+						filterArrays.networkIgnore.count
+					);
+				} else {
+					success = selectedWriteFn.call(module, this.ptr, cPath.ptr, level);
+				}
 			} else {
-				success = writeFn.call(module, this.ptr, cPath.ptr);
+				if (useFilters) {
+					success = selectedWriteFn.call(
+						module,
+						this.ptr,
+						cPath.ptr,
+						filterArrays.nodeAllow.ptr,
+						filterArrays.nodeAllow.count,
+						filterArrays.nodeIgnore.ptr,
+						filterArrays.nodeIgnore.count,
+						filterArrays.edgeAllow.ptr,
+						filterArrays.edgeAllow.count,
+						filterArrays.edgeIgnore.ptr,
+						filterArrays.edgeIgnore.count,
+						filterArrays.networkAllow.ptr,
+						filterArrays.networkAllow.count,
+						filterArrays.networkIgnore.ptr,
+						filterArrays.networkIgnore.count
+					);
+				} else {
+					success = selectedWriteFn.call(module, this.ptr, cPath.ptr);
+				}
 			}
 		} finally {
 			cPath.dispose();
+			if (filterArrays) {
+				filterArrays.nodeAllow.dispose();
+				filterArrays.nodeIgnore.dispose();
+				filterArrays.edgeAllow.dispose();
+				filterArrays.edgeIgnore.dispose();
+				filterArrays.networkAllow.dispose();
+				filterArrays.networkIgnore.dispose();
+			}
 			if (passthroughSnapshot.length) {
 				for (const entry of passthroughSnapshot) {
 					this.defineNodeToEdgeAttribute(entry.sourceName, entry.edgeName, entry.endpointMode, entry.doubleWidth);

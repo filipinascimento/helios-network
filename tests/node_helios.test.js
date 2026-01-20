@@ -1370,6 +1370,106 @@ describe('HeliosNetwork (Node runtime)', () => {
 		}
 	});
 
+	test('saveXNet respects attribute allow/ignore filters', async () => {
+		const networkInstance = await HeliosNetwork.create({ directed: true, initialNodes: 0, initialEdges: 0 });
+		try {
+			const nodes = networkInstance.addNodes(3);
+			const edges = networkInstance.addEdges([[nodes[0], nodes[1]]]);
+
+			networkInstance.defineNodeAttribute('score', AttributeType.Float, 1);
+			networkInstance.defineNodeAttribute('label', AttributeType.String, 1);
+			networkInstance.defineNodeAttribute('hidden', AttributeType.Float, 1);
+			networkInstance.defineEdgeAttribute('weight', AttributeType.Float, 1);
+			networkInstance.defineEdgeAttribute('status', AttributeType.String, 1);
+			networkInstance.defineNetworkAttribute('title', AttributeType.String, 1);
+			networkInstance.defineNetworkAttribute('version', AttributeType.Integer, 1);
+
+			networkInstance.getNodeAttributeBuffer('score').view[0] = 1.5;
+			networkInstance.getNodeAttributeBuffer('hidden').view[0] = 99;
+			networkInstance.setNodeStringAttribute('label', 0, 'keep?');
+			networkInstance.getEdgeAttributeBuffer('weight').view[edges[0]] = 2.25;
+			networkInstance.setEdgeStringAttribute('status', edges[0], 'ok');
+			networkInstance.setNetworkStringAttribute('title', 'Filtered XNET');
+			networkInstance.getNetworkAttributeBuffer('version').view[0] = 7;
+
+			const payload = await networkInstance.saveXNet({
+				allowAttributes: {
+					node: ['score', 'label'],
+					edge: ['weight'],
+					network: ['title', 'version'],
+				},
+				ignoreAttributes: {
+					node: ['label'],
+					network: ['version'],
+				},
+			});
+			const restored = await HeliosNetwork.fromXNet(payload);
+			try {
+				expect(restored.hasNodeAttribute('score')).toBe(true);
+				expect(restored.hasNodeAttribute('label')).toBe(false);
+				expect(restored.hasNodeAttribute('hidden')).toBe(false);
+				expect(restored.hasEdgeAttribute('weight')).toBe(true);
+				expect(restored.hasEdgeAttribute('status')).toBe(false);
+				expect(restored.hasNetworkAttribute('title')).toBe(true);
+				expect(restored.hasNetworkAttribute('version')).toBe(false);
+				expect(restored.hasNodeAttribute('_original_ids_')).toBe(true);
+				expect(restored.getNodeAttributeBuffer('score').view[0]).toBeCloseTo(1.5);
+				expect(restored.getEdgeAttributeBuffer('weight').view[edges[0]]).toBeCloseTo(2.25);
+				expect(restored.getNetworkStringAttribute('title')).toBe('Filtered XNET');
+			} finally {
+				restored.dispose();
+			}
+		} finally {
+			networkInstance.dispose();
+		}
+	});
+
+	test('saveBXNet respects attribute allow/ignore filters', async () => {
+		const networkInstance = await HeliosNetwork.create({ directed: false, initialNodes: 0, initialEdges: 0 });
+		try {
+			const nodes = networkInstance.addNodes(3);
+			const edges = networkInstance.addEdges([[nodes[0], nodes[1]], [nodes[1], nodes[2]]]);
+
+			networkInstance.defineNodeAttribute('score', AttributeType.Float, 1);
+			networkInstance.defineNodeAttribute('rank', AttributeType.Integer, 1);
+			networkInstance.defineEdgeAttribute('weight', AttributeType.Float, 1);
+			networkInstance.defineEdgeAttribute('flag', AttributeType.Boolean, 1);
+			networkInstance.defineNetworkAttribute('version', AttributeType.Integer, 1);
+
+			networkInstance.getNodeAttributeBuffer('score').view[0] = 2.5;
+			networkInstance.getNodeAttributeBuffer('rank').view[0] = 4;
+			networkInstance.getEdgeAttributeBuffer('weight').view[edges[0]] = 3.5;
+			networkInstance.getEdgeAttributeBuffer('flag').view[edges[0]] = 1;
+			networkInstance.getNetworkAttributeBuffer('version').view[0] = 42;
+
+			const payload = await networkInstance.saveBXNet({
+				allowAttributes: {
+					node: ['score'],
+					edge: ['weight', 'flag'],
+					network: ['version'],
+				},
+				ignoreAttributes: {
+					edge: ['flag'],
+				},
+			});
+			const restored = await HeliosNetwork.fromBXNet(payload);
+			try {
+				expect(restored.hasNodeAttribute('score')).toBe(true);
+				expect(restored.hasNodeAttribute('rank')).toBe(false);
+				expect(restored.hasEdgeAttribute('weight')).toBe(true);
+				expect(restored.hasEdgeAttribute('flag')).toBe(false);
+				expect(restored.hasNetworkAttribute('version')).toBe(true);
+				expect(restored.getNodeAttributeBuffer('score').view[0]).toBeCloseTo(2.5);
+				expect(restored.getEdgeAttributeBuffer('weight').view[edges[0]]).toBeCloseTo(3.5);
+				expect(restored.getNetworkAttributeBuffer('version').view[0]).toBe(42);
+			} finally {
+				restored.dispose();
+			}
+		} finally {
+			networkInstance.dispose();
+		}
+	});
+
 	test('compact reindexes networks and preserves attribute stores', async () => {
 		const net = await HeliosNetwork.create({ directed: true, initialNodes: 0, initialEdges: 0 });
 		try {

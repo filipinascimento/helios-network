@@ -63,4 +63,5 @@ Generated / do-not-hand-edit:
 - Prefer small, targeted changes; keep API behavior stable unless the task explicitly asks otherwise.
 - If you need to touch both C and JS: update native code first, rebuild via `npm run build:wasm`, then update the JS wrapper and run `npm test`.
 - When making substantial changes (new features, bug fixes), prefer adding or updating a test that covers the change.
-- Run relevant tests after any change; for substantial changes run the full suite (`npm test` plus optional browser coverage via `npm run test:browser` when applicable).
+- When making substantial changes, add an entry to `CHANGES.md`.
+- Run relevant tests after any change; for substantial changes run the full suite and exercise all test targets (at minimum `npm test` plus browser coverage via `npm run test:browser`).

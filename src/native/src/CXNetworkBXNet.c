@@ -51,6 +51,19 @@ typedef struct {
 } CXAttributeList;
 
 typedef struct {
+	const char **allow;
+	size_t allowCount;
+	const char **ignore;
+	size_t ignoreCount;
+} CXAttributeNameFilter;
+
+typedef struct {
+	CXAttributeNameFilter node;
+	CXAttributeNameFilter edge;
+	CXAttributeNameFilter network;
+} CXAttributeFilterSet;
+
+typedef struct {
 	uint32_t chunkId;
 	uint32_t flags;
 	uint64_t offset;
@@ -328,7 +341,45 @@ static CXBool CXExpectedStorageWidthForType(CXAttributeType type, uint32_t *outW
 	}
 }
 
-static CXBool CXAttributeListCollect(CXStringDictionaryRef dictionary, CXAttributeList *outList) {
+static CXBool CXNameInList(const char *name, const char *const *list, size_t count) {
+	if (!name || !list || count == 0) {
+		return CXFalse;
+	}
+	for (size_t idx = 0; idx < count; idx++) {
+		if (list[idx] && strcmp(name, list[idx]) == 0) {
+			return CXTrue;
+		}
+	}
+	return CXFalse;
+}
+
+static CXBool CXValidateNameFilter(const CXAttributeNameFilter *filter) {
+	if (!filter) {
+		return CXTrue;
+	}
+	if (filter->allowCount > 0 && !filter->allow) {
+		return CXFalse;
+	}
+	if (filter->ignoreCount > 0 && !filter->ignore) {
+		return CXFalse;
+	}
+	return CXTrue;
+}
+
+static CXBool CXAttributeListShouldInclude(const char *name, const CXAttributeNameFilter *filter) {
+	if (!filter) {
+		return CXTrue;
+	}
+	if (filter->allowCount > 0 && !CXNameInList(name, filter->allow, filter->allowCount)) {
+		return CXFalse;
+	}
+	if (filter->ignoreCount > 0 && CXNameInList(name, filter->ignore, filter->ignoreCount)) {
+		return CXFalse;
+	}
+	return CXTrue;
+}
+
+static CXBool CXAttributeListCollectFiltered(CXStringDictionaryRef dictionary, CXAttributeList *outList, const CXAttributeNameFilter *filter) {
 	if (!outList) {
 		return CXFalse;
 	}
@@ -343,6 +394,9 @@ static CXBool CXAttributeListCollect(CXStringDictionaryRef dictionary, CXAttribu
 	}
 
 	CXStringDictionaryFOR(entry, dictionary) {
+		if (!CXAttributeListShouldInclude(entry->key, filter)) {
+			continue;
+		}
 		CXAttributeRef attribute = (CXAttributeRef)entry->data;
 		uint32_t storageWidth = 0;
 		uint16_t flags = 0;
@@ -1802,7 +1856,7 @@ static CXBool CXWriteFooter(CXOutputStream *stream, const CXWrittenChunkList *ch
 	return CXOutputStreamWrite(stream, footer, sizeof(footer));
 }
 
-static CXBool CXNetworkSerialize(CXNetworkRef network, CXOutputStream *stream, CXNetworkStorageCodec codec) {
+static CXBool CXNetworkSerialize(CXNetworkRef network, CXOutputStream *stream, CXNetworkStorageCodec codec, const CXAttributeFilterSet *filters) {
 	if (!network || !stream) {
 		return CXFalse;
 	}
@@ -1816,15 +1870,24 @@ static CXBool CXNetworkSerialize(CXNetworkRef network, CXOutputStream *stream, C
 
 	stream->crc = &checksum;
 
-	if (!CXAttributeListCollect(network->nodeAttributes, &nodeAttributes)) {
+	if (filters) {
+		if (!CXValidateNameFilter(&filters->node) ||
+			!CXValidateNameFilter(&filters->edge) ||
+			!CXValidateNameFilter(&filters->network)) {
+			errno = EINVAL;
+			goto cleanup;
+		}
+	}
+
+	if (!CXAttributeListCollectFiltered(network->nodeAttributes, &nodeAttributes, filters ? &filters->node : NULL)) {
 		errno = ENOTSUP;
 		goto cleanup;
 	}
-	if (!CXAttributeListCollect(network->edgeAttributes, &edgeAttributes)) {
+	if (!CXAttributeListCollectFiltered(network->edgeAttributes, &edgeAttributes, filters ? &filters->edge : NULL)) {
 		errno = ENOTSUP;
 		goto cleanup;
 	}
-	if (!CXAttributeListCollect(network->networkAttributes, &networkAttributes)) {
+	if (!CXAttributeListCollectFiltered(network->networkAttributes, &networkAttributes, filters ? &filters->network : NULL)) {
 		errno = ENOTSUP;
 		goto cleanup;
 	}
@@ -1931,7 +1994,62 @@ CXBool CXNetworkWriteBXNet(CXNetworkRef network, const char *path) {
 		.crc = NULL
 	};
 
-	CXBool ok = CXNetworkSerialize(network, &stream, CXNetworkStorageCodecBinary);
+	CXBool ok = CXNetworkSerialize(network, &stream, CXNetworkStorageCodecBinary, NULL);
+	int savedErr = errno;
+	if (fclose(fp) != 0) {
+		int closeErr = errno;
+		remove(path);
+		errno = closeErr;
+		return CXFalse;
+	}
+	if (!ok) {
+		remove(path);
+		errno = savedErr;
+		return CXFalse;
+	}
+	errno = savedErr;
+	return CXTrue;
+}
+
+CXBool CXNetworkWriteBXNetFiltered(CXNetworkRef network,
+	const char *path,
+	const char **nodeAllow,
+	size_t nodeAllowCount,
+	const char **nodeIgnore,
+	size_t nodeIgnoreCount,
+	const char **edgeAllow,
+	size_t edgeAllowCount,
+	const char **edgeIgnore,
+	size_t edgeIgnoreCount,
+	const char **networkAllow,
+	size_t networkAllowCount,
+	const char **networkIgnore,
+	size_t networkIgnoreCount
+) {
+	if (!network || !path) {
+		errno = EINVAL;
+		return CXFalse;
+	}
+	FILE *fp = fopen(path, "wb");
+	if (!fp) {
+		return CXFalse;
+	}
+
+	CXAttributeFilterSet filters = {
+		.node = { nodeAllow, nodeAllowCount, nodeIgnore, nodeIgnoreCount },
+		.edge = { edgeAllow, edgeAllowCount, edgeIgnore, edgeIgnoreCount },
+		.network = { networkAllow, networkAllowCount, networkIgnore, networkIgnoreCount }
+	};
+
+	CXOutputStream stream = {
+		.context = fp,
+		.write = CXFileWrite,
+		.tell = CXFileTell,
+		.flush = CXFileFlush,
+		.crc = NULL
+	};
+
+	CXBool ok = CXNetworkSerialize(network, &stream, CXNetworkStorageCodecBinary, &filters);
 	int savedErr = errno;
 	if (fclose(fp) != 0) {
 		int closeErr = errno;
@@ -1949,8 +2067,8 @@ CXBool CXNetworkWriteBXNet(CXNetworkRef network, const char *path) {
 }
 
 CXBool CXNetworkWriteZXNet(CXNetworkRef network, const char *path, int compressionLevel) {
-    if (!network || !path) {
-        errno = EINVAL;
+	if (!network || !path) {
+		errno = EINVAL;
         return CXFalse;
     }
     int level = compressionLevel;
@@ -1976,9 +2094,9 @@ CXBool CXNetworkWriteZXNet(CXNetworkRef network, const char *path, int compressi
         .crc = NULL
     };
 
-    CXBool ok = CXNetworkSerialize(network, &stream, CXNetworkStorageCodecBGZF);
-    int savedErr = errno;
-    if (bgzf_close(bgzf) != 0) {
+    CXBool ok = CXNetworkSerialize(network, &stream, CXNetworkStorageCodecBGZF, NULL);
+	int savedErr = errno;
+	if (bgzf_close(bgzf) != 0) {
         int closeErr = errno;
         remove(path);
         errno = closeErr;
@@ -1991,6 +2109,72 @@ CXBool CXNetworkWriteZXNet(CXNetworkRef network, const char *path, int compressi
     }
     errno = savedErr;
     return CXTrue;
+}
+
+CXBool CXNetworkWriteZXNetFiltered(CXNetworkRef network,
+	const char *path,
+	int compressionLevel,
+	const char **nodeAllow,
+	size_t nodeAllowCount,
+	const char **nodeIgnore,
+	size_t nodeIgnoreCount,
+	const char **edgeAllow,
+	size_t edgeAllowCount,
+	const char **edgeIgnore,
+	size_t edgeIgnoreCount,
+	const char **networkAllow,
+	size_t networkAllowCount,
+	const char **networkIgnore,
+	size_t networkIgnoreCount
+) {
+	if (!network || !path) {
+		errno = EINVAL;
+		return CXFalse;
+	}
+	int level = compressionLevel;
+	if (level < 0) level = 0;
+	if (level > 9) level = 9;
+
+	char mode[4] = {0};
+	if (snprintf(mode, sizeof(mode), "w%d", level) < 0) {
+		errno = EINVAL;
+		return CXFalse;
+	}
+
+	BGZF *bgzf = bgzf_open(path, mode);
+	if (!bgzf) {
+		return CXFalse;
+	}
+
+	CXAttributeFilterSet filters = {
+		.node = { nodeAllow, nodeAllowCount, nodeIgnore, nodeIgnoreCount },
+		.edge = { edgeAllow, edgeAllowCount, edgeIgnore, edgeIgnoreCount },
+		.network = { networkAllow, networkAllowCount, networkIgnore, networkIgnoreCount }
+	};
+
+	CXOutputStream stream = {
+		.context = bgzf,
+		.write = CXBGZFWrite,
+		.tell = CXBGZFTell,
+		.flush = CXBGZFFlush,
+		.crc = NULL
+	};
+
+	CXBool ok = CXNetworkSerialize(network, &stream, CXNetworkStorageCodecBGZF, &filters);
+	int savedErr = errno;
+	if (bgzf_close(bgzf) != 0) {
+		int closeErr = errno;
+		remove(path);
+		errno = closeErr;
+		return CXFalse;
+	}
+	if (!ok) {
+		remove(path);
+		errno = savedErr;
+		return CXFalse;
+	}
+	errno = savedErr;
+	return CXTrue;
 }
 
 struct CXNetwork* CXNetworkReadBXNet(const char *path) {

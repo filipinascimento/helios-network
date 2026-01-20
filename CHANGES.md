@@ -1,5 +1,9 @@
 # CHANGES
 
+## 2026-01-19
+
+- Added allow/ignore attribute filters for BXNet/ZXNet/XNet serialization so callers can include or exclude specific node/edge/network attributes per save.
+
 ## 2026-01-14
 
 - Added an EventTarget-based events system to `HeliosNetwork` (helpers: `on`, `off`, `emit`, `onAny`, `listen`) for binding external consumers to topology and attribute changes.

@@ -1774,6 +1774,19 @@ typedef struct {
 	size_t capacity;
 } XNetAttributeViewList;
 
+typedef struct {
+	const char **allow;
+	size_t allowCount;
+	const char **ignore;
+	size_t ignoreCount;
+} XNetAttributeNameFilter;
+
+typedef struct {
+	XNetAttributeNameFilter node;
+	XNetAttributeNameFilter edge;
+	XNetAttributeNameFilter graph;
+} XNetAttributeFilterSet;
+
 static void XNetAttributeViewListInit(XNetAttributeViewList *list) {
 	if (!list) {
 		return;
@@ -1913,7 +1926,48 @@ static CXBool XNetAttributeSupportedForWrite(const CXAttributeRef attribute, XNe
 	}
 }
 
-static CXBool XNetCollectAttributes(CXStringDictionaryRef dictionary, XNetAttributeViewList *outList, const char *skipName) {
+static CXBool XNetNameInList(const char *name, const char *const *list, size_t count) {
+	if (!name || !list || count == 0) {
+		return CXFalse;
+	}
+	for (size_t idx = 0; idx < count; idx++) {
+		if (list[idx] && strcmp(name, list[idx]) == 0) {
+			return CXTrue;
+		}
+	}
+	return CXFalse;
+}
+
+static CXBool XNetValidateNameFilter(const XNetAttributeNameFilter *filter) {
+	if (!filter) {
+		return CXTrue;
+	}
+	if (filter->allowCount > 0 && !filter->allow) {
+		return CXFalse;
+	}
+	if (filter->ignoreCount > 0 && !filter->ignore) {
+		return CXFalse;
+	}
+	return CXTrue;
+}
+
+static CXBool XNetAttributeShouldInclude(const char *name, const char *skipName, const XNetAttributeNameFilter *filter) {
+	if (skipName && strcmp(name, skipName) == 0) {
+		return CXFalse;
+	}
+	if (!filter) {
+		return CXTrue;
+	}
+	if (filter->allowCount > 0 && !XNetNameInList(name, filter->allow, filter->allowCount)) {
+		return CXFalse;
+	}
+	if (filter->ignoreCount > 0 && XNetNameInList(name, filter->ignore, filter->ignoreCount)) {
+		return CXFalse;
+	}
+	return CXTrue;
+}
+
+static CXBool XNetCollectAttributes(CXStringDictionaryRef dictionary, XNetAttributeViewList *outList, const char *skipName, const XNetAttributeNameFilter *filter) {
 	if (!outList) {
 		return CXFalse;
 	}
@@ -1922,7 +1976,7 @@ static CXBool XNetCollectAttributes(CXStringDictionaryRef dictionary, XNetAttrib
 		return CXFalse;
 	}
 	CXStringDictionaryFOR(entry, dictionary) {
-		if (skipName && strcmp(entry->key, skipName) == 0) {
+		if (!XNetAttributeShouldInclude(entry->key, skipName, filter)) {
 			continue;
 		}
 		XNetBaseType base = XNetBaseFloat;
@@ -2234,8 +2288,34 @@ static CXBool XNetWriteGraphAttributes(FILE *file, const XNetAttributeViewList *
 	return CXTrue;
 }
 
-CXBool CXNetworkWriteXNet(CXNetworkRef network, const char *path) {
+CXBool CXNetworkWriteXNetFiltered(CXNetworkRef network,
+	const char *path,
+	const char **nodeAllow,
+	size_t nodeAllowCount,
+	const char **nodeIgnore,
+	size_t nodeIgnoreCount,
+	const char **edgeAllow,
+	size_t edgeAllowCount,
+	const char **edgeIgnore,
+	size_t edgeIgnoreCount,
+	const char **graphAllow,
+	size_t graphAllowCount,
+	const char **graphIgnore,
+	size_t graphIgnoreCount
+) {
 	if (!network || !path) {
+		errno = EINVAL;
+		return CXFalse;
+	}
+	XNetAttributeFilterSet filters = {
+		.node = { nodeAllow, nodeAllowCount, nodeIgnore, nodeIgnoreCount },
+		.edge = { edgeAllow, edgeAllowCount, edgeIgnore, edgeIgnoreCount },
+		.graph = { graphAllow, graphAllowCount, graphIgnore, graphIgnoreCount }
+	};
+	if (!XNetValidateNameFilter(&filters.node) ||
+		!XNetValidateNameFilter(&filters.edge) ||
+		!XNetValidateNameFilter(&filters.graph)) {
+		errno = EINVAL;
 		return CXFalse;
 	}
 	FILE *file = fopen(path, "wb");
@@ -2315,9 +2395,9 @@ CXBool CXNetworkWriteXNet(CXNetworkRef network, const char *path) {
 	XNetAttributeViewListInit(&edgeAttrs);
 	XNetAttributeViewListInit(&graphAttrs);
 
-	if (!XNetCollectAttributes(network->nodeAttributes, &nodeAttrs, "_original_ids_") ||
-	    !XNetCollectAttributes(network->edgeAttributes, &edgeAttrs, NULL) ||
-	    !XNetCollectAttributes(network->networkAttributes, &graphAttrs, NULL)) {
+	if (!XNetCollectAttributes(network->nodeAttributes, &nodeAttrs, "_original_ids_", &filters.node) ||
+	    !XNetCollectAttributes(network->edgeAttributes, &edgeAttrs, NULL, &filters.edge) ||
+	    !XNetCollectAttributes(network->networkAttributes, &graphAttrs, NULL, &filters.graph)) {
 		XNetAttributeViewListFree(&nodeAttrs);
 		XNetAttributeViewListFree(&edgeAttrs);
 		XNetAttributeViewListFree(&graphAttrs);
@@ -2382,4 +2462,23 @@ cleanup:
 
 	fclose(file);
 	return success;
+}
+
+CXBool CXNetworkWriteXNet(CXNetworkRef network, const char *path) {
+	return CXNetworkWriteXNetFiltered(
+		network,
+		path,
+		NULL,
+		0,
+		NULL,
+		0,
+		NULL,
+		0,
+		NULL,
+		0,
+		NULL,
+		0,
+		NULL,
+		0
+	);
 }
