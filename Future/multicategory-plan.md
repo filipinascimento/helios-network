@@ -9,6 +9,8 @@
 ## Data Model
 - A multi-category attribute is a sparse set of category IDs per element.
 - Optional weights are float values aligned to each category ID.
+- Storage is CSR-like (offsets + flat IDs [+ optional weights]); avoid per-entry Sets/Hashes.
+- Consider per-entry ID sorting (optional) to allow binary-search membership without hashes.
 - Proposed representation uses two buffers:
   - Offsets (length = element_count + 1) into a flat category index buffer.
   - Category IDs (flat uint32 array).
@@ -25,8 +27,13 @@
 ## API Additions
 - `CXNetworkDefineMultiCategoryAttribute(scope, name, hasWeights)`
 - `CXNetworkGetMultiCategoryBuffers(scope, name, &offsets, &ids, &weights)`
+- `CXNetworkSetMultiCategoryBuffers(scope, name, offsets, ids, weights)` (bulk/fast path)
 - `CXNetworkSetMultiCategoryEntry(scope, name, index, ids, count, weights)`
 - `CXNetworkClearMultiCategoryEntry(scope, name, index)`
+- JS convenience helpers (no JS-side copies of large data):
+  - `setMultiCategoryEntryByName(scope, name, index, categories[, weights])`
+  - `setMultiCategoryForNodes(scope, name, nodeIndices, categories[, weight])`
+  - `getMultiCategoryEntryRange(scope, name, index)` -> `{start,end}` to slice views
 
 ## Serialization
 
@@ -57,6 +64,7 @@
 - Build dictionary using hash table (string -> ID).
 - Build offsets by prefix-summing per-element counts.
 - Fill category ID and weight buffers in a second pass.
+- Avoid per-entry JS `Set`/hash structures after build; keep flat buffers.
 - For weights, validate that sums are optional and do not require
   normalization unless requested.
 
@@ -78,4 +86,3 @@
 - Should element-level empty sets serialize as empty line or explicit token?
 - Should weights be optional per entry (mixed) or all-or-nothing?
 - Should we enforce weight sum normalization (1.0) or leave to user?
-
