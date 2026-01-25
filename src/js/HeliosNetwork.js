@@ -2828,7 +2828,9 @@ export class HeliosNetwork extends BaseEventTarget {
 			sourceName,
 			endpointMode,
 			doubleWidth,
-			dirty: true,
+			dirty: false,
+			sourceVersion: null,
+			edgeTopologyVersion: null,
 		});
 		this._registerNodeToEdgeDependency(sourceName, edgeName);
 	}
@@ -2981,10 +2983,17 @@ export class HeliosNetwork extends BaseEventTarget {
 		this._ensureActive();
 		const passthrough = this._nodeToEdgePassthrough.get(name);
 		if (passthrough) {
-			if (passthrough.dirty) {
+			const sourceVersion = this.getNodeAttributeVersion(passthrough.sourceName);
+			const edgeTopologyVersion = this._getTopologyVersion('edge');
+			const needsCopy = passthrough.dirty
+				|| passthrough.sourceVersion !== sourceVersion
+				|| passthrough.edgeTopologyVersion !== edgeTopologyVersion;
+			if (needsCopy) {
 				this._copyNodeToEdgeAttribute(passthrough.sourceName, name, passthrough.endpointMode, passthrough.doubleWidth);
 				this._markDenseAttributeDirtySilently('edge', name);
 				passthrough.dirty = false;
+				passthrough.sourceVersion = sourceVersion;
+				passthrough.edgeTopologyVersion = edgeTopologyVersion;
 			}
 		}
 		if (this._registeredDenseEdgeAttributes.has(name) && this._canAliasDenseAttributeBuffer('edge')) {
@@ -5385,6 +5394,8 @@ export class HeliosNetwork extends BaseEventTarget {
 		const passthrough = this._nodeToEdgePassthrough.get(destinationName);
 		if (passthrough) {
 			passthrough.dirty = false;
+			passthrough.sourceVersion = this.getNodeAttributeVersion(passthrough.sourceName);
+			passthrough.edgeTopologyVersion = this._getTopologyVersion('edge');
 		}
 	}
 
@@ -5551,6 +5562,7 @@ export class HeliosNetwork extends BaseEventTarget {
 			const entry = this._nodeToEdgePassthrough.get(edgeName);
 			if (entry) {
 				entry.dirty = true;
+				entry.sourceVersion = null;
 			}
 		}
 	}
@@ -5561,6 +5573,7 @@ export class HeliosNetwork extends BaseEventTarget {
 			const entry = this._nodeToEdgePassthrough.get(edgeName);
 			if (entry) {
 				entry.dirty = true;
+				entry.edgeTopologyVersion = null;
 			}
 		}
 	}

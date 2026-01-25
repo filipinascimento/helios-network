@@ -1,5 +1,9 @@
 # CHANGES
 
+## 2026-01-22
+
+- Fixed node→edge passthrough updates to refresh dense edge buffers when the source node attribute version changes (version-based refresh, not just dirty flags).
+
 ## 2026-01-19
 
 - Added allow/ignore attribute filters for BXNet/ZXNet/XNet serialization so callers can include or exclude specific node/edge/network attributes per save.
