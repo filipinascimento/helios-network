@@ -728,6 +728,75 @@ CX_INLINE void CXStringTrimSpaces(CXString restrict theString) {
 	}
 }
 
+/** Natural-order string compare: returns -1, 0, 1; numeric runs compare by value. */
+CX_INLINE int CXStringCompareNatural(const CXString left, const CXString right){
+	if(left == NULL && right == NULL){
+		return 0;
+	}
+	if(left == NULL){
+		return -1;
+	}
+	if(right == NULL){
+		return 1;
+	}
+	const unsigned char* a = (const unsigned char*)left;
+	const unsigned char* b = (const unsigned char*)right;
+	while(*a != '\0' || *b != '\0'){
+		if(isdigit(*a) && isdigit(*b)){
+			const unsigned char* a_start = a;
+			const unsigned char* b_start = b;
+			while(*a == '0'){
+				a++;
+			}
+			while(*b == '0'){
+				b++;
+			}
+			const unsigned char* a_sig = a;
+			const unsigned char* b_sig = b;
+			while(isdigit(*a)){
+				a++;
+			}
+			while(isdigit(*b)){
+				b++;
+			}
+			const unsigned char* a_end = a;
+			const unsigned char* b_end = b;
+			size_t a_sig_len = (size_t)(a_end - a_sig);
+			size_t b_sig_len = (size_t)(b_end - b_sig);
+			if(a_sig_len == 0){
+				a_sig_len = 1;
+				a_sig = a_end - 1;
+			}
+			if(b_sig_len == 0){
+				b_sig_len = 1;
+				b_sig = b_end - 1;
+			}
+			if(a_sig_len != b_sig_len){
+				return a_sig_len < b_sig_len ? -1 : 1;
+			}
+			int digit_compare = memcmp(a_sig, b_sig, a_sig_len);
+			if(digit_compare != 0){
+				return digit_compare < 0 ? -1 : 1;
+			}
+			size_t a_len = (size_t)(a_end - a_start);
+			size_t b_len = (size_t)(b_end - b_start);
+			if(a_len != b_len){
+				return a_len < b_len ? -1 : 1;
+			}
+			continue;
+		}
+		if(*a != *b){
+			return *a < *b ? -1 : 1;
+		}
+		if(*a == '\0'){
+			break;
+		}
+		a++;
+		b++;
+	}
+	return 0;
+}
+
 CX_INLINE void CXStringDestroy(CXString theString){
 	free(theString);
 }

@@ -76,10 +76,12 @@
   - `CX_CATEGORY_SORT_NONE`
   - `CX_CATEGORY_SORT_FREQUENCY`
   - `CX_CATEGORY_SORT_ALPHABETICAL`
+  - `CX_CATEGORY_SORT_NATURAL`
 - Behavior:
   - NONE: insertion order of first appearance.
   - FREQUENCY: sort by descending count; tie-break alphabetical for stability.
   - ALPHABETICAL: locale-neutral bytewise UTF-8 ordering.
+  - NATURAL: numeric-aware ordering (e.g., `file2` < `file10`), locale-neutral.
 
 ## Algorithms and Data Structures
 
@@ -96,9 +98,11 @@
 
 ### Sorting Implementation
 - Prefer a single allocation per category array plus pointer list.
-- Use `qsort` with comparator for alphabetical/frequency.
-- For frequency sorting, compare `count` descending, then compare strings
-  for deterministic results.
+- Use the CX array introsort helpers (median-of-three + 3-way partition + heapsort fallback) implemented in the C core if possible.
+  - For string ordering, use a comparator that mirrors the C-core string compare rules.
+  - For frequency sorting, compare `count` descending, then compare strings for deterministic results.
+  - For natural ordering, compare digit runs as numbers (skip leading zeros), fall back to bytewise compare for non-digits.
+  - The C-core already provides `CXStringCompareNatural` in `src/native/include/helios/CXCommons.h`.
 
 ### Memory Considerations
 - Avoid allocating per-element copies of strings.

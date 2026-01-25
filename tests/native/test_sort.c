@@ -202,6 +202,46 @@ static void test_indices_only(void) {
 	assert_integer_sorted(values, array.count, CXOrderedAscending);
 }
 
+static void sort_strings_natural(CXString *values, CXSize count) {
+	for (CXSize i = 1; i < count; i++) {
+		CXString value = values[i];
+		CXSize j = i;
+		while (j > 0 && CXStringCompareNatural(values[j - 1], value) > 0) {
+			values[j] = values[j - 1];
+			j--;
+		}
+		values[j] = value;
+	}
+}
+
+static void test_string_natural_compare(void) {
+	assert(CXStringCompareNatural("file2", "file10") < 0);
+	assert(CXStringCompareNatural("file02", "file2") > 0);
+	assert(CXStringCompareNatural("file1", "file1") == 0);
+	assert(CXStringCompareNatural("file10", "file2") > 0);
+
+	CXString values[] = {
+		"file10",
+		"file2",
+		"file1",
+		"file02",
+		"file20",
+		"file3",
+	};
+	CXString expected[] = {
+		"file1",
+		"file2",
+		"file02",
+		"file3",
+		"file10",
+		"file20",
+	};
+	sort_strings_natural(values, sizeof(values) / sizeof(values[0]));
+	for (CXSize i = 0; i < sizeof(values) / sizeof(values[0]); i++) {
+		assert(strcmp(values[i], expected[i]) == 0);
+	}
+}
+
 int main(void) {
 	test_integer_sorts();
 	test_uinteger_sorts();
@@ -212,5 +252,6 @@ int main(void) {
 	test_indices_with_float();
 	test_indices_with_double();
 	test_indices_only();
+	test_string_natural_compare();
 	return 0;
 }

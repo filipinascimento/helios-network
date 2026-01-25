@@ -26,6 +26,7 @@
 
 - Replaced array sorting with introsort (median-of-three, 3-way partition, heapsort fallback, insertion cutoff) across integer/float/double/unsigned array helpers, and standardized NaN ordering for float/double sorts.
 - Added native and WASM test coverage for array sorting helpers and index-paired variants.
+- Added a natural-order string comparator for categorical-style sorting (numeric-aware string ordering) with native tests.
 
 ## 2026-01-02
 
