@@ -573,312 +573,6 @@ CX_INLINE CXGenericArray CXGenericArrayCopy(CXGenericArray* theArray){
 	return newArray;
 }
 
-/** Sorts a float array in ascending order while reordering the parallel index array. */
-CX_INLINE CXBool CXQuickSortFloatArrayWithIndices(CXFloatArray floatArray, CXUIntegerArray indicesArray){
-	CXUInteger MAX_LEVELS=floatArray.count;
-	if(floatArray.count!=indicesArray.count){
-		return CXFalse;
-	}
-	CXFloat  piv;
-	CXInteger piv2, i=0, L, R ;
-	CXInteger* beg=(CXInteger*) calloc(MAX_LEVELS, sizeof(CXInteger));
-	CXInteger* end=(CXInteger*) calloc(MAX_LEVELS, sizeof(CXInteger));
-	
-	beg[0]=0; end[0]=floatArray.count;
-	while (i>=0) {
-		L=beg[i];
-		R=end[i]-1;
-		if (L<R) {
-			piv=floatArray.data[L];
-			piv2=indicesArray.data[L];
-			if (i==MAX_LEVELS-1){
-				free(beg);
-				return CXFalse;
-			}
-			
-			while (L<R) {
-				while (floatArray.data[R]>=piv && L<R)
-					R--;
-				
-				if (L<R){
-					indicesArray.data[L]=indicesArray.data[R];
-					floatArray.data[L++]=floatArray.data[R];
-				}
-				while (floatArray.data[L]<=piv && L<R)
-					L++;
-				
-				if (L<R){
-					indicesArray.data[R]=indicesArray.data[L];
-					floatArray.data[R--]=floatArray.data[L];
-				}
-			}
-			floatArray.data[L]=piv;
-			indicesArray.data[L]=piv2;
-			beg[i+1]=L+1;
-			end[i+1]=end[i];
-			end[i++]=L;
-		}
-		else {
-			i--;
-		}
-	}
-	free(beg);
-	free(end);
-	return CXTrue;
-}
-
-/** Sorts an index array while permuting a parallel float array accordingly. */
-CX_INLINE CXBool CXQuickSortIndicesArrayWithFloat(CXIntegerArray indicesArray,CXFloatArray floatArray){
-	CXInteger MAX_LEVELS=indicesArray.count;
-	if(indicesArray.count!=floatArray.count){
-		return CXFalse;
-	}
-	CXInteger  piv, i=0, L, R ;
-	CXFloat piv2;
-	CXInteger* beg=(CXInteger*) calloc(MAX_LEVELS, sizeof(CXInteger));
-	CXInteger* end=(CXInteger*) calloc(MAX_LEVELS, sizeof(CXInteger));
-	
-	beg[0]=0; end[0]=indicesArray.count;
-	while (i>=0) {
-		L=beg[i];
-		R=end[i]-1;
-		if (L<R) {
-			piv2=floatArray.data[L];
-			piv=indicesArray.data[L];
-			if (i==MAX_LEVELS-1){
-				free(beg);
-				return CXFalse;
-			}
-			
-			while (L<R) {
-				while (indicesArray.data[R]>=piv && L<R)
-					R--;
-				
-				if (L<R){
-					indicesArray.data[L]=indicesArray.data[R];
-					floatArray.data[L++]=floatArray.data[R];
-				}
-				while (indicesArray.data[L]<=piv && L<R)
-					L++;
-				
-				if (L<R){
-					indicesArray.data[R]=indicesArray.data[L];
-					floatArray.data[R--]=floatArray.data[L];
-				}
-			}
-			floatArray.data[L]=piv2;
-			indicesArray.data[L]=piv;
-			beg[i+1]=L+1;
-			end[i+1]=end[i];
-			end[i++]=L;
-		}
-		else {
-			i--;
-		}
-	}
-	free(beg);
-	free(end);
-	return CXTrue;
-}
-/** Sorts a double array in ascending order while reordering the parallel index array. */
-CX_INLINE CXBool CXQuickSortDoubleArrayWithIndices(CXDoubleArray doubleArray, CXUIntegerArray indicesArray){
-	CXUInteger MAX_LEVELS=doubleArray.count;
-	if(doubleArray.count!=indicesArray.count){
-		return CXFalse;
-	}
-	CXDouble  piv;
-	CXInteger piv2, i=0, L, R ;
-	CXInteger* beg=(CXInteger*) calloc(MAX_LEVELS, sizeof(CXInteger));
-	CXInteger* end=(CXInteger*) calloc(MAX_LEVELS, sizeof(CXInteger));
-
-	beg[0]=0; end[0]=doubleArray.count;
-	while (i>=0) {
-		L=beg[i];
-		R=end[i]-1;
-		if (L<R) {
-			piv=doubleArray.data[L];
-			piv2=indicesArray.data[L];
-			if (i==MAX_LEVELS-1){
-				free(beg);
-				return CXFalse;
-			}
-
-			while (L<R) {
-				while (doubleArray.data[R]>=piv && L<R)
-					R--;
-
-				if (L<R){
-					indicesArray.data[L]=indicesArray.data[R];
-					doubleArray.data[L++]=doubleArray.data[R];
-				}
-				while (doubleArray.data[L]<=piv && L<R)
-					L++;
-
-				if (L<R){
-					indicesArray.data[R]=indicesArray.data[L];
-					doubleArray.data[R--]=doubleArray.data[L];
-				}
-			}
-			doubleArray.data[L]=piv;
-			indicesArray.data[L]=piv2;
-			beg[i+1]=L+1;
-			end[i+1]=end[i];
-			end[i++]=L;
-		}
-		else {
-			i--;
-		}
-	}
-	free(beg);
-	free(end);
-	return CXTrue;
-}
-
-/** Sorts an index array while permuting a parallel double array accordingly. */
-CX_INLINE CXBool CXQuickSortIndicesArrayWithDouble(CXIntegerArray indicesArray,CXDoubleArray doubleArray){
-	CXInteger MAX_LEVELS=indicesArray.count;
-	if(indicesArray.count!=doubleArray.count){
-		return CXFalse;
-	}
-	CXInteger  piv, i=0, L, R ;
-	CXDouble piv2;
-	CXInteger* beg=(CXInteger*) calloc(MAX_LEVELS, sizeof(CXInteger));
-	CXInteger* end=(CXInteger*) calloc(MAX_LEVELS, sizeof(CXInteger));
-
-	beg[0]=0; end[0]=indicesArray.count;
-	while (i>=0) {
-		L=beg[i];
-		R=end[i]-1;
-		if (L<R) {
-			piv2=doubleArray.data[L];
-			piv=indicesArray.data[L];
-			if (i==MAX_LEVELS-1){
-				free(beg);
-				return CXFalse;
-			}
-
-			while (L<R) {
-				while (indicesArray.data[R]>=piv && L<R)
-					R--;
-
-				if (L<R){
-					indicesArray.data[L]=indicesArray.data[R];
-					doubleArray.data[L++]=doubleArray.data[R];
-				}
-				while (indicesArray.data[L]<=piv && L<R)
-					L++;
-
-				if (L<R){
-					indicesArray.data[R]=indicesArray.data[L];
-					doubleArray.data[R--]=doubleArray.data[L];
-				}
-			}
-			doubleArray.data[L]=piv2;
-			indicesArray.data[L]=piv;
-			beg[i+1]=L+1;
-			end[i+1]=end[i];
-			end[i++]=L;
-		}
-		else {
-			i--;
-		}
-	}
-	free(beg);
-	free(end);
-	return CXTrue;
-}
-/** Sorts an integer array in ascending order using an iterative quicksort. */
-CX_INLINE CXBool CXQuickSortIndicesArray(CXIntegerArray indicesArray){
-	CXUInteger MAX_LEVELS=indicesArray.count;
-	CXInteger  piv, i=0, L, R ;
-	CXInteger* beg=(CXInteger*) calloc(MAX_LEVELS, sizeof(CXInteger));
-	CXInteger* end=(CXInteger*) calloc(MAX_LEVELS, sizeof(CXInteger));
-	
-	beg[0]=0; end[0]=indicesArray.count;
-	while (i>=0) {
-		L=beg[i];
-		R=end[i]-1;
-		if (L<R) {
-			piv=indicesArray.data[L];
-			if (i==MAX_LEVELS-1){
-				free(beg);
-				return CXFalse;
-			}
-			
-			while (L<R) {
-				while (indicesArray.data[R]>=piv && L<R)
-					R--;
-				
-				if (L<R){
-					indicesArray.data[L++]=indicesArray.data[R];
-				}
-				while (indicesArray.data[L]<=piv && L<R)
-					L++;
-				
-				if (L<R){
-					indicesArray.data[R--]=indicesArray.data[L];
-				}
-			}
-			indicesArray.data[L]=piv;
-			beg[i+1]=L+1;
-			end[i+1]=end[i];
-			end[i++]=L;
-		}
-		else {
-			i--;
-		}
-	}
-	free(beg);
-	free(end);
-	return CXTrue;
-}
-/** Sorts an unsigned integer array in ascending order using an iterative quicksort. */
-CX_INLINE CXBool CXQuickSortUIntegerArray(CXUIntegerArray indicesArray){
-	CXUInteger MAX_LEVELS=indicesArray.count;
-	CXUInteger  piv;
-	CXInteger i=0, L, R ;
-	CXInteger* beg=(CXInteger*) calloc(MAX_LEVELS, sizeof(CXInteger));
-	CXInteger* end=(CXInteger*) calloc(MAX_LEVELS, sizeof(CXInteger));
-	
-	beg[0]=0; end[0]=indicesArray.count;
-	while (i>=0) {
-		L=beg[i];
-		R=end[i]-1;
-		if (L<R) {
-			piv=indicesArray.data[L];
-			if (i==MAX_LEVELS-1){
-				free(beg);
-				return CXFalse;
-			}
-			
-			while (L<R) {
-				while (indicesArray.data[R]>=piv && L<R)
-					R--;
-				
-				if (L<R){
-					indicesArray.data[L++]=indicesArray.data[R];
-				}
-				while (indicesArray.data[L]<=piv && L<R)
-					L++;
-				
-				if (L<R){
-					indicesArray.data[R--]=indicesArray.data[L];
-				}
-			}
-			indicesArray.data[L]=piv;
-			beg[i+1]=L+1;
-			end[i+1]=end[i];
-			end[i++]=L;
-		}
-		else {
-			i--;
-		}
-	}
-	free(beg);
-	free(end);
-	return CXTrue;
-}
-
 enum {
 	CXOrderedAscending = -1,
 	CXOrderedSame,
@@ -890,327 +584,1396 @@ typedef CXInteger CXComparisonResult;
 #define CX_ARRAY_COMPARE_FUNCTION(leftValue, rightValue) (((leftValue)>(rightValue))?CXOrderedDescending:(((leftValue)<(rightValue))?CXOrderedAscending:CXOrderedSame))
 #endif
 
-/** Internal helper that partitions the array segment around `pivot`. */
-CX_INLINE CXUInteger CXIntegerArrayPartition(CXIntegerArray* theArray, CXUInteger f, CXUInteger l, CXInteger pivot, CXComparisonResult comparisonResult){
-	CXUInteger i = f-1, j = l+1;
-	CXInteger* arrayData = theArray->data;
-	while(CXTrue){
-		do{
-			j--;
-		}while(CX_ARRAY_COMPARE_FUNCTION(pivot,arrayData[j])==comparisonResult);
-		
-		do{
+#if !defined(CX_INTROSORT_INSERTION_THRESHOLD)
+#define CX_INTROSORT_INSERTION_THRESHOLD 24
+#endif
+
+CX_STATIC_INLINE CXUInteger CXFloorLog2(CXUInteger value){
+	CXUInteger log2 = 0;
+	while(value > 1){
+		value >>= 1;
+		log2++;
+	}
+	return log2;
+}
+
+CX_STATIC_INLINE CXComparisonResult CXFloatCompareTotalOrder(CXFloat leftValue, CXFloat rightValue){
+	if(isnan(leftValue)){
+		return isnan(rightValue) ? CXOrderedSame : CXOrderedDescending;
+	}
+	if(isnan(rightValue)){
+		return CXOrderedAscending;
+	}
+	return CX_ARRAY_COMPARE_FUNCTION(leftValue, rightValue);
+}
+
+CX_STATIC_INLINE CXComparisonResult CXDoubleCompareTotalOrder(CXDouble leftValue, CXDouble rightValue){
+	if(isnan(leftValue)){
+		return isnan(rightValue) ? CXOrderedSame : CXOrderedDescending;
+	}
+	if(isnan(rightValue)){
+		return CXOrderedAscending;
+	}
+	return CX_ARRAY_COMPARE_FUNCTION(leftValue, rightValue);
+}
+
+CX_STATIC_INLINE CXBool CXIntegerArrayLess(CXInteger leftValue, CXInteger rightValue, CXComparisonResult order){
+	return CX_ARRAY_COMPARE_FUNCTION(leftValue, rightValue) == order;
+}
+
+CX_STATIC_INLINE CXBool CXUIntegerArrayLess(CXUInteger leftValue, CXUInteger rightValue, CXComparisonResult order){
+	return CX_ARRAY_COMPARE_FUNCTION(leftValue, rightValue) == order;
+}
+
+CX_STATIC_INLINE CXBool CXFloatArrayLess(CXFloat leftValue, CXFloat rightValue, CXComparisonResult order){
+	return CXFloatCompareTotalOrder(leftValue, rightValue) == order;
+}
+
+CX_STATIC_INLINE CXBool CXDoubleArrayLess(CXDouble leftValue, CXDouble rightValue, CXComparisonResult order){
+	return CXDoubleCompareTotalOrder(leftValue, rightValue) == order;
+}
+
+CX_INLINE void CXIntegerArraySort(CXIntegerArray* theArray, CXComparisonResult order);
+CX_INLINE void CXUIntegerArraySort(CXUIntegerArray* theArray, CXComparisonResult order);
+CX_INLINE void CXFloatArraySort(CXFloatArray* theArray, CXComparisonResult order);
+CX_INLINE void CXDoubleArraySort(CXDoubleArray* theArray, CXComparisonResult order);
+
+CX_STATIC_INLINE void CXFloatArraySwapWithIndices(CXFloatArray* floatArray, CXUIntegerArray* indicesArray, CXUInteger left, CXUInteger right){
+	CXFloat tmpValue = floatArray->data[left];
+	CXUInteger tmpIndex = indicesArray->data[left];
+	floatArray->data[left] = floatArray->data[right];
+	indicesArray->data[left] = indicesArray->data[right];
+	floatArray->data[right] = tmpValue;
+	indicesArray->data[right] = tmpIndex;
+}
+
+CX_STATIC_INLINE CXFloat CXFloatArrayMedianOfThree(CXFloat leftValue, CXFloat middleValue, CXFloat rightValue, CXComparisonResult order){
+	if(CXFloatArrayLess(leftValue, middleValue, order)){
+		if(CXFloatArrayLess(middleValue, rightValue, order)){
+			return middleValue;
+		}
+		if(CXFloatArrayLess(leftValue, rightValue, order)){
+			return rightValue;
+		}
+		return leftValue;
+	}
+	if(CXFloatArrayLess(leftValue, rightValue, order)){
+		return leftValue;
+	}
+	if(CXFloatArrayLess(middleValue, rightValue, order)){
+		return rightValue;
+	}
+	return middleValue;
+}
+
+CX_STATIC_INLINE void CXFloatArrayPartition3RangeWithIndices(CXFloatArray* floatArray, CXUIntegerArray* indicesArray, CXUInteger lo, CXUInteger hi, CXFloat pivot, CXComparisonResult order, CXUInteger* outLt, CXUInteger* outGt){
+	CXInteger lt = (CXInteger)lo;
+	CXInteger i = (CXInteger)lo;
+	CXInteger gt = (CXInteger)hi;
+	CXFloat* values = floatArray->data;
+	while(i <= gt){
+		if(CXFloatArrayLess(values[i], pivot, order)){
+			CXFloatArraySwapWithIndices(floatArray, indicesArray, (CXUInteger)lt, (CXUInteger)i);
+			lt++;
 			i++;
-		}while(CX_ARRAY_COMPARE_FUNCTION(arrayData[i],pivot)==comparisonResult);
-		
-		if(i<j){
-			CXInteger tmp = arrayData[i];
-			arrayData[i] = arrayData[j];
-			arrayData[j] = tmp;
+		}else if(CXFloatArrayLess(pivot, values[i], order)){
+			CXFloatArraySwapWithIndices(floatArray, indicesArray, (CXUInteger)i, (CXUInteger)gt);
+			gt--;
 		}else{
-			return j;
+			i++;
+		}
+	}
+	*outLt = (CXUInteger)lt;
+	*outGt = (CXUInteger)gt;
+}
+
+CX_STATIC_INLINE void CXFloatArrayInsertionSortRangeWithIndices(CXFloatArray* floatArray, CXUIntegerArray* indicesArray, CXUInteger lo, CXUInteger hi, CXComparisonResult order){
+	CXFloat* values = floatArray->data;
+	CXUInteger* indices = indicesArray->data;
+	for(CXUInteger i = lo + 1; i <= hi; i++){
+		CXFloat value = values[i];
+		CXUInteger indexValue = indices[i];
+		CXUInteger j = i;
+		while(j > lo && CXFloatArrayLess(value, values[j - 1], order)){
+			values[j] = values[j - 1];
+			indices[j] = indices[j - 1];
+			j--;
+		}
+		values[j] = value;
+		indices[j] = indexValue;
+	}
+}
+
+CX_STATIC_INLINE void CXFloatArraySiftDownWithIndices(CXFloatArray* floatArray, CXUIntegerArray* indicesArray, CXUInteger start, CXUInteger end, CXUInteger base, CXComparisonResult order){
+	CXFloat* values = floatArray->data + base;
+	CXUInteger* indices = indicesArray->data + base;
+	CXUInteger root = start;
+	while(root * 2 + 1 <= end){
+		CXUInteger child = root * 2 + 1;
+		CXUInteger swapIndex = root;
+		if(CXFloatArrayLess(values[swapIndex], values[child], order)){
+			swapIndex = child;
+		}
+		if(child + 1 <= end && CXFloatArrayLess(values[swapIndex], values[child + 1], order)){
+			swapIndex = child + 1;
+		}
+		if(swapIndex == root){
+			return;
+		}
+		CXFloat tmpValue = values[root];
+		CXUInteger tmpIndex = indices[root];
+		values[root] = values[swapIndex];
+		indices[root] = indices[swapIndex];
+		values[swapIndex] = tmpValue;
+		indices[swapIndex] = tmpIndex;
+		root = swapIndex;
+	}
+}
+
+CX_STATIC_INLINE void CXFloatArrayHeapSortRangeWithIndices(CXFloatArray* floatArray, CXUIntegerArray* indicesArray, CXUInteger lo, CXUInteger hi, CXComparisonResult order){
+	CXUInteger size = hi - lo + 1;
+	if(size < 2){
+		return;
+	}
+	CXUInteger start = (size - 2) / 2;
+	while(CXTrue){
+		CXFloatArraySiftDownWithIndices(floatArray, indicesArray, start, size - 1, lo, order);
+		if(start == 0){
+			break;
+		}
+		start--;
+	}
+	CXUInteger end = size - 1;
+	while(end > 0){
+		CXFloatArraySwapWithIndices(floatArray, indicesArray, lo, lo + end);
+		end--;
+		CXFloatArraySiftDownWithIndices(floatArray, indicesArray, 0, end, lo, order);
+	}
+}
+
+CX_STATIC_INLINE void CXFloatArrayIntroSortRangeWithIndices(CXFloatArray* floatArray, CXUIntegerArray* indicesArray, CXUInteger lo, CXUInteger hi, CXComparisonResult order, CXUInteger depthLimit){
+	while(lo < hi){
+		CXUInteger size = hi - lo + 1;
+		if(size <= CX_INTROSORT_INSERTION_THRESHOLD){
+			CXFloatArrayInsertionSortRangeWithIndices(floatArray, indicesArray, lo, hi, order);
+			return;
+		}
+		if(depthLimit == 0){
+			CXFloatArrayHeapSortRangeWithIndices(floatArray, indicesArray, lo, hi, order);
+			return;
+		}
+		depthLimit--;
+		CXUInteger mid = lo + (hi - lo) / 2;
+		CXFloat pivot = CXFloatArrayMedianOfThree(floatArray->data[lo], floatArray->data[mid], floatArray->data[hi], order);
+		CXUInteger lt = lo;
+		CXUInteger gt = hi;
+		CXFloatArrayPartition3RangeWithIndices(floatArray, indicesArray, lo, hi, pivot, order, &lt, &gt);
+		CXUInteger leftCount = lt > lo ? (lt - lo) : 0;
+		CXUInteger rightCount = hi > gt ? (hi - gt) : 0;
+		if(leftCount < rightCount){
+			if(leftCount > 0){
+				CXFloatArrayIntroSortRangeWithIndices(floatArray, indicesArray, lo, lt - 1, order, depthLimit);
+			}
+			lo = gt + 1;
+		}else{
+			if(rightCount > 0){
+				CXFloatArrayIntroSortRangeWithIndices(floatArray, indicesArray, gt + 1, hi, order, depthLimit);
+			}
+			if(leftCount == 0){
+				return;
+			}
+			hi = lt - 1;
 		}
 	}
 }
 
-/** Recursive quicksort implementation used when index sorting is insufficient. */
-CX_INLINE void CXIntegerArrayQuickSortImplementation(CXIntegerArray* theArray, CXUInteger f, CXUInteger l, CXComparisonResult comparisonResult){
-	while(f < l){
-		CXUInteger m = CXIntegerArrayPartition(theArray, f, l, theArray->data[f],comparisonResult);
-		CXIntegerArrayQuickSortImplementation(theArray, f, m,comparisonResult);
-		f = m+1;
+CX_STATIC_INLINE CXBool CXFloatArraySortWithIndices(CXFloatArray* floatArray, CXUIntegerArray* indicesArray, CXComparisonResult order){
+	if(floatArray->count != indicesArray->count){
+		return CXFalse;
+	}
+	if(floatArray->count < 2){
+		return CXTrue;
+	}
+	CXUInteger depthLimit = 2 * CXFloorLog2(floatArray->count);
+	CXFloatArrayIntroSortRangeWithIndices(floatArray, indicesArray, 0, floatArray->count - 1, order, depthLimit);
+	return CXTrue;
+}
+
+/** Sorts a float array in ascending order while reordering the parallel index array. */
+CX_INLINE CXBool CXQuickSortFloatArrayWithIndices(CXFloatArray floatArray, CXUIntegerArray indicesArray){
+	return CXFloatArraySortWithIndices(&floatArray, &indicesArray, CXOrderedAscending);
+}
+
+CX_STATIC_INLINE void CXDoubleArraySwapWithIndices(CXDoubleArray* doubleArray, CXUIntegerArray* indicesArray, CXUInteger left, CXUInteger right){
+	CXDouble tmpValue = doubleArray->data[left];
+	CXUInteger tmpIndex = indicesArray->data[left];
+	doubleArray->data[left] = doubleArray->data[right];
+	indicesArray->data[left] = indicesArray->data[right];
+	doubleArray->data[right] = tmpValue;
+	indicesArray->data[right] = tmpIndex;
+}
+
+CX_STATIC_INLINE CXDouble CXDoubleArrayMedianOfThree(CXDouble leftValue, CXDouble middleValue, CXDouble rightValue, CXComparisonResult order){
+	if(CXDoubleArrayLess(leftValue, middleValue, order)){
+		if(CXDoubleArrayLess(middleValue, rightValue, order)){
+			return middleValue;
+		}
+		if(CXDoubleArrayLess(leftValue, rightValue, order)){
+			return rightValue;
+		}
+		return leftValue;
+	}
+	if(CXDoubleArrayLess(leftValue, rightValue, order)){
+		return leftValue;
+	}
+	if(CXDoubleArrayLess(middleValue, rightValue, order)){
+		return rightValue;
+	}
+	return middleValue;
+}
+
+CX_STATIC_INLINE void CXDoubleArrayPartition3RangeWithIndices(CXDoubleArray* doubleArray, CXUIntegerArray* indicesArray, CXUInteger lo, CXUInteger hi, CXDouble pivot, CXComparisonResult order, CXUInteger* outLt, CXUInteger* outGt){
+	CXInteger lt = (CXInteger)lo;
+	CXInteger i = (CXInteger)lo;
+	CXInteger gt = (CXInteger)hi;
+	CXDouble* values = doubleArray->data;
+	while(i <= gt){
+		if(CXDoubleArrayLess(values[i], pivot, order)){
+			CXDoubleArraySwapWithIndices(doubleArray, indicesArray, (CXUInteger)lt, (CXUInteger)i);
+			lt++;
+			i++;
+		}else if(CXDoubleArrayLess(pivot, values[i], order)){
+			CXDoubleArraySwapWithIndices(doubleArray, indicesArray, (CXUInteger)i, (CXUInteger)gt);
+			gt--;
+		}else{
+			i++;
+		}
+	}
+	*outLt = (CXUInteger)lt;
+	*outGt = (CXUInteger)gt;
+}
+
+CX_STATIC_INLINE void CXDoubleArrayInsertionSortRangeWithIndices(CXDoubleArray* doubleArray, CXUIntegerArray* indicesArray, CXUInteger lo, CXUInteger hi, CXComparisonResult order){
+	CXDouble* values = doubleArray->data;
+	CXUInteger* indices = indicesArray->data;
+	for(CXUInteger i = lo + 1; i <= hi; i++){
+		CXDouble value = values[i];
+		CXUInteger indexValue = indices[i];
+		CXUInteger j = i;
+		while(j > lo && CXDoubleArrayLess(value, values[j - 1], order)){
+			values[j] = values[j - 1];
+			indices[j] = indices[j - 1];
+			j--;
+		}
+		values[j] = value;
+		indices[j] = indexValue;
 	}
 }
 
+CX_STATIC_INLINE void CXDoubleArraySiftDownWithIndices(CXDoubleArray* doubleArray, CXUIntegerArray* indicesArray, CXUInteger start, CXUInteger end, CXUInteger base, CXComparisonResult order){
+	CXDouble* values = doubleArray->data + base;
+	CXUInteger* indices = indicesArray->data + base;
+	CXUInteger root = start;
+	while(root * 2 + 1 <= end){
+		CXUInteger child = root * 2 + 1;
+		CXUInteger swapIndex = root;
+		if(CXDoubleArrayLess(values[swapIndex], values[child], order)){
+			swapIndex = child;
+		}
+		if(child + 1 <= end && CXDoubleArrayLess(values[swapIndex], values[child + 1], order)){
+			swapIndex = child + 1;
+		}
+		if(swapIndex == root){
+			return;
+		}
+		CXDouble tmpValue = values[root];
+		CXUInteger tmpIndex = indices[root];
+		values[root] = values[swapIndex];
+		indices[root] = indices[swapIndex];
+		values[swapIndex] = tmpValue;
+		indices[swapIndex] = tmpIndex;
+		root = swapIndex;
+	}
+}
 
-/** Simple insertion sort used for small partitions to improve cache locality. */
-/** In-place insertion sort that honours the provided comparison direction. */
-CX_INLINE void CXIntegerArrayInsertSortImplementation(CXIntegerArray* theArray, CXComparisonResult comparisonResult){
-	if(theArray->count==0)
+CX_STATIC_INLINE void CXDoubleArrayHeapSortRangeWithIndices(CXDoubleArray* doubleArray, CXUIntegerArray* indicesArray, CXUInteger lo, CXUInteger hi, CXComparisonResult order){
+	CXUInteger size = hi - lo + 1;
+	if(size < 2){
 		return;
-	CXUInteger i,count = theArray->count;
+	}
+	CXUInteger start = (size - 2) / 2;
+	while(CXTrue){
+		CXDoubleArraySiftDownWithIndices(doubleArray, indicesArray, start, size - 1, lo, order);
+		if(start == 0){
+			break;
+		}
+		start--;
+	}
+	CXUInteger end = size - 1;
+	while(end > 0){
+		CXDoubleArraySwapWithIndices(doubleArray, indicesArray, lo, lo + end);
+		end--;
+		CXDoubleArraySiftDownWithIndices(doubleArray, indicesArray, 0, end, lo, order);
+	}
+}
+
+CX_STATIC_INLINE void CXDoubleArrayIntroSortRangeWithIndices(CXDoubleArray* doubleArray, CXUIntegerArray* indicesArray, CXUInteger lo, CXUInteger hi, CXComparisonResult order, CXUInteger depthLimit){
+	while(lo < hi){
+		CXUInteger size = hi - lo + 1;
+		if(size <= CX_INTROSORT_INSERTION_THRESHOLD){
+			CXDoubleArrayInsertionSortRangeWithIndices(doubleArray, indicesArray, lo, hi, order);
+			return;
+		}
+		if(depthLimit == 0){
+			CXDoubleArrayHeapSortRangeWithIndices(doubleArray, indicesArray, lo, hi, order);
+			return;
+		}
+		depthLimit--;
+		CXUInteger mid = lo + (hi - lo) / 2;
+		CXDouble pivot = CXDoubleArrayMedianOfThree(doubleArray->data[lo], doubleArray->data[mid], doubleArray->data[hi], order);
+		CXUInteger lt = lo;
+		CXUInteger gt = hi;
+		CXDoubleArrayPartition3RangeWithIndices(doubleArray, indicesArray, lo, hi, pivot, order, &lt, &gt);
+		CXUInteger leftCount = lt > lo ? (lt - lo) : 0;
+		CXUInteger rightCount = hi > gt ? (hi - gt) : 0;
+		if(leftCount < rightCount){
+			if(leftCount > 0){
+				CXDoubleArrayIntroSortRangeWithIndices(doubleArray, indicesArray, lo, lt - 1, order, depthLimit);
+			}
+			lo = gt + 1;
+		}else{
+			if(rightCount > 0){
+				CXDoubleArrayIntroSortRangeWithIndices(doubleArray, indicesArray, gt + 1, hi, order, depthLimit);
+			}
+			if(leftCount == 0){
+				return;
+			}
+			hi = lt - 1;
+		}
+	}
+}
+
+CX_STATIC_INLINE CXBool CXDoubleArraySortWithIndices(CXDoubleArray* doubleArray, CXUIntegerArray* indicesArray, CXComparisonResult order){
+	if(doubleArray->count != indicesArray->count){
+		return CXFalse;
+	}
+	if(doubleArray->count < 2){
+		return CXTrue;
+	}
+	CXUInteger depthLimit = 2 * CXFloorLog2(doubleArray->count);
+	CXDoubleArrayIntroSortRangeWithIndices(doubleArray, indicesArray, 0, doubleArray->count - 1, order, depthLimit);
+	return CXTrue;
+}
+
+/** Sorts a double array in ascending order while reordering the parallel index array. */
+CX_INLINE CXBool CXQuickSortDoubleArrayWithIndices(CXDoubleArray doubleArray, CXUIntegerArray indicesArray){
+	return CXDoubleArraySortWithIndices(&doubleArray, &indicesArray, CXOrderedAscending);
+}
+
+CX_STATIC_INLINE void CXIntegerArraySwapWithFloat(CXIntegerArray* indicesArray, CXFloatArray* floatArray, CXUInteger left, CXUInteger right){
+	CXInteger tmpIndex = indicesArray->data[left];
+	CXFloat tmpValue = floatArray->data[left];
+	indicesArray->data[left] = indicesArray->data[right];
+	floatArray->data[left] = floatArray->data[right];
+	indicesArray->data[right] = tmpIndex;
+	floatArray->data[right] = tmpValue;
+}
+
+CX_STATIC_INLINE CXInteger CXIntegerArrayMedianOfThree(CXInteger leftValue, CXInteger middleValue, CXInteger rightValue, CXComparisonResult order){
+	if(CXIntegerArrayLess(leftValue, middleValue, order)){
+		if(CXIntegerArrayLess(middleValue, rightValue, order)){
+			return middleValue;
+		}
+		if(CXIntegerArrayLess(leftValue, rightValue, order)){
+			return rightValue;
+		}
+		return leftValue;
+	}
+	if(CXIntegerArrayLess(leftValue, rightValue, order)){
+		return leftValue;
+	}
+	if(CXIntegerArrayLess(middleValue, rightValue, order)){
+		return rightValue;
+	}
+	return middleValue;
+}
+
+CX_STATIC_INLINE void CXIntegerArrayPartition3RangeWithFloat(CXIntegerArray* indicesArray, CXFloatArray* floatArray, CXUInteger lo, CXUInteger hi, CXInteger pivot, CXComparisonResult order, CXUInteger* outLt, CXUInteger* outGt){
+	CXInteger lt = (CXInteger)lo;
+	CXInteger i = (CXInteger)lo;
+	CXInteger gt = (CXInteger)hi;
+	CXInteger* indices = indicesArray->data;
+	while(i <= gt){
+		if(CXIntegerArrayLess(indices[i], pivot, order)){
+			CXIntegerArraySwapWithFloat(indicesArray, floatArray, (CXUInteger)lt, (CXUInteger)i);
+			lt++;
+			i++;
+		}else if(CXIntegerArrayLess(pivot, indices[i], order)){
+			CXIntegerArraySwapWithFloat(indicesArray, floatArray, (CXUInteger)i, (CXUInteger)gt);
+			gt--;
+		}else{
+			i++;
+		}
+	}
+	*outLt = (CXUInteger)lt;
+	*outGt = (CXUInteger)gt;
+}
+
+CX_STATIC_INLINE void CXIntegerArrayInsertionSortRangeWithFloat(CXIntegerArray* indicesArray, CXFloatArray* floatArray, CXUInteger lo, CXUInteger hi, CXComparisonResult order){
+	CXInteger* indices = indicesArray->data;
+	CXFloat* values = floatArray->data;
+	for(CXUInteger i = lo + 1; i <= hi; i++){
+		CXInteger indexValue = indices[i];
+		CXFloat floatValue = values[i];
+		CXUInteger j = i;
+		while(j > lo && CXIntegerArrayLess(indexValue, indices[j - 1], order)){
+			indices[j] = indices[j - 1];
+			values[j] = values[j - 1];
+			j--;
+		}
+		indices[j] = indexValue;
+		values[j] = floatValue;
+	}
+}
+
+CX_STATIC_INLINE void CXIntegerArraySiftDownWithFloat(CXIntegerArray* indicesArray, CXFloatArray* floatArray, CXUInteger start, CXUInteger end, CXUInteger base, CXComparisonResult order){
+	CXInteger* indices = indicesArray->data + base;
+	CXFloat* values = floatArray->data + base;
+	CXUInteger root = start;
+	while(root * 2 + 1 <= end){
+		CXUInteger child = root * 2 + 1;
+		CXUInteger swapIndex = root;
+		if(CXIntegerArrayLess(indices[swapIndex], indices[child], order)){
+			swapIndex = child;
+		}
+		if(child + 1 <= end && CXIntegerArrayLess(indices[swapIndex], indices[child + 1], order)){
+			swapIndex = child + 1;
+		}
+		if(swapIndex == root){
+			return;
+		}
+		CXInteger tmpIndex = indices[root];
+		CXFloat tmpValue = values[root];
+		indices[root] = indices[swapIndex];
+		values[root] = values[swapIndex];
+		indices[swapIndex] = tmpIndex;
+		values[swapIndex] = tmpValue;
+		root = swapIndex;
+	}
+}
+
+CX_STATIC_INLINE void CXIntegerArrayHeapSortRangeWithFloat(CXIntegerArray* indicesArray, CXFloatArray* floatArray, CXUInteger lo, CXUInteger hi, CXComparisonResult order){
+	CXUInteger size = hi - lo + 1;
+	if(size < 2){
+		return;
+	}
+	CXUInteger start = (size - 2) / 2;
+	while(CXTrue){
+		CXIntegerArraySiftDownWithFloat(indicesArray, floatArray, start, size - 1, lo, order);
+		if(start == 0){
+			break;
+		}
+		start--;
+	}
+	CXUInteger end = size - 1;
+	while(end > 0){
+		CXIntegerArraySwapWithFloat(indicesArray, floatArray, lo, lo + end);
+		end--;
+		CXIntegerArraySiftDownWithFloat(indicesArray, floatArray, 0, end, lo, order);
+	}
+}
+
+CX_STATIC_INLINE void CXIntegerArrayIntroSortRangeWithFloat(CXIntegerArray* indicesArray, CXFloatArray* floatArray, CXUInteger lo, CXUInteger hi, CXComparisonResult order, CXUInteger depthLimit){
+	while(lo < hi){
+		CXUInteger size = hi - lo + 1;
+		if(size <= CX_INTROSORT_INSERTION_THRESHOLD){
+			CXIntegerArrayInsertionSortRangeWithFloat(indicesArray, floatArray, lo, hi, order);
+			return;
+		}
+		if(depthLimit == 0){
+			CXIntegerArrayHeapSortRangeWithFloat(indicesArray, floatArray, lo, hi, order);
+			return;
+		}
+		depthLimit--;
+		CXUInteger mid = lo + (hi - lo) / 2;
+		CXInteger pivot = CXIntegerArrayMedianOfThree(indicesArray->data[lo], indicesArray->data[mid], indicesArray->data[hi], order);
+		CXUInteger lt = lo;
+		CXUInteger gt = hi;
+		CXIntegerArrayPartition3RangeWithFloat(indicesArray, floatArray, lo, hi, pivot, order, &lt, &gt);
+		CXUInteger leftCount = lt > lo ? (lt - lo) : 0;
+		CXUInteger rightCount = hi > gt ? (hi - gt) : 0;
+		if(leftCount < rightCount){
+			if(leftCount > 0){
+				CXIntegerArrayIntroSortRangeWithFloat(indicesArray, floatArray, lo, lt - 1, order, depthLimit);
+			}
+			lo = gt + 1;
+		}else{
+			if(rightCount > 0){
+				CXIntegerArrayIntroSortRangeWithFloat(indicesArray, floatArray, gt + 1, hi, order, depthLimit);
+			}
+			if(leftCount == 0){
+				return;
+			}
+			hi = lt - 1;
+		}
+	}
+}
+
+CX_STATIC_INLINE CXBool CXIntegerArraySortWithFloat(CXIntegerArray* indicesArray, CXFloatArray* floatArray, CXComparisonResult order){
+	if(indicesArray->count != floatArray->count){
+		return CXFalse;
+	}
+	if(indicesArray->count < 2){
+		return CXTrue;
+	}
+	CXUInteger depthLimit = 2 * CXFloorLog2(indicesArray->count);
+	CXIntegerArrayIntroSortRangeWithFloat(indicesArray, floatArray, 0, indicesArray->count - 1, order, depthLimit);
+	return CXTrue;
+}
+
+/** Sorts an index array while permuting a parallel float array accordingly. */
+CX_INLINE CXBool CXQuickSortIndicesArrayWithFloat(CXIntegerArray indicesArray, CXFloatArray floatArray){
+	return CXIntegerArraySortWithFloat(&indicesArray, &floatArray, CXOrderedAscending);
+}
+
+CX_STATIC_INLINE void CXIntegerArraySwapWithDouble(CXIntegerArray* indicesArray, CXDoubleArray* doubleArray, CXUInteger left, CXUInteger right){
+	CXInteger tmpIndex = indicesArray->data[left];
+	CXDouble tmpValue = doubleArray->data[left];
+	indicesArray->data[left] = indicesArray->data[right];
+	doubleArray->data[left] = doubleArray->data[right];
+	indicesArray->data[right] = tmpIndex;
+	doubleArray->data[right] = tmpValue;
+}
+
+CX_STATIC_INLINE void CXIntegerArrayPartition3RangeWithDouble(CXIntegerArray* indicesArray, CXDoubleArray* doubleArray, CXUInteger lo, CXUInteger hi, CXInteger pivot, CXComparisonResult order, CXUInteger* outLt, CXUInteger* outGt){
+	CXInteger lt = (CXInteger)lo;
+	CXInteger i = (CXInteger)lo;
+	CXInteger gt = (CXInteger)hi;
+	CXInteger* indices = indicesArray->data;
+	while(i <= gt){
+		if(CXIntegerArrayLess(indices[i], pivot, order)){
+			CXIntegerArraySwapWithDouble(indicesArray, doubleArray, (CXUInteger)lt, (CXUInteger)i);
+			lt++;
+			i++;
+		}else if(CXIntegerArrayLess(pivot, indices[i], order)){
+			CXIntegerArraySwapWithDouble(indicesArray, doubleArray, (CXUInteger)i, (CXUInteger)gt);
+			gt--;
+		}else{
+			i++;
+		}
+	}
+	*outLt = (CXUInteger)lt;
+	*outGt = (CXUInteger)gt;
+}
+
+CX_STATIC_INLINE void CXIntegerArrayInsertionSortRangeWithDouble(CXIntegerArray* indicesArray, CXDoubleArray* doubleArray, CXUInteger lo, CXUInteger hi, CXComparisonResult order){
+	CXInteger* indices = indicesArray->data;
+	CXDouble* values = doubleArray->data;
+	for(CXUInteger i = lo + 1; i <= hi; i++){
+		CXInteger indexValue = indices[i];
+		CXDouble doubleValue = values[i];
+		CXUInteger j = i;
+		while(j > lo && CXIntegerArrayLess(indexValue, indices[j - 1], order)){
+			indices[j] = indices[j - 1];
+			values[j] = values[j - 1];
+			j--;
+		}
+		indices[j] = indexValue;
+		values[j] = doubleValue;
+	}
+}
+
+CX_STATIC_INLINE void CXIntegerArraySiftDownWithDouble(CXIntegerArray* indicesArray, CXDoubleArray* doubleArray, CXUInteger start, CXUInteger end, CXUInteger base, CXComparisonResult order){
+	CXInteger* indices = indicesArray->data + base;
+	CXDouble* values = doubleArray->data + base;
+	CXUInteger root = start;
+	while(root * 2 + 1 <= end){
+		CXUInteger child = root * 2 + 1;
+		CXUInteger swapIndex = root;
+		if(CXIntegerArrayLess(indices[swapIndex], indices[child], order)){
+			swapIndex = child;
+		}
+		if(child + 1 <= end && CXIntegerArrayLess(indices[swapIndex], indices[child + 1], order)){
+			swapIndex = child + 1;
+		}
+		if(swapIndex == root){
+			return;
+		}
+		CXInteger tmpIndex = indices[root];
+		CXDouble tmpValue = values[root];
+		indices[root] = indices[swapIndex];
+		values[root] = values[swapIndex];
+		indices[swapIndex] = tmpIndex;
+		values[swapIndex] = tmpValue;
+		root = swapIndex;
+	}
+}
+
+CX_STATIC_INLINE void CXIntegerArrayHeapSortRangeWithDouble(CXIntegerArray* indicesArray, CXDoubleArray* doubleArray, CXUInteger lo, CXUInteger hi, CXComparisonResult order){
+	CXUInteger size = hi - lo + 1;
+	if(size < 2){
+		return;
+	}
+	CXUInteger start = (size - 2) / 2;
+	while(CXTrue){
+		CXIntegerArraySiftDownWithDouble(indicesArray, doubleArray, start, size - 1, lo, order);
+		if(start == 0){
+			break;
+		}
+		start--;
+	}
+	CXUInteger end = size - 1;
+	while(end > 0){
+		CXIntegerArraySwapWithDouble(indicesArray, doubleArray, lo, lo + end);
+		end--;
+		CXIntegerArraySiftDownWithDouble(indicesArray, doubleArray, 0, end, lo, order);
+	}
+}
+
+CX_STATIC_INLINE void CXIntegerArrayIntroSortRangeWithDouble(CXIntegerArray* indicesArray, CXDoubleArray* doubleArray, CXUInteger lo, CXUInteger hi, CXComparisonResult order, CXUInteger depthLimit){
+	while(lo < hi){
+		CXUInteger size = hi - lo + 1;
+		if(size <= CX_INTROSORT_INSERTION_THRESHOLD){
+			CXIntegerArrayInsertionSortRangeWithDouble(indicesArray, doubleArray, lo, hi, order);
+			return;
+		}
+		if(depthLimit == 0){
+			CXIntegerArrayHeapSortRangeWithDouble(indicesArray, doubleArray, lo, hi, order);
+			return;
+		}
+		depthLimit--;
+		CXUInteger mid = lo + (hi - lo) / 2;
+		CXInteger pivot = CXIntegerArrayMedianOfThree(indicesArray->data[lo], indicesArray->data[mid], indicesArray->data[hi], order);
+		CXUInteger lt = lo;
+		CXUInteger gt = hi;
+		CXIntegerArrayPartition3RangeWithDouble(indicesArray, doubleArray, lo, hi, pivot, order, &lt, &gt);
+		CXUInteger leftCount = lt > lo ? (lt - lo) : 0;
+		CXUInteger rightCount = hi > gt ? (hi - gt) : 0;
+		if(leftCount < rightCount){
+			if(leftCount > 0){
+				CXIntegerArrayIntroSortRangeWithDouble(indicesArray, doubleArray, lo, lt - 1, order, depthLimit);
+			}
+			lo = gt + 1;
+		}else{
+			if(rightCount > 0){
+				CXIntegerArrayIntroSortRangeWithDouble(indicesArray, doubleArray, gt + 1, hi, order, depthLimit);
+			}
+			if(leftCount == 0){
+				return;
+			}
+			hi = lt - 1;
+		}
+	}
+}
+
+CX_STATIC_INLINE CXBool CXIntegerArraySortWithDouble(CXIntegerArray* indicesArray, CXDoubleArray* doubleArray, CXComparisonResult order){
+	if(indicesArray->count != doubleArray->count){
+		return CXFalse;
+	}
+	if(indicesArray->count < 2){
+		return CXTrue;
+	}
+	CXUInteger depthLimit = 2 * CXFloorLog2(indicesArray->count);
+	CXIntegerArrayIntroSortRangeWithDouble(indicesArray, doubleArray, 0, indicesArray->count - 1, order, depthLimit);
+	return CXTrue;
+}
+
+/** Sorts an index array while permuting a parallel double array accordingly. */
+CX_INLINE CXBool CXQuickSortIndicesArrayWithDouble(CXIntegerArray indicesArray, CXDoubleArray doubleArray){
+	return CXIntegerArraySortWithDouble(&indicesArray, &doubleArray, CXOrderedAscending);
+}
+
+/** Sorts an integer array in ascending order using introsort. */
+CX_INLINE CXBool CXQuickSortIndicesArray(CXIntegerArray indicesArray){
+	CXIntegerArraySort(&indicesArray, CXOrderedAscending);
+	return CXTrue;
+}
+
+/** Sorts an unsigned integer array in ascending order using introsort. */
+CX_INLINE CXBool CXQuickSortUIntegerArray(CXUIntegerArray indicesArray){
+	CXUIntegerArraySort(&indicesArray, CXOrderedAscending);
+	return CXTrue;
+}
+
+CX_STATIC_INLINE CXUInteger CXUIntegerArrayMedianOfThree(CXUInteger leftValue, CXUInteger middleValue, CXUInteger rightValue, CXComparisonResult order){
+	if(CXUIntegerArrayLess(leftValue, middleValue, order)){
+		if(CXUIntegerArrayLess(middleValue, rightValue, order)){
+			return middleValue;
+		}
+		if(CXUIntegerArrayLess(leftValue, rightValue, order)){
+			return rightValue;
+		}
+		return leftValue;
+	}
+	if(CXUIntegerArrayLess(leftValue, rightValue, order)){
+		return leftValue;
+	}
+	if(CXUIntegerArrayLess(middleValue, rightValue, order)){
+		return rightValue;
+	}
+	return middleValue;
+}
+
+CX_STATIC_INLINE void CXIntegerArrayPartition3Range(CXIntegerArray* theArray, CXUInteger lo, CXUInteger hi, CXInteger pivot, CXComparisonResult order, CXUInteger* outLt, CXUInteger* outGt){
+	CXInteger lt = (CXInteger)lo;
+	CXInteger i = (CXInteger)lo;
+	CXInteger gt = (CXInteger)hi;
 	CXInteger* arrayData = theArray->data;
-	for(i = 1; i < count; i++){
+	while(i <= gt){
+		if(CXIntegerArrayLess(arrayData[i], pivot, order)){
+			CXInteger tmp = arrayData[lt];
+			arrayData[lt] = arrayData[i];
+			arrayData[i] = tmp;
+			lt++;
+			i++;
+		}else if(CXIntegerArrayLess(pivot, arrayData[i], order)){
+			CXInteger tmp = arrayData[gt];
+			arrayData[gt] = arrayData[i];
+			arrayData[i] = tmp;
+			gt--;
+		}else{
+			i++;
+		}
+	}
+	*outLt = (CXUInteger)lt;
+	*outGt = (CXUInteger)gt;
+}
+
+CX_STATIC_INLINE void CXIntegerArrayInsertionSortRange(CXIntegerArray* theArray, CXUInteger lo, CXUInteger hi, CXComparisonResult order){
+	CXInteger* arrayData = theArray->data;
+	for(CXUInteger i = lo + 1; i <= hi; i++){
 		CXInteger value = arrayData[i];
 		CXUInteger j = i;
-		while(j > 0 && CX_ARRAY_COMPARE_FUNCTION(value,arrayData[j-1])==comparisonResult){
-			arrayData[j] = arrayData[j-1];
+		while(j > lo && CXIntegerArrayLess(value, arrayData[j - 1], order)){
+			arrayData[j] = arrayData[j - 1];
 			j--;
 		}
-		theArray->data[j] = value;
+		arrayData[j] = value;
 	}
 }
 
-/** Variant of insertion sort that orders values in descending order. */
-CX_INLINE void CXIntegerArrayInsertSortImplementation2(CXIntegerArray* theArray){
-    //  Local Declaration
-    CXInteger temp, current, walker;
-	CXUInteger count = theArray->count;
-	CXInteger* arrayData = theArray->data;
-	
-    //  Statement
-    for(current = 1; current < count; current++)
-    {
-        temp = arrayData[current];
-        walker = current - 1;
-        while(walker >= 0 && temp > arrayData[walker])
-        {
-            arrayData[walker + 1] = arrayData[walker];
-            walker--;
-        }
-        arrayData[walker + 1] = temp;
-    }
-	
-    return;
-}
-
-/** Quicksort implementation that leverages median-of-three pivot selection. */
-CX_STATIC_INLINE void CXIntegerArrayQuickSort3Implementation(CXIntegerArray* theArray, CXUInteger f, CXUInteger l, CXComparisonResult comparisonResult){
-	if(theArray->count==0)
-		return;
-	CXInteger* arrayData = theArray->data;
-	while(f + 16 < l){
-		CXInteger v1 = arrayData[f], v2 = arrayData[l], v3 = arrayData[(f+l)/2];
-        CXInteger median;
-		if(CX_ARRAY_COMPARE_FUNCTION(v1,v2)==comparisonResult){
-			if(CX_ARRAY_COMPARE_FUNCTION(v3,v1)==comparisonResult){
-				median = v1;
-			}else{
-				if(CX_ARRAY_COMPARE_FUNCTION(v2,v3)==comparisonResult){
-					median=v2;
-				}else{
-					median=v3;
-				}
-			}
-		}else{
-			if(CX_ARRAY_COMPARE_FUNCTION(v3,v2)==comparisonResult){
-				median = v2;
-			}else{
-				if(CX_ARRAY_COMPARE_FUNCTION(v1,v3)==comparisonResult){
-					median=v1;
-				}else{
-					median=v3;
-				}
-			}
+CX_STATIC_INLINE void CXIntegerArraySiftDown(CXIntegerArray* theArray, CXUInteger start, CXUInteger end, CXUInteger base, CXComparisonResult order){
+	CXInteger* arrayData = theArray->data + base;
+	CXUInteger root = start;
+	while(root * 2 + 1 <= end){
+		CXUInteger child = root * 2 + 1;
+		CXUInteger swapIndex = root;
+		if(CXIntegerArrayLess(arrayData[swapIndex], arrayData[child], order)){
+			swapIndex = child;
 		}
-		CXInteger m = CXIntegerArrayPartition(theArray, f, l, median,comparisonResult);
-		CXIntegerArrayQuickSort3Implementation(theArray, f, m,comparisonResult);
-		f = m+1;
+		if(child + 1 <= end && CXIntegerArrayLess(arrayData[swapIndex], arrayData[child + 1], order)){
+			swapIndex = child + 1;
+		}
+		if(swapIndex == root){
+			return;
+		}
+		CXInteger tmp = arrayData[root];
+		arrayData[root] = arrayData[swapIndex];
+		arrayData[swapIndex] = tmp;
+		root = swapIndex;
 	}
 }
 
-
-/** Public entry point that sorts the integer array in ascending order. */
-CX_INLINE void CXIntegerArrayQuickSort3(CXIntegerArray* theArray){
-	if(theArray->count==0)
+CX_STATIC_INLINE void CXIntegerArrayHeapSortRange(CXIntegerArray* theArray, CXUInteger lo, CXUInteger hi, CXComparisonResult order){
+	CXUInteger size = hi - lo + 1;
+	if(size < 2){
 		return;
-	CXIntegerArrayQuickSort3Implementation(theArray, 0, theArray->count-1,CXOrderedAscending);
-	CXIntegerArrayInsertSortImplementation(theArray,CXOrderedAscending);
-}
-
-
-
-
-
-
-
-
-
-
-
-/** Internal helper that partitions a float array segment around `pivot`. */
-CX_INLINE CXUInteger CXFloatArrayPartition(CXFloatArray* theArray, CXUInteger f, CXUInteger l, CXFloat pivot, CXComparisonResult comparisonResult){
-	CXUInteger i = f-1, j = l+1;
-	CXFloat* arrayData = theArray->data;
+	}
+	CXUInteger start = (size - 2) / 2;
 	while(CXTrue){
-		do{
-			j--;
-		}while(CX_ARRAY_COMPARE_FUNCTION(pivot,arrayData[j])==comparisonResult);
-		
-		do{
-			i++;
-		}while(CX_ARRAY_COMPARE_FUNCTION(arrayData[i],pivot)==comparisonResult);
-		
-		if(i<j){
-			CXFloat tmp = arrayData[i];
-			arrayData[i] = arrayData[j];
-			arrayData[j] = tmp;
+		CXIntegerArraySiftDown(theArray, start, size - 1, lo, order);
+		if(start == 0){
+			break;
+		}
+		start--;
+	}
+	CXUInteger end = size - 1;
+	while(end > 0){
+		CXInteger tmp = theArray->data[lo];
+		theArray->data[lo] = theArray->data[lo + end];
+		theArray->data[lo + end] = tmp;
+		end--;
+		CXIntegerArraySiftDown(theArray, 0, end, lo, order);
+	}
+}
+
+CX_STATIC_INLINE void CXIntegerArrayIntroSortRange(CXIntegerArray* theArray, CXUInteger lo, CXUInteger hi, CXComparisonResult order, CXUInteger depthLimit){
+	while(lo < hi){
+		CXUInteger size = hi - lo + 1;
+		if(size <= CX_INTROSORT_INSERTION_THRESHOLD){
+			CXIntegerArrayInsertionSortRange(theArray, lo, hi, order);
+			return;
+		}
+		if(depthLimit == 0){
+			CXIntegerArrayHeapSortRange(theArray, lo, hi, order);
+			return;
+		}
+		depthLimit--;
+		CXUInteger mid = lo + (hi - lo) / 2;
+		CXInteger pivot = CXIntegerArrayMedianOfThree(theArray->data[lo], theArray->data[mid], theArray->data[hi], order);
+		CXUInteger lt = lo;
+		CXUInteger gt = hi;
+		CXIntegerArrayPartition3Range(theArray, lo, hi, pivot, order, &lt, &gt);
+		CXUInteger leftCount = lt > lo ? (lt - lo) : 0;
+		CXUInteger rightCount = hi > gt ? (hi - gt) : 0;
+		if(leftCount < rightCount){
+			if(leftCount > 0){
+				CXIntegerArrayIntroSortRange(theArray, lo, lt - 1, order, depthLimit);
+			}
+			lo = gt + 1;
 		}else{
-			return j;
+			if(rightCount > 0){
+				CXIntegerArrayIntroSortRange(theArray, gt + 1, hi, order, depthLimit);
+			}
+			if(leftCount == 0){
+				return;
+			}
+			hi = lt - 1;
 		}
 	}
 }
 
-/** Recursive quicksort implementation used for float arrays. */
-CX_INLINE void CXFloatArrayQuickSortImplementation(CXFloatArray* theArray, CXUInteger f, CXUInteger l, CXComparisonResult comparisonResult){
-	while(f < l){
-		CXUInteger m = CXFloatArrayPartition(theArray, f, l, theArray->data[f],comparisonResult);
-		CXFloatArrayQuickSortImplementation(theArray, f, m,comparisonResult);
-		f = m+1;
-	}
-}
-
-
-/** In-place insertion sort for float arrays that honours the comparison flag. */
-CX_INLINE void CXFloatArrayInsertSortImplementation(CXFloatArray* theArray, CXComparisonResult comparisonResult){
-	if(theArray->count==0)
+CX_INLINE void CXIntegerArraySort(CXIntegerArray* theArray, CXComparisonResult order){
+	if(theArray->count < 2){
 		return;
-	CXUInteger i,count = theArray->count;
-	CXFloat* arrayData = theArray->data;
-	for(i = 1; i < count; i++){
-		CXFloat value = arrayData[i];
-		CXUInteger j = i;
-		while(j > 0 && CX_ARRAY_COMPARE_FUNCTION(value,arrayData[j-1])==comparisonResult){
-			arrayData[j] = arrayData[j-1];
-			j--;
-		}
-		theArray->data[j] = value;
 	}
+	CXUInteger depthLimit = 2 * CXFloorLog2(theArray->count);
+	CXIntegerArrayIntroSortRange(theArray, 0, theArray->count - 1, order, depthLimit);
 }
 
-/** Variant of insertion sort that orders float values in descending order. */
-CX_INLINE void CXFloatArrayInsertSortImplementation2(CXFloatArray* theArray){
-	//  Local Declaration
-	CXFloat temp;
-	CXInteger current, walker;
+CX_INLINE void CXIntegerArraySortAscending(CXIntegerArray* theArray){
+	CXIntegerArraySort(theArray, CXOrderedAscending);
+}
+
+CX_INLINE void CXIntegerArraySortDescending(CXIntegerArray* theArray){
+	CXIntegerArraySort(theArray, CXOrderedDescending);
+}
+
+CX_INLINE void CXIntegerArrayQuickSortImplementation(CXIntegerArray* theArray, CXUInteger f, CXUInteger l, CXComparisonResult comparisonResult){
+	if(l < f){
+		return;
+	}
+	CXUInteger size = l - f + 1;
+	if(size < 2){
+		return;
+	}
+	CXUInteger depthLimit = 2 * CXFloorLog2(size);
+	CXIntegerArrayIntroSortRange(theArray, f, l, comparisonResult, depthLimit);
+}
+
+CX_INLINE void CXIntegerArrayInsertSortImplementation(CXIntegerArray* theArray, CXComparisonResult comparisonResult){
+	if(theArray->count < 2){
+		return;
+	}
+	CXIntegerArrayInsertionSortRange(theArray, 0, theArray->count - 1, comparisonResult);
+}
+
+CX_INLINE void CXIntegerArrayInsertSortImplementation2(CXIntegerArray* theArray){
+	CXInteger temp, current, walker;
 	CXUInteger count = theArray->count;
-	CXFloat* arrayData = theArray->data;
-	
-	//  Statement
-	for(current = 1; current < count; current++)
-	{
+	CXInteger* arrayData = theArray->data;
+
+	for(current = 1; current < (CXInteger)count; current++){
 		temp = arrayData[current];
 		walker = current - 1;
-		while(walker >= 0 && temp > arrayData[walker])
-		{
+		while(walker >= 0 && temp > arrayData[walker]){
 			arrayData[walker + 1] = arrayData[walker];
 			walker--;
 		}
 		arrayData[walker + 1] = temp;
 	}
-	
+
 	return;
 }
 
-/** Quicksort implementation for float arrays leveraging median-of-three pivoting. */
-CX_STATIC_INLINE void CXFloatArrayQuickSort3Implementation(CXFloatArray* theArray, CXUInteger f, CXUInteger l, CXComparisonResult comparisonResult){
-	if(theArray->count==0)
-		return;
-	CXFloat* arrayData = theArray->data;
-	while(f + 16 < l){
-		CXFloat v1 = arrayData[f], v2 = arrayData[l], v3 = arrayData[(f+l)/2];
-		CXFloat median;
-		if(CX_ARRAY_COMPARE_FUNCTION(v1,v2)==comparisonResult){
-			if(CX_ARRAY_COMPARE_FUNCTION(v3,v1)==comparisonResult){
-				median = v1;
-			}else{
-				if(CX_ARRAY_COMPARE_FUNCTION(v2,v3)==comparisonResult){
-					median=v2;
-				}else{
-					median=v3;
-				}
-			}
-		}else{
-			if(CX_ARRAY_COMPARE_FUNCTION(v3,v2)==comparisonResult){
-				median = v2;
-			}else{
-				if(CX_ARRAY_COMPARE_FUNCTION(v1,v3)==comparisonResult){
-					median=v1;
-				}else{
-					median=v3;
-				}
-			}
-		}
-		CXFloat m = CXFloatArrayPartition(theArray, f, l, median,comparisonResult);
-		CXFloatArrayQuickSort3Implementation(theArray, f, m,comparisonResult);
-		f = m+1;
-	}
+CX_STATIC_INLINE void CXIntegerArrayQuickSort3Implementation(CXIntegerArray* theArray, CXUInteger f, CXUInteger l, CXComparisonResult comparisonResult){
+	CXIntegerArrayQuickSortImplementation(theArray, f, l, comparisonResult);
 }
 
-
-/** Public entry point that sorts the float array in the requested order. */
-CX_INLINE void CXFloatArrayQuickSort3(CXFloatArray* theArray, CXComparisonResult order){
-	if(theArray->count==0)
-		return;
-	CXFloatArrayQuickSort3Implementation(theArray, 0, theArray->count-1,order);
-	CXFloatArrayInsertSortImplementation(theArray,order);
+CX_INLINE void CXIntegerArrayQuickSort3(CXIntegerArray* theArray){
+	CXIntegerArraySort(theArray, CXOrderedAscending);
 }
 
-
-
-
-
-
-
-
-
-
-
-/** Internal helper that partitions a double array segment around `pivot`. */
-CX_INLINE CXUInteger CXDoubleArrayPartition(CXDoubleArray* theArray, CXUInteger f, CXUInteger l, CXDouble pivot, CXComparisonResult comparisonResult){
-	CXUInteger i = f-1, j = l+1;
-	CXDouble* arrayData = theArray->data;
-	while(CXTrue){
-		do{
-			j--;
-		}while(CX_ARRAY_COMPARE_FUNCTION(pivot,arrayData[j])==comparisonResult);
-
-		do{
+CX_STATIC_INLINE void CXUIntegerArrayPartition3Range(CXUIntegerArray* theArray, CXUInteger lo, CXUInteger hi, CXUInteger pivot, CXComparisonResult order, CXUInteger* outLt, CXUInteger* outGt){
+	CXInteger lt = (CXInteger)lo;
+	CXInteger i = (CXInteger)lo;
+	CXInteger gt = (CXInteger)hi;
+	CXUInteger* arrayData = theArray->data;
+	while(i <= gt){
+		if(CXUIntegerArrayLess(arrayData[i], pivot, order)){
+			CXUInteger tmp = arrayData[lt];
+			arrayData[lt] = arrayData[i];
+			arrayData[i] = tmp;
+			lt++;
 			i++;
-		}while(CX_ARRAY_COMPARE_FUNCTION(arrayData[i],pivot)==comparisonResult);
-
-		if(i<j){
-			CXDouble tmp = arrayData[i];
-			arrayData[i] = arrayData[j];
-			arrayData[j] = tmp;
+		}else if(CXUIntegerArrayLess(pivot, arrayData[i], order)){
+			CXUInteger tmp = arrayData[gt];
+			arrayData[gt] = arrayData[i];
+			arrayData[i] = tmp;
+			gt--;
 		}else{
-			return j;
+			i++;
+		}
+	}
+	*outLt = (CXUInteger)lt;
+	*outGt = (CXUInteger)gt;
+}
+
+CX_STATIC_INLINE void CXUIntegerArrayInsertionSortRange(CXUIntegerArray* theArray, CXUInteger lo, CXUInteger hi, CXComparisonResult order){
+	CXUInteger* arrayData = theArray->data;
+	for(CXUInteger i = lo + 1; i <= hi; i++){
+		CXUInteger value = arrayData[i];
+		CXUInteger j = i;
+		while(j > lo && CXUIntegerArrayLess(value, arrayData[j - 1], order)){
+			arrayData[j] = arrayData[j - 1];
+			j--;
+		}
+		arrayData[j] = value;
+	}
+}
+
+CX_STATIC_INLINE void CXUIntegerArraySiftDown(CXUIntegerArray* theArray, CXUInteger start, CXUInteger end, CXUInteger base, CXComparisonResult order){
+	CXUInteger* arrayData = theArray->data + base;
+	CXUInteger root = start;
+	while(root * 2 + 1 <= end){
+		CXUInteger child = root * 2 + 1;
+		CXUInteger swapIndex = root;
+		if(CXUIntegerArrayLess(arrayData[swapIndex], arrayData[child], order)){
+			swapIndex = child;
+		}
+		if(child + 1 <= end && CXUIntegerArrayLess(arrayData[swapIndex], arrayData[child + 1], order)){
+			swapIndex = child + 1;
+		}
+		if(swapIndex == root){
+			return;
+		}
+		CXUInteger tmp = arrayData[root];
+		arrayData[root] = arrayData[swapIndex];
+		arrayData[swapIndex] = tmp;
+		root = swapIndex;
+	}
+}
+
+CX_STATIC_INLINE void CXUIntegerArrayHeapSortRange(CXUIntegerArray* theArray, CXUInteger lo, CXUInteger hi, CXComparisonResult order){
+	CXUInteger size = hi - lo + 1;
+	if(size < 2){
+		return;
+	}
+	CXUInteger start = (size - 2) / 2;
+	while(CXTrue){
+		CXUIntegerArraySiftDown(theArray, start, size - 1, lo, order);
+		if(start == 0){
+			break;
+		}
+		start--;
+	}
+	CXUInteger end = size - 1;
+	while(end > 0){
+		CXUInteger tmp = theArray->data[lo];
+		theArray->data[lo] = theArray->data[lo + end];
+		theArray->data[lo + end] = tmp;
+		end--;
+		CXUIntegerArraySiftDown(theArray, 0, end, lo, order);
+	}
+}
+
+CX_STATIC_INLINE void CXUIntegerArrayIntroSortRange(CXUIntegerArray* theArray, CXUInteger lo, CXUInteger hi, CXComparisonResult order, CXUInteger depthLimit){
+	while(lo < hi){
+		CXUInteger size = hi - lo + 1;
+		if(size <= CX_INTROSORT_INSERTION_THRESHOLD){
+			CXUIntegerArrayInsertionSortRange(theArray, lo, hi, order);
+			return;
+		}
+		if(depthLimit == 0){
+			CXUIntegerArrayHeapSortRange(theArray, lo, hi, order);
+			return;
+		}
+		depthLimit--;
+		CXUInteger mid = lo + (hi - lo) / 2;
+		CXUInteger pivot = CXUIntegerArrayMedianOfThree(theArray->data[lo], theArray->data[mid], theArray->data[hi], order);
+		CXUInteger lt = lo;
+		CXUInteger gt = hi;
+		CXUIntegerArrayPartition3Range(theArray, lo, hi, pivot, order, &lt, &gt);
+		CXUInteger leftCount = lt > lo ? (lt - lo) : 0;
+		CXUInteger rightCount = hi > gt ? (hi - gt) : 0;
+		if(leftCount < rightCount){
+			if(leftCount > 0){
+				CXUIntegerArrayIntroSortRange(theArray, lo, lt - 1, order, depthLimit);
+			}
+			lo = gt + 1;
+		}else{
+			if(rightCount > 0){
+				CXUIntegerArrayIntroSortRange(theArray, gt + 1, hi, order, depthLimit);
+			}
+			if(leftCount == 0){
+				return;
+			}
+			hi = lt - 1;
 		}
 	}
 }
 
-/** Recursive quicksort implementation used for double arrays. */
-CX_INLINE void CXDoubleArrayQuickSortImplementation(CXDoubleArray* theArray, CXUInteger f, CXUInteger l, CXComparisonResult comparisonResult){
-	while(f < l){
-		CXUInteger m = CXDoubleArrayPartition(theArray, f, l, theArray->data[f],comparisonResult);
-		CXDoubleArrayQuickSortImplementation(theArray, f, m,comparisonResult);
-		f = m+1;
+CX_INLINE void CXUIntegerArraySort(CXUIntegerArray* theArray, CXComparisonResult order){
+	if(theArray->count < 2){
+		return;
+	}
+	CXUInteger depthLimit = 2 * CXFloorLog2(theArray->count);
+	CXUIntegerArrayIntroSortRange(theArray, 0, theArray->count - 1, order, depthLimit);
+}
+
+CX_INLINE void CXUIntegerArraySortAscending(CXUIntegerArray* theArray){
+	CXUIntegerArraySort(theArray, CXOrderedAscending);
+}
+
+CX_INLINE void CXUIntegerArraySortDescending(CXUIntegerArray* theArray){
+	CXUIntegerArraySort(theArray, CXOrderedDescending);
+}
+
+CX_STATIC_INLINE void CXFloatArrayPartition3Range(CXFloatArray* theArray, CXUInteger lo, CXUInteger hi, CXFloat pivot, CXComparisonResult order, CXUInteger* outLt, CXUInteger* outGt){
+	CXInteger lt = (CXInteger)lo;
+	CXInteger i = (CXInteger)lo;
+	CXInteger gt = (CXInteger)hi;
+	CXFloat* arrayData = theArray->data;
+	while(i <= gt){
+		if(CXFloatArrayLess(arrayData[i], pivot, order)){
+			CXFloat tmp = arrayData[lt];
+			arrayData[lt] = arrayData[i];
+			arrayData[i] = tmp;
+			lt++;
+			i++;
+		}else if(CXFloatArrayLess(pivot, arrayData[i], order)){
+			CXFloat tmp = arrayData[gt];
+			arrayData[gt] = arrayData[i];
+			arrayData[i] = tmp;
+			gt--;
+		}else{
+			i++;
+		}
+	}
+	*outLt = (CXUInteger)lt;
+	*outGt = (CXUInteger)gt;
+}
+
+CX_STATIC_INLINE void CXFloatArrayInsertionSortRange(CXFloatArray* theArray, CXUInteger lo, CXUInteger hi, CXComparisonResult order){
+	CXFloat* arrayData = theArray->data;
+	for(CXUInteger i = lo + 1; i <= hi; i++){
+		CXFloat value = arrayData[i];
+		CXUInteger j = i;
+		while(j > lo && CXFloatArrayLess(value, arrayData[j - 1], order)){
+			arrayData[j] = arrayData[j - 1];
+			j--;
+		}
+		arrayData[j] = value;
 	}
 }
 
+CX_STATIC_INLINE void CXFloatArraySiftDown(CXFloatArray* theArray, CXUInteger start, CXUInteger end, CXUInteger base, CXComparisonResult order){
+	CXFloat* arrayData = theArray->data + base;
+	CXUInteger root = start;
+	while(root * 2 + 1 <= end){
+		CXUInteger child = root * 2 + 1;
+		CXUInteger swapIndex = root;
+		if(CXFloatArrayLess(arrayData[swapIndex], arrayData[child], order)){
+			swapIndex = child;
+		}
+		if(child + 1 <= end && CXFloatArrayLess(arrayData[swapIndex], arrayData[child + 1], order)){
+			swapIndex = child + 1;
+		}
+		if(swapIndex == root){
+			return;
+		}
+		CXFloat tmp = arrayData[root];
+		arrayData[root] = arrayData[swapIndex];
+		arrayData[swapIndex] = tmp;
+		root = swapIndex;
+	}
+}
 
-/** In-place insertion sort for double arrays that honours the comparison flag. */
-CX_INLINE void CXDoubleArrayInsertSortImplementation(CXDoubleArray* theArray, CXComparisonResult comparisonResult){
-	if(theArray->count==0)
+CX_STATIC_INLINE void CXFloatArrayHeapSortRange(CXFloatArray* theArray, CXUInteger lo, CXUInteger hi, CXComparisonResult order){
+	CXUInteger size = hi - lo + 1;
+	if(size < 2){
 		return;
-	CXUInteger i,count = theArray->count;
+	}
+	CXUInteger start = (size - 2) / 2;
+	while(CXTrue){
+		CXFloatArraySiftDown(theArray, start, size - 1, lo, order);
+		if(start == 0){
+			break;
+		}
+		start--;
+	}
+	CXUInteger end = size - 1;
+	while(end > 0){
+		CXFloat tmp = theArray->data[lo];
+		theArray->data[lo] = theArray->data[lo + end];
+		theArray->data[lo + end] = tmp;
+		end--;
+		CXFloatArraySiftDown(theArray, 0, end, lo, order);
+	}
+}
+
+CX_STATIC_INLINE void CXFloatArrayIntroSortRange(CXFloatArray* theArray, CXUInteger lo, CXUInteger hi, CXComparisonResult order, CXUInteger depthLimit){
+	while(lo < hi){
+		CXUInteger size = hi - lo + 1;
+		if(size <= CX_INTROSORT_INSERTION_THRESHOLD){
+			CXFloatArrayInsertionSortRange(theArray, lo, hi, order);
+			return;
+		}
+		if(depthLimit == 0){
+			CXFloatArrayHeapSortRange(theArray, lo, hi, order);
+			return;
+		}
+		depthLimit--;
+		CXUInteger mid = lo + (hi - lo) / 2;
+		CXFloat pivot = CXFloatArrayMedianOfThree(theArray->data[lo], theArray->data[mid], theArray->data[hi], order);
+		CXUInteger lt = lo;
+		CXUInteger gt = hi;
+		CXFloatArrayPartition3Range(theArray, lo, hi, pivot, order, &lt, &gt);
+		CXUInteger leftCount = lt > lo ? (lt - lo) : 0;
+		CXUInteger rightCount = hi > gt ? (hi - gt) : 0;
+		if(leftCount < rightCount){
+			if(leftCount > 0){
+				CXFloatArrayIntroSortRange(theArray, lo, lt - 1, order, depthLimit);
+			}
+			lo = gt + 1;
+		}else{
+			if(rightCount > 0){
+				CXFloatArrayIntroSortRange(theArray, gt + 1, hi, order, depthLimit);
+			}
+			if(leftCount == 0){
+				return;
+			}
+			hi = lt - 1;
+		}
+	}
+}
+
+CX_INLINE void CXFloatArraySort(CXFloatArray* theArray, CXComparisonResult order){
+	if(theArray->count < 2){
+		return;
+	}
+	CXUInteger depthLimit = 2 * CXFloorLog2(theArray->count);
+	CXFloatArrayIntroSortRange(theArray, 0, theArray->count - 1, order, depthLimit);
+}
+
+CX_INLINE void CXFloatArraySortAscending(CXFloatArray* theArray){
+	CXFloatArraySort(theArray, CXOrderedAscending);
+}
+
+CX_INLINE void CXFloatArraySortDescending(CXFloatArray* theArray){
+	CXFloatArraySort(theArray, CXOrderedDescending);
+}
+
+CX_INLINE void CXFloatArrayQuickSortImplementation(CXFloatArray* theArray, CXUInteger f, CXUInteger l, CXComparisonResult comparisonResult){
+	if(l < f){
+		return;
+	}
+	CXUInteger size = l - f + 1;
+	if(size < 2){
+		return;
+	}
+	CXUInteger depthLimit = 2 * CXFloorLog2(size);
+	CXFloatArrayIntroSortRange(theArray, f, l, comparisonResult, depthLimit);
+}
+
+CX_INLINE void CXFloatArrayInsertSortImplementation(CXFloatArray* theArray, CXComparisonResult comparisonResult){
+	if(theArray->count < 2){
+		return;
+	}
+	CXFloatArrayInsertionSortRange(theArray, 0, theArray->count - 1, comparisonResult);
+}
+
+CX_INLINE void CXFloatArrayInsertSortImplementation2(CXFloatArray* theArray){
+	CXFloat temp;
+	CXInteger current, walker;
+	CXUInteger count = theArray->count;
+	CXFloat* arrayData = theArray->data;
+
+	for(current = 1; current < (CXInteger)count; current++){
+		temp = arrayData[current];
+		walker = current - 1;
+		while(walker >= 0 && temp > arrayData[walker]){
+			arrayData[walker + 1] = arrayData[walker];
+			walker--;
+		}
+		arrayData[walker + 1] = temp;
+	}
+
+	return;
+}
+
+CX_STATIC_INLINE void CXFloatArrayQuickSort3Implementation(CXFloatArray* theArray, CXUInteger f, CXUInteger l, CXComparisonResult comparisonResult){
+	CXFloatArrayQuickSortImplementation(theArray, f, l, comparisonResult);
+}
+
+CX_INLINE void CXFloatArrayQuickSort3(CXFloatArray* theArray, CXComparisonResult order){
+	CXFloatArraySort(theArray, order);
+}
+
+CX_STATIC_INLINE void CXDoubleArrayPartition3Range(CXDoubleArray* theArray, CXUInteger lo, CXUInteger hi, CXDouble pivot, CXComparisonResult order, CXUInteger* outLt, CXUInteger* outGt){
+	CXInteger lt = (CXInteger)lo;
+	CXInteger i = (CXInteger)lo;
+	CXInteger gt = (CXInteger)hi;
 	CXDouble* arrayData = theArray->data;
-	for(i = 1; i < count; i++){
+	while(i <= gt){
+		if(CXDoubleArrayLess(arrayData[i], pivot, order)){
+			CXDouble tmp = arrayData[lt];
+			arrayData[lt] = arrayData[i];
+			arrayData[i] = tmp;
+			lt++;
+			i++;
+		}else if(CXDoubleArrayLess(pivot, arrayData[i], order)){
+			CXDouble tmp = arrayData[gt];
+			arrayData[gt] = arrayData[i];
+			arrayData[i] = tmp;
+			gt--;
+		}else{
+			i++;
+		}
+	}
+	*outLt = (CXUInteger)lt;
+	*outGt = (CXUInteger)gt;
+}
+
+CX_STATIC_INLINE void CXDoubleArrayInsertionSortRange(CXDoubleArray* theArray, CXUInteger lo, CXUInteger hi, CXComparisonResult order){
+	CXDouble* arrayData = theArray->data;
+	for(CXUInteger i = lo + 1; i <= hi; i++){
 		CXDouble value = arrayData[i];
 		CXUInteger j = i;
-		while(j > 0 && CX_ARRAY_COMPARE_FUNCTION(value,arrayData[j-1])==comparisonResult){
-			arrayData[j] = arrayData[j-1];
+		while(j > lo && CXDoubleArrayLess(value, arrayData[j - 1], order)){
+			arrayData[j] = arrayData[j - 1];
 			j--;
 		}
-		theArray->data[j] = value;
+		arrayData[j] = value;
 	}
 }
 
-/** Variant of insertion sort that orders double values in descending order. */
+CX_STATIC_INLINE void CXDoubleArraySiftDown(CXDoubleArray* theArray, CXUInteger start, CXUInteger end, CXUInteger base, CXComparisonResult order){
+	CXDouble* arrayData = theArray->data + base;
+	CXUInteger root = start;
+	while(root * 2 + 1 <= end){
+		CXUInteger child = root * 2 + 1;
+		CXUInteger swapIndex = root;
+		if(CXDoubleArrayLess(arrayData[swapIndex], arrayData[child], order)){
+			swapIndex = child;
+		}
+		if(child + 1 <= end && CXDoubleArrayLess(arrayData[swapIndex], arrayData[child + 1], order)){
+			swapIndex = child + 1;
+		}
+		if(swapIndex == root){
+			return;
+		}
+		CXDouble tmp = arrayData[root];
+		arrayData[root] = arrayData[swapIndex];
+		arrayData[swapIndex] = tmp;
+		root = swapIndex;
+	}
+}
+
+CX_STATIC_INLINE void CXDoubleArrayHeapSortRange(CXDoubleArray* theArray, CXUInteger lo, CXUInteger hi, CXComparisonResult order){
+	CXUInteger size = hi - lo + 1;
+	if(size < 2){
+		return;
+	}
+	CXUInteger start = (size - 2) / 2;
+	while(CXTrue){
+		CXDoubleArraySiftDown(theArray, start, size - 1, lo, order);
+		if(start == 0){
+			break;
+		}
+		start--;
+	}
+	CXUInteger end = size - 1;
+	while(end > 0){
+		CXDouble tmp = theArray->data[lo];
+		theArray->data[lo] = theArray->data[lo + end];
+		theArray->data[lo + end] = tmp;
+		end--;
+		CXDoubleArraySiftDown(theArray, 0, end, lo, order);
+	}
+}
+
+CX_STATIC_INLINE void CXDoubleArrayIntroSortRange(CXDoubleArray* theArray, CXUInteger lo, CXUInteger hi, CXComparisonResult order, CXUInteger depthLimit){
+	while(lo < hi){
+		CXUInteger size = hi - lo + 1;
+		if(size <= CX_INTROSORT_INSERTION_THRESHOLD){
+			CXDoubleArrayInsertionSortRange(theArray, lo, hi, order);
+			return;
+		}
+		if(depthLimit == 0){
+			CXDoubleArrayHeapSortRange(theArray, lo, hi, order);
+			return;
+		}
+		depthLimit--;
+		CXUInteger mid = lo + (hi - lo) / 2;
+		CXDouble pivot = CXDoubleArrayMedianOfThree(theArray->data[lo], theArray->data[mid], theArray->data[hi], order);
+		CXUInteger lt = lo;
+		CXUInteger gt = hi;
+		CXDoubleArrayPartition3Range(theArray, lo, hi, pivot, order, &lt, &gt);
+		CXUInteger leftCount = lt > lo ? (lt - lo) : 0;
+		CXUInteger rightCount = hi > gt ? (hi - gt) : 0;
+		if(leftCount < rightCount){
+			if(leftCount > 0){
+				CXDoubleArrayIntroSortRange(theArray, lo, lt - 1, order, depthLimit);
+			}
+			lo = gt + 1;
+		}else{
+			if(rightCount > 0){
+				CXDoubleArrayIntroSortRange(theArray, gt + 1, hi, order, depthLimit);
+			}
+			if(leftCount == 0){
+				return;
+			}
+			hi = lt - 1;
+		}
+	}
+}
+
+CX_INLINE void CXDoubleArraySort(CXDoubleArray* theArray, CXComparisonResult order){
+	if(theArray->count < 2){
+		return;
+	}
+	CXUInteger depthLimit = 2 * CXFloorLog2(theArray->count);
+	CXDoubleArrayIntroSortRange(theArray, 0, theArray->count - 1, order, depthLimit);
+}
+
+CX_INLINE void CXDoubleArraySortAscending(CXDoubleArray* theArray){
+	CXDoubleArraySort(theArray, CXOrderedAscending);
+}
+
+CX_INLINE void CXDoubleArraySortDescending(CXDoubleArray* theArray){
+	CXDoubleArraySort(theArray, CXOrderedDescending);
+}
+
+CX_INLINE void CXDoubleArrayQuickSortImplementation(CXDoubleArray* theArray, CXUInteger f, CXUInteger l, CXComparisonResult comparisonResult){
+	if(l < f){
+		return;
+	}
+	CXUInteger size = l - f + 1;
+	if(size < 2){
+		return;
+	}
+	CXUInteger depthLimit = 2 * CXFloorLog2(size);
+	CXDoubleArrayIntroSortRange(theArray, f, l, comparisonResult, depthLimit);
+}
+
+CX_INLINE void CXDoubleArrayInsertSortImplementation(CXDoubleArray* theArray, CXComparisonResult comparisonResult){
+	if(theArray->count < 2){
+		return;
+	}
+	CXDoubleArrayInsertionSortRange(theArray, 0, theArray->count - 1, comparisonResult);
+}
+
 CX_INLINE void CXDoubleArrayInsertSortImplementation2(CXDoubleArray* theArray){
-	//  Local Declaration
 	CXDouble temp;
 	CXInteger current, walker;
 	CXUInteger count = theArray->count;
 	CXDouble* arrayData = theArray->data;
 
-	//  Statement
-	for(current = 1; current < count; current++)
-	{
+	for(current = 1; current < (CXInteger)count; current++){
 		temp = arrayData[current];
 		walker = current - 1;
-		while(walker >= 0 && temp > arrayData[walker])
-		{
+		while(walker >= 0 && temp > arrayData[walker]){
 			arrayData[walker + 1] = arrayData[walker];
 			walker--;
 		}
@@ -1220,63 +1983,12 @@ CX_INLINE void CXDoubleArrayInsertSortImplementation2(CXDoubleArray* theArray){
 	return;
 }
 
-/** Quicksort implementation for double arrays leveraging median-of-three pivoting. */
 CX_STATIC_INLINE void CXDoubleArrayQuickSort3Implementation(CXDoubleArray* theArray, CXUInteger f, CXUInteger l, CXComparisonResult comparisonResult){
-	if(theArray->count==0)
-		return;
-	CXDouble* arrayData = theArray->data;
-	while(f + 16 < l){
-		CXDouble v1 = arrayData[f], v2 = arrayData[l], v3 = arrayData[(f+l)/2];
-		CXDouble median;
-		if(CX_ARRAY_COMPARE_FUNCTION(v1,v2)==comparisonResult){
-			if(CX_ARRAY_COMPARE_FUNCTION(v3,v1)==comparisonResult){
-				median = v1;
-			}else{
-				if(CX_ARRAY_COMPARE_FUNCTION(v2,v3)==comparisonResult){
-					median=v2;
-				}else{
-					median=v3;
-				}
-			}
-		}else{
-			if(CX_ARRAY_COMPARE_FUNCTION(v3,v2)==comparisonResult){
-				median = v2;
-			}else{
-				if(CX_ARRAY_COMPARE_FUNCTION(v1,v3)==comparisonResult){
-					median=v1;
-				}else{
-					median=v3;
-				}
-			}
-		}
-		CXDouble m = CXDoubleArrayPartition(theArray, f, l, median,comparisonResult);
-		CXDoubleArrayQuickSort3Implementation(theArray, f, m,comparisonResult);
-		f = m+1;
-	}
+	CXDoubleArrayQuickSortImplementation(theArray, f, l, comparisonResult);
 }
 
-
-/** Public entry point that sorts the double array in the requested order. */
 CX_INLINE void CXDoubleArrayQuickSort3(CXDoubleArray* theArray, CXComparisonResult order){
-	if(theArray->count==0)
-		return;
-	CXDoubleArrayQuickSort3Implementation(theArray, 0, theArray->count-1,order);
-	CXDoubleArrayInsertSortImplementation(theArray,order);
+	CXDoubleArraySort(theArray, order);
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 #endif

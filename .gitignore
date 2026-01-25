@@ -164,6 +164,7 @@ compiled
 
 # Meson build directory
 /builddir
+/build-native-test
 
 # Playwright artifacts
 test-results/

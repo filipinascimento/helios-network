@@ -108,3 +108,12 @@ _CXLeidenSessionDestroy
 _CXLeidenSessionStep
 _CXLeidenSessionGetProgress
 _CXLeidenSessionFinalize
+# Sorting test helpers
+_CXTestSortIntegers
+_CXTestSortUIntegers
+_CXTestSortFloats
+_CXTestSortDoubles
+_CXTestSortFloatsWithIndices
+_CXTestSortDoublesWithIndices
+_CXTestSortIndicesWithFloats
+_CXTestSortIndicesWithDoubles

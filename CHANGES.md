@@ -22,6 +22,11 @@
 - Leiden session progress now reports `progressCurrent`/`progressTotal` (instead of a non-monotonic `progress01`), and exposes convenience helpers like `isComplete()` and `isFinalized()`.
 - Updated Leiden session tests to cover `run()` and version-based cancellation.
 
+## 2026-01-24
+
+- Replaced array sorting with introsort (median-of-three, 3-way partition, heapsort fallback, insertion cutoff) across integer/float/double/unsigned array helpers, and standardized NaN ordering for float/double sorts.
+- Added native and WASM test coverage for array sorting helpers and index-paired variants.
+
 ## 2026-01-02
 
 - Added `getBufferMemoryUsage()` to report WASM buffer memory usage (topology buffers including node/edge free lists, sparse attributes, dense buffers) plus total WASM heap size.

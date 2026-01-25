@@ -4,6 +4,7 @@ project(HeliosNetwork LANGUAGES C VERSION 0.4.1 DESCRIPTION "Helios Network nati
 
 option(HELIOS_BUILD_SHARED "Build the Helios shared library" ON)
 option(HELIOS_BUILD_STATIC "Build the Helios static library" ON)
+option(HELIOS_BUILD_TESTS "Build native tests" ON)
 
 if(NOT HELIOS_BUILD_SHARED AND NOT HELIOS_BUILD_STATIC)
   message(FATAL_ERROR "At least one of HELIOS_BUILD_SHARED or HELIOS_BUILD_STATIC must be enabled.")
@@ -20,6 +21,7 @@ set(HELIOS_SOURCES
   src/native/src/CXNetwork.c
   src/native/src/CXNetworkBXNet.c
   src/native/src/CXNetworkXNet.c
+  src/native/src/CXSortTest.c
   src/native/src/CXSet.c
   src/native/src/CXSimpleQueue.c
   src/native/src/fib/fib.c
@@ -128,3 +130,11 @@ install(FILES
 )
 
 install(FILES LICENSE DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/licenses/helios-network)
+
+if(HELIOS_BUILD_TESTS)
+  enable_testing()
+  add_executable(helios_sort_test tests/native/test_sort.c)
+  target_include_directories(helios_sort_test PRIVATE ${HELIOS_PUBLIC_INCLUDE_DIR} ${HELIOS_PUBLIC_INCLUDE_DIR}/helios)
+  target_compile_features(helios_sort_test PRIVATE c_std_17)
+  add_test(NAME helios_sort_test COMMAND helios_sort_test)
+endif()

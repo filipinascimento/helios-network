@@ -1,4 +1,4 @@
-.PHONY: main compile clean_compile clean native native-static native-shared native-clean release check-clean sync-version version commit tag push-release
+.PHONY: main compile clean_compile clean native native-static native-shared native-clean native-test test-native release check-clean sync-version version commit tag push-release
 
 VERSION ?=
 TAG ?= v$(VERSION)
@@ -107,6 +107,12 @@ clean_compile:
 
 native-clean:
 	rm -rf $(NATIVE_BUILD_DIR)
+
+native-test: tests/native/test_sort.c
+	$(CC) -std=c17 -Isrc/native/include -Isrc/native/include/helios $< -o /tmp/helios_test_sort
+	/tmp/helios_test_sort
+
+test-native: native-test
 
 clean:
 	rm -rf compiled
