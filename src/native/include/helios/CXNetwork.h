@@ -67,6 +67,19 @@ typedef enum {
 	CXUnknownAttributeType = 255
 } CXAttributeType;
 
+typedef enum {
+	CXAttributeScopeNode = 0,
+	CXAttributeScopeEdge = 1,
+	CXAttributeScopeNetwork = 2
+} CXAttributeScope;
+
+typedef enum {
+	CX_CATEGORY_SORT_NONE = 0,
+	CX_CATEGORY_SORT_FREQUENCY = 1,
+	CX_CATEGORY_SORT_ALPHABETICAL = 2,
+	CX_CATEGORY_SORT_NATURAL = 3
+} CXCategorySortOrder;
+
 /**
  * Describes a single attribute buffer stored in linear memory. Attributes can
  * be associated with nodes, edges, or the network as a whole.
@@ -343,6 +356,19 @@ CX_EXTERN CXAttributeRef CXNetworkGetNodeAttribute(CXNetworkRef network, const C
 CX_EXTERN CXAttributeRef CXNetworkGetEdgeAttribute(CXNetworkRef network, const CXString name);
 /** Fetches a network attribute descriptor by name. */
 CX_EXTERN CXAttributeRef CXNetworkGetNetworkAttribute(CXNetworkRef network, const CXString name);
+
+CX_EXTERN CXStringDictionaryRef CXNetworkGetAttributeCategoryDictionary(CXNetworkRef network, CXAttributeScope scope, const CXString name);
+CX_EXTERN CXBool CXNetworkSetAttributeCategoryDictionary(
+	CXNetworkRef network,
+	CXAttributeScope scope,
+	const CXString name,
+	const CXString *labels,
+	const int32_t *ids,
+	CXSize count,
+	CXBool remapExisting
+);
+CX_EXTERN CXBool CXNetworkCategorizeAttribute(CXNetworkRef network, CXAttributeScope scope, const CXString name, CXCategorySortOrder sortOrder, const CXString missingLabel);
+CX_EXTERN CXBool CXNetworkDecategorizeAttribute(CXNetworkRef network, CXAttributeScope scope, const CXString name, const CXString missingLabel);
 
 /** Returns a pointer to the raw node attribute buffer for the named attribute. */
 CX_EXTERN void* CXNetworkGetNodeAttributeBuffer(CXNetworkRef network, const CXString name);

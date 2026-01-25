@@ -16,6 +16,7 @@
 
 #define XNET_VERSION_STRING "1.0.0"
 #define XNET_HEADER_LINE "#XNET " XNET_VERSION_STRING
+#define XNET_LEGACY_CATEGORY_SUFFIX "__category"
 
 typedef enum {
 	XNetBaseFloat,
@@ -23,7 +24,8 @@ typedef enum {
 	XNetBaseUInt32,
 	XNetBaseInt64,
 	XNetBaseUInt64,
-	XNetBaseString
+	XNetBaseString,
+	XNetBaseCategory
 } XNetBaseType;
 
 typedef enum {
@@ -39,10 +41,18 @@ typedef struct {
 } XNetPendingLine;
 
 typedef struct {
+	int32_t id;
+	char *label;
+} XNetCategoryEntry;
+
+typedef struct {
 	char *name;
 	XNetBaseType base;
 	CXSize dimension;
 	CXSize count;
+	XNetCategoryEntry *categories;
+	size_t categoryCount;
+	size_t categoryCapacity;
 	union {
 		float *asFloat;
 		int32_t *asInt32;
@@ -153,6 +163,9 @@ static void XNetAttributeBlockReset(XNetAttributeBlock *block) {
 	block->base = XNetBaseFloat;
 	block->dimension = 1;
 	block->count = 0;
+	block->categories = NULL;
+	block->categoryCount = 0;
+	block->categoryCapacity = 0;
 	memset(&block->values, 0, sizeof(block->values));
 }
 
@@ -163,6 +176,12 @@ static void XNetAttributeBlockFree(XNetAttributeBlock *block) {
 	if (block->name) {
 		free(block->name);
 		block->name = NULL;
+	}
+	if (block->categories) {
+		for (size_t i = 0; i < block->categoryCount; i++) {
+			free(block->categories[i].label);
+		}
+		free(block->categories);
 	}
 	if (block->base == XNetBaseString) {
 		if (block->values.asString) {
@@ -183,10 +202,15 @@ static void XNetAttributeBlockFree(XNetAttributeBlock *block) {
 		free(block->values.asInt64);
 	} else if (block->base == XNetBaseUInt64) {
 		free(block->values.asUInt64);
+	} else if (block->base == XNetBaseCategory) {
+		free(block->values.asUInt32);
 	}
 	memset(&block->values, 0, sizeof(block->values));
 	block->count = 0;
 	block->dimension = 1;
+	block->categories = NULL;
+	block->categoryCount = 0;
+	block->categoryCapacity = 0;
 }
 
 static void XNetAttributeListFree(XNetAttributeList *list) {
@@ -429,8 +453,311 @@ static CXBool XNetAllocateAttributeValues(XNetAttributeBlock *block) {
 		block->values.asUInt64 = calloc(total, sizeof(uint64_t));
 		return block->values.asUInt64 != NULL;
 	}
+	if (block->base == XNetBaseCategory) {
+		block->values.asUInt32 = calloc(total, sizeof(int32_t));
+		return block->values.asUInt32 != NULL;
+	}
 	return CXFalse;
 }
+
+static void* XNetCategoryDictionaryEncodeId(int32_t id) {
+	uint32_t raw = (uint32_t)id;
+	return (void *)(uintptr_t)(raw + 1u);
+}
+
+static CXBool XNetCategoryDictionaryDecodeId(const void *data, int32_t *outId) {
+	if (!outId) {
+		return CXFalse;
+	}
+	uintptr_t raw = (uintptr_t)data;
+	if (raw == 0) {
+		return CXFalse;
+	}
+	*outId = (int32_t)(uint32_t)(raw - 1u);
+	return CXTrue;
+}
+
+static CXBool XNetAttributeBlockEnsureCategoryCapacity(XNetAttributeBlock *block, size_t required) {
+	if (!block) {
+		return CXFalse;
+	}
+	if (block->categoryCapacity >= required) {
+		return CXTrue;
+	}
+	size_t newCapacity = block->categoryCapacity > 0 ? block->categoryCapacity : 4;
+	while (newCapacity < required) {
+		newCapacity = CXCapacityGrow(newCapacity);
+		if (newCapacity < required) {
+			newCapacity = required;
+			break;
+		}
+	}
+	XNetCategoryEntry *entries = realloc(block->categories, newCapacity * sizeof(XNetCategoryEntry));
+	if (!entries) {
+		return CXFalse;
+	}
+	for (size_t i = block->categoryCapacity; i < newCapacity; i++) {
+		entries[i].id = 0;
+		entries[i].label = NULL;
+	}
+	block->categories = entries;
+	block->categoryCapacity = newCapacity;
+	return CXTrue;
+}
+
+static CXBool XNetAttributeBlockHasCategoryId(const XNetAttributeBlock *block, int32_t id) {
+	if (!block) {
+		return CXFalse;
+	}
+	for (size_t i = 0; i < block->categoryCount; i++) {
+		if (block->categories[i].id == id) {
+			return CXTrue;
+		}
+	}
+	return CXFalse;
+}
+
+static CXBool XNetAttributeBlockHasCategoryLabel(const XNetAttributeBlock *block, const char *label) {
+	if (!block || !label) {
+		return CXFalse;
+	}
+	for (size_t i = 0; i < block->categoryCount; i++) {
+		if (block->categories[i].label && strcmp(block->categories[i].label, label) == 0) {
+			return CXTrue;
+		}
+	}
+	return CXFalse;
+}
+
+static CXBool XNetHasLegacyCategorySuffix(const char *name, char **outBaseName) {
+	if (!name || !outBaseName) {
+		return CXFalse;
+	}
+	size_t nameLen = strlen(name);
+	size_t suffixLen = strlen(XNET_LEGACY_CATEGORY_SUFFIX);
+	if (nameLen <= suffixLen) {
+		return CXFalse;
+	}
+	if (strcmp(name + (nameLen - suffixLen), XNET_LEGACY_CATEGORY_SUFFIX) != 0) {
+		return CXFalse;
+	}
+	size_t baseLen = nameLen - suffixLen;
+	char *base = malloc(baseLen + 1);
+	if (!base) {
+		return CXFalse;
+	}
+	memcpy(base, name, baseLen);
+	base[baseLen] = '\0';
+	*outBaseName = base;
+	return CXTrue;
+}
+
+typedef struct {
+	char *label;
+	uint32_t count;
+} XNetLegacyCategoryCount;
+
+static int XNetLegacyCategoryCompare(const void *lhs, const void *rhs) {
+	const XNetLegacyCategoryCount *a = (const XNetLegacyCategoryCount *)lhs;
+	const XNetLegacyCategoryCount *b = (const XNetLegacyCategoryCount *)rhs;
+	if (a->count > b->count) {
+		return -1;
+	}
+	if (a->count < b->count) {
+		return 1;
+	}
+	if (!a->label || !b->label) {
+		return 0;
+	}
+	return strcmp(a->label, b->label);
+}
+
+static CXBool XNetLegacyCategoryListEnsure(XNetLegacyCategoryCount **items, size_t *capacity, size_t required) {
+	if (!items || !capacity) {
+		return CXFalse;
+	}
+	if (*capacity >= required) {
+		return CXTrue;
+	}
+	size_t newCapacity = *capacity > 0 ? *capacity : 4;
+	while (newCapacity < required) {
+		newCapacity = CXCapacityGrow(newCapacity);
+		if (newCapacity < required) {
+			newCapacity = required;
+			break;
+		}
+	}
+	XNetLegacyCategoryCount *next = realloc(*items, newCapacity * sizeof(XNetLegacyCategoryCount));
+	if (!next) {
+		return CXFalse;
+	}
+	for (size_t i = *capacity; i < newCapacity; i++) {
+		next[i].label = NULL;
+		next[i].count = 0;
+	}
+	*items = next;
+	*capacity = newCapacity;
+	return CXTrue;
+}
+
+static CXAttributeRef XNetGetAttributeForScope(CXNetworkRef network, XNetAttributeScope scope, const char *name) {
+	if (!network || !name) {
+		return NULL;
+	}
+	switch (scope) {
+		case XNetScopeNode:
+			return CXNetworkGetNodeAttribute(network, name);
+		case XNetScopeEdge:
+			return CXNetworkGetEdgeAttribute(network, name);
+		case XNetScopeGraph:
+			return CXNetworkGetNetworkAttribute(network, name);
+		default:
+			return NULL;
+	}
+}
+
+static CXBool XNetDefineAttributeForScope(CXNetworkRef network, XNetAttributeScope scope, const char *name, CXAttributeType type, CXSize dimension) {
+	if (!network || !name) {
+		return CXFalse;
+	}
+	switch (scope) {
+		case XNetScopeNode:
+			return CXNetworkDefineNodeAttribute(network, name, type, dimension);
+		case XNetScopeEdge:
+			return CXNetworkDefineEdgeAttribute(network, name, type, dimension);
+		case XNetScopeGraph:
+			return CXNetworkDefineNetworkAttribute(network, name, type, dimension);
+		default:
+			return CXFalse;
+	}
+}
+
+static CXBool XNetPopulateLegacyCategoricalAttribute(CXNetworkRef network, XNetAttributeScope scope, const XNetAttributeBlock *block, XNetError *error) {
+	if (!network || !block || block->base != XNetBaseString) {
+		return CXFalse;
+	}
+	if (block->dimension != 1) {
+		XNetErrorSet(error, 0, "Legacy categorical attributes must be scalar strings");
+		return CXFalse;
+	}
+	char *baseName = NULL;
+	if (!XNetHasLegacyCategorySuffix(block->name, &baseName)) {
+		return CXFalse;
+	}
+	CXAttributeRef existing = XNetGetAttributeForScope(network, scope, baseName);
+	if (existing) {
+		XNetErrorSet(error, 0, "Duplicate attribute '%s' derived from legacy categorical '%s'", baseName, block->name);
+		free(baseName);
+		return CXFalse;
+	}
+	if (!XNetDefineAttributeForScope(network, scope, baseName, CXDataAttributeCategoryType, 1)) {
+		free(baseName);
+		return CXFalse;
+	}
+	CXAttributeRef attr = XNetGetAttributeForScope(network, scope, baseName);
+	free(baseName);
+	if (!attr || !attr->data) {
+		return CXFalse;
+	}
+
+	int32_t *codes = (int32_t *)attr->data;
+	CXStringDictionaryRef map = CXNewStringDictionary();
+	XNetLegacyCategoryCount *entries = NULL;
+	size_t entryCount = 0;
+	size_t entryCapacity = 0;
+	CXBool hasMissing = CXFalse;
+
+	for (CXSize idx = 0; idx < block->count; idx++) {
+		char *value = block->values.asString ? block->values.asString[idx] : NULL;
+		if (!value || value[0] == '\0' || strcmp(value, "__NA__") == 0) {
+			codes[idx] = -1;
+			hasMissing = CXTrue;
+			continue;
+		}
+		void *stored = CXStringDictionaryEntryForKey(map, value);
+		if (stored) {
+			uintptr_t raw = (uintptr_t)stored;
+			size_t entryIndex = raw - 1u;
+			entries[entryIndex].count++;
+			continue;
+		}
+		if (!XNetLegacyCategoryListEnsure(&entries, &entryCapacity, entryCount + 1)) {
+			CXStringDictionaryDestroy(map);
+			free(entries);
+			return CXFalse;
+		}
+		entries[entryCount].label = value;
+		entries[entryCount].count = 1;
+		CXStringDictionarySetEntry(map, value, (void *)(uintptr_t)(entryCount + 1u));
+		entryCount++;
+	}
+
+	if (entryCount > 1) {
+		qsort(entries, entryCount, sizeof(XNetLegacyCategoryCount), XNetLegacyCategoryCompare);
+	}
+
+	if (hasMissing && attr->categoricalDictionary) {
+		CXStringDictionarySetEntry(attr->categoricalDictionary, "__NA__", XNetCategoryDictionaryEncodeId(-1));
+	}
+
+	CXStringDictionaryDestroy(map);
+	map = CXNewStringDictionary();
+	for (size_t idx = 0; idx < entryCount; idx++) {
+		int32_t id = (int32_t)idx;
+		if (attr->categoricalDictionary) {
+			CXStringDictionarySetEntry(attr->categoricalDictionary, entries[idx].label, XNetCategoryDictionaryEncodeId(id));
+		}
+		CXStringDictionarySetEntry(map, entries[idx].label, XNetCategoryDictionaryEncodeId(id));
+	}
+
+	for (CXSize idx = 0; idx < block->count; idx++) {
+		char *value = block->values.asString ? block->values.asString[idx] : NULL;
+		if (!value || value[0] == '\0' || strcmp(value, "__NA__") == 0) {
+			codes[idx] = -1;
+			continue;
+		}
+		void *stored = CXStringDictionaryEntryForKey(map, value);
+		if (!stored) {
+			CXStringDictionaryDestroy(map);
+			free(entries);
+			return CXFalse;
+		}
+		int32_t id = 0;
+		if (!XNetCategoryDictionaryDecodeId(stored, &id)) {
+			CXStringDictionaryDestroy(map);
+			free(entries);
+			return CXFalse;
+		}
+		codes[idx] = id;
+	}
+
+	CXStringDictionaryDestroy(map);
+	free(entries);
+	return CXTrue;
+}
+
+static CXBool XNetAttributeBlockAddCategory(XNetAttributeBlock *block, int32_t id, char *label, XNetError *error, size_t lineNumber) {
+	if (!block || !label) {
+		return CXFalse;
+	}
+	if (XNetAttributeBlockHasCategoryId(block, id)) {
+		XNetErrorSet(error, lineNumber, "Duplicate category id %" PRId32 " in categorical dictionary", id);
+		return CXFalse;
+	}
+	if (XNetAttributeBlockHasCategoryLabel(block, label)) {
+		XNetErrorSet(error, lineNumber, "Duplicate category label '%s' in categorical dictionary", label);
+		return CXFalse;
+	}
+	if (!XNetAttributeBlockEnsureCategoryCapacity(block, block->categoryCount + 1)) {
+		XNetErrorSet(error, lineNumber, "Failed to allocate categorical dictionary");
+		return CXFalse;
+	}
+	block->categories[block->categoryCount].id = id;
+	block->categories[block->categoryCount].label = label;
+	block->categoryCount++;
+	return CXTrue;
+}
+
 
 static CXBool XNetDecodeString(const char *input, CXBool quoted, char **outValue, XNetError *error, size_t lineNumber) {
 	if (!outValue) {
@@ -723,7 +1050,7 @@ static CXBool XNetParseTypeToken(const char *token, CXBool legacy, XNetBaseType 
 		*outDimension = 1;
 		return CXTrue;
 	}
-	if (kind != 'f' && kind != 'i' && kind != 'u' && kind != 'I' && kind != 'U') {
+	if (kind != 'f' && kind != 'i' && kind != 'u' && kind != 'I' && kind != 'U' && kind != 'c') {
 		XNetErrorSet(error, lineNumber, "Unsupported type '%s'", token);
 		return CXFalse;
 	}
@@ -741,8 +1068,164 @@ static CXBool XNetParseTypeToken(const char *token, CXBool legacy, XNetBaseType 
 		*outBase = XNetBaseFloat;
 	} else if (kind == 'i') {
 		*outBase = XNetBaseInt32;
+	} else if (kind == 'c') {
+		*outBase = XNetBaseCategory;
 	} else {
 		*outBase = (kind == 'u') ? XNetBaseUInt32 : (kind == 'I' ? XNetBaseInt64 : XNetBaseUInt64);
+	}
+	return CXTrue;
+}
+
+static CXBool XNetParseQuotedName(const char *line, char **out, XNetError *error, size_t lineNumber);
+
+static CXBool XNetParseDictionaryHeader(const char *line, char **outName, uint32_t *outCount, XNetError *error, size_t lineNumber) {
+	if (!line || !outName || !outCount) {
+		return CXFalse;
+	}
+	char *name = NULL;
+	if (!XNetParseQuotedName(line, &name, error, lineNumber)) {
+		return CXFalse;
+	}
+	const char *cursor = strrchr(line, '"');
+	if (!cursor) {
+		free(name);
+		XNetErrorSet(error, lineNumber, "Malformed dictionary header");
+		return CXFalse;
+	}
+	cursor++;
+	while (*cursor && isspace((unsigned char)*cursor)) {
+		cursor++;
+	}
+	if (*cursor == '\0') {
+		free(name);
+		XNetErrorSet(error, lineNumber, "Missing dictionary count");
+		return CXFalse;
+	}
+	errno = 0;
+	char *end = NULL;
+	unsigned long long count = strtoull(cursor, &end, 10);
+	if (errno || end == cursor || count > UINT32_MAX) {
+		free(name);
+		XNetErrorSet(error, lineNumber, "Invalid dictionary count");
+		return CXFalse;
+	}
+	while (*end && isspace((unsigned char)*end)) {
+		end++;
+	}
+	if (*end != '\0') {
+		free(name);
+		XNetErrorSet(error, lineNumber, "Unexpected trailing characters in dictionary header");
+		return CXFalse;
+	}
+	*outName = name;
+	*outCount = (uint32_t)count;
+	return CXTrue;
+}
+
+static CXBool XNetParseCategoryEntryLine(const char *line, int32_t *outId, char **outLabel, XNetError *error, size_t lineNumber) {
+	if (!line || !outId || !outLabel) {
+		return CXFalse;
+	}
+	const char *cursor = line;
+	while (*cursor && isspace((unsigned char)*cursor)) {
+		cursor++;
+	}
+	if (*cursor == '\0') {
+		XNetErrorSet(error, lineNumber, "Missing category id");
+		return CXFalse;
+	}
+	errno = 0;
+	char *end = NULL;
+	long value = strtol(cursor, &end, 10);
+	if (errno || end == cursor || value < INT32_MIN || value > INT32_MAX) {
+		XNetErrorSet(error, lineNumber, "Invalid category id");
+		return CXFalse;
+	}
+	while (*end && isspace((unsigned char)*end)) {
+		end++;
+	}
+	if (*end == '\0') {
+		XNetErrorSet(error, lineNumber, "Missing category label");
+		return CXFalse;
+	}
+	char *label = NULL;
+	if (!XNetParseStringValue(end, CXFalse, &label, error, lineNumber)) {
+		return CXFalse;
+	}
+	*outId = (int32_t)value;
+	*outLabel = label;
+	return CXTrue;
+}
+
+static CXBool XNetParseCategoryDictionary(XNetParser *parser, XNetAttributeScope scope, XNetAttributeBlock *block, const char *line, XNetError *error, size_t lineNumber) {
+	if (!parser || !block || !line) {
+		return CXFalse;
+	}
+	if (parser->legacy) {
+		XNetErrorSet(error, lineNumber, "Categorical dictionaries are not supported in legacy XNET files");
+		return CXFalse;
+	}
+	if (block->base != XNetBaseCategory) {
+		XNetErrorSet(error, lineNumber, "Dictionary provided for non-categorical attribute");
+		return CXFalse;
+	}
+	if (block->categoryCount > 0) {
+		XNetErrorSet(error, lineNumber, "Duplicate categorical dictionary for attribute '%s'", block->name);
+		return CXFalse;
+	}
+	const char *expected = NULL;
+	switch (scope) {
+		case XNetScopeNode:
+			expected = "#vdict";
+			break;
+		case XNetScopeEdge:
+			expected = "#edict";
+			break;
+		case XNetScopeGraph:
+			expected = "#gdict";
+			break;
+		default:
+			return CXFalse;
+	}
+	if (strncmp(line, expected, strlen(expected)) != 0) {
+		XNetErrorSet(error, lineNumber, "Unexpected dictionary directive");
+		return CXFalse;
+	}
+	char *name = NULL;
+	uint32_t count = 0;
+	if (!XNetParseDictionaryHeader(line, &name, &count, error, lineNumber)) {
+		return CXFalse;
+	}
+	if (strcmp(name, block->name) != 0) {
+		XNetErrorSet(error, lineNumber, "Dictionary name '%s' does not match attribute '%s'", name, block->name);
+		free(name);
+		return CXFalse;
+	}
+	free(name);
+
+	for (uint32_t idx = 0; idx < count; idx++) {
+		char *entryLine = NULL;
+		size_t entryLineNumber = 0;
+		if (!XNetGetLine(parser, &entryLine, &entryLineNumber)) {
+			XNetErrorSet(error, lineNumber, "Unexpected EOF in categorical dictionary '%s'", block->name);
+			return CXFalse;
+		}
+		if (XNetIsComment(entryLine) || XNetIsBlank(entryLine)) {
+			XNetErrorSet(error, entryLineNumber, "Comments and blank lines are not allowed inside categorical dictionaries");
+			free(entryLine);
+			return CXFalse;
+		}
+		int32_t id = 0;
+		char *label = NULL;
+		CXBool ok = XNetParseCategoryEntryLine(entryLine, &id, &label, error, entryLineNumber);
+		free(entryLine);
+		if (!ok) {
+			return CXFalse;
+		}
+		if (!XNetAttributeBlockAddCategory(block, id, label, error, entryLineNumber)) {
+			free(label);
+			return CXFalse;
+		}
 	}
 	return CXTrue;
 }
@@ -1043,6 +1526,34 @@ static CXBool XNetParseVertexAttribute(XNetParser *parser, const char *line, XNe
 		return CXFalse;
 	}
 
+	if (block->base == XNetBaseCategory && !parser->legacy) {
+		char *dictLine = NULL;
+		size_t dictLineNumber = 0;
+		if (!XNetGetLine(parser, &dictLine, &dictLineNumber)) {
+			if (block->count == 0) {
+				parser->vertexAttributes.count++;
+				return CXTrue;
+			}
+			XNetErrorSet(error, lineNumber, "Unexpected EOF in vertex attribute '%s'", name);
+			return CXFalse;
+		}
+		char *trimmed = XNetSkipWhitespace(dictLine);
+		if (strncmp(trimmed, "#vdict", 6) == 0) {
+			CXBool ok = XNetParseCategoryDictionary(parser, XNetScopeNode, block, trimmed, error, dictLineNumber);
+			free(dictLine);
+			if (!ok) {
+				return CXFalse;
+			}
+		} else {
+			if (trimmed[0] == '#') {
+				XNetErrorSet(error, dictLineNumber, "Unexpected directive inside vertex attribute '%s'", name);
+				free(dictLine);
+				return CXFalse;
+			}
+			XNetUnreadLine(parser, dictLine, dictLineNumber);
+		}
+	}
+
 	for (CXSize idx = 0; idx < parser->vertexCount; idx++) {
 		char *valueLine = NULL;
 		size_t valueLineNumber = 0;
@@ -1074,6 +1585,8 @@ static CXBool XNetParseVertexAttribute(XNetParser *parser, const char *line, XNe
 			ok = XNetParseIntLine(valueLine, block->dimension, CXFalse, 32, block->values.asInt32 + (size_t)idx * block->dimension, error, valueLineNumber);
 		} else if (block->base == XNetBaseUInt32) {
 			ok = XNetParseIntLine(valueLine, block->dimension, CXTrue, 32, block->values.asUInt32 + (size_t)idx * block->dimension, error, valueLineNumber);
+		} else if (block->base == XNetBaseCategory) {
+			ok = XNetParseIntLine(valueLine, block->dimension, CXFalse, 32, block->values.asUInt32 + (size_t)idx * block->dimension, error, valueLineNumber);
 		} else if (block->base == XNetBaseInt64) {
 			ok = XNetParseIntLine(valueLine, block->dimension, CXFalse, 64, block->values.asInt64 + (size_t)idx * block->dimension, error, valueLineNumber);
 		} else if (block->base == XNetBaseUInt64) {
@@ -1143,6 +1656,34 @@ static CXBool XNetParseEdgeAttribute(XNetParser *parser, const char *line, XNetE
 		return CXFalse;
 	}
 
+	if (block->base == XNetBaseCategory && !parser->legacy) {
+		char *dictLine = NULL;
+		size_t dictLineNumber = 0;
+		if (!XNetGetLine(parser, &dictLine, &dictLineNumber)) {
+			if (block->count == 0) {
+				parser->edgeAttributes.count++;
+				return CXTrue;
+			}
+			XNetErrorSet(error, lineNumber, "Unexpected EOF in edge attribute '%s'", name);
+			return CXFalse;
+		}
+		char *trimmed = XNetSkipWhitespace(dictLine);
+		if (strncmp(trimmed, "#edict", 6) == 0) {
+			CXBool ok = XNetParseCategoryDictionary(parser, XNetScopeEdge, block, trimmed, error, dictLineNumber);
+			free(dictLine);
+			if (!ok) {
+				return CXFalse;
+			}
+		} else {
+			if (trimmed[0] == '#') {
+				XNetErrorSet(error, dictLineNumber, "Unexpected directive inside edge attribute '%s'", name);
+				free(dictLine);
+				return CXFalse;
+			}
+			XNetUnreadLine(parser, dictLine, dictLineNumber);
+		}
+	}
+
 	for (CXSize idx = 0; idx < parser->edges.count; idx++) {
 		char *valueLine = NULL;
 		size_t valueLineNumber = 0;
@@ -1174,6 +1715,8 @@ static CXBool XNetParseEdgeAttribute(XNetParser *parser, const char *line, XNetE
 			ok = XNetParseIntLine(valueLine, block->dimension, CXFalse, 32, block->values.asInt32 + (size_t)idx * block->dimension, error, valueLineNumber);
 		} else if (block->base == XNetBaseUInt32) {
 			ok = XNetParseIntLine(valueLine, block->dimension, CXTrue, 32, block->values.asUInt32 + (size_t)idx * block->dimension, error, valueLineNumber);
+		} else if (block->base == XNetBaseCategory) {
+			ok = XNetParseIntLine(valueLine, block->dimension, CXFalse, 32, block->values.asUInt32 + (size_t)idx * block->dimension, error, valueLineNumber);
 		} else if (block->base == XNetBaseInt64) {
 			ok = XNetParseIntLine(valueLine, block->dimension, CXFalse, 64, block->values.asInt64 + (size_t)idx * block->dimension, error, valueLineNumber);
 		} else if (block->base == XNetBaseUInt64) {
@@ -1243,6 +1786,30 @@ static CXBool XNetParseGraphAttribute(XNetParser *parser, const char *line, XNet
 		return CXFalse;
 	}
 
+	if (block->base == XNetBaseCategory && !parser->legacy) {
+		char *dictLine = NULL;
+		size_t dictLineNumber = 0;
+		if (!XNetGetLine(parser, &dictLine, &dictLineNumber)) {
+			XNetErrorSet(error, lineNumber, "Unexpected EOF reading graph attribute '%s'", name);
+			return CXFalse;
+		}
+		char *trimmed = XNetSkipWhitespace(dictLine);
+		if (strncmp(trimmed, "#gdict", 6) == 0) {
+			CXBool ok = XNetParseCategoryDictionary(parser, XNetScopeGraph, block, trimmed, error, dictLineNumber);
+			free(dictLine);
+			if (!ok) {
+				return CXFalse;
+			}
+		} else {
+			if (trimmed[0] == '#') {
+				XNetErrorSet(error, dictLineNumber, "Unexpected directive inside graph attribute '%s'", name);
+				free(dictLine);
+				return CXFalse;
+			}
+			XNetUnreadLine(parser, dictLine, dictLineNumber);
+		}
+	}
+
 	char *valueLine = NULL;
 	size_t valueLineNumber = 0;
 	if (!XNetGetLine(parser, &valueLine, &valueLineNumber)) {
@@ -1273,6 +1840,8 @@ static CXBool XNetParseGraphAttribute(XNetParser *parser, const char *line, XNet
 		ok = XNetParseIntLine(valueLine, block->dimension, CXFalse, 32, block->values.asInt32, error, valueLineNumber);
 	} else if (block->base == XNetBaseUInt32) {
 		ok = XNetParseIntLine(valueLine, block->dimension, CXTrue, 32, block->values.asUInt32, error, valueLineNumber);
+	} else if (block->base == XNetBaseCategory) {
+		ok = XNetParseIntLine(valueLine, block->dimension, CXFalse, 32, block->values.asUInt32, error, valueLineNumber);
 	} else if (block->base == XNetBaseInt64) {
 		ok = XNetParseIntLine(valueLine, block->dimension, CXFalse, 64, block->values.asInt64, error, valueLineNumber);
 	} else if (block->base == XNetBaseUInt64) {
@@ -1556,6 +2125,8 @@ static CXAttributeType XNetAttributeTypeForBase(XNetBaseType base) {
 			return CXUnsignedBigIntegerAttributeType;
 		case XNetBaseString:
 			return CXStringAttributeType;
+		case XNetBaseCategory:
+			return CXDataAttributeCategoryType;
 		default:
 			return CXUnknownAttributeType;
 	}
@@ -1624,6 +2195,19 @@ static CXBool XNetPopulateAttribute(CXNetworkRef network, XNetAttributeScope sco
 		memcpy(attr->data, block->values.asUInt32, bytes * sizeof(uint32_t));
 		return CXTrue;
 	}
+	if (block->base == XNetBaseCategory) {
+		memcpy(attr->data, block->values.asUInt32, bytes * sizeof(int32_t));
+		if (attr->categoricalDictionary && block->categoryCount > 0) {
+			for (size_t idx = 0; idx < block->categoryCount; idx++) {
+				XNetCategoryEntry *entry = &block->categories[idx];
+				if (!entry->label) {
+					continue;
+				}
+				CXStringDictionarySetEntry(attr->categoricalDictionary, entry->label, XNetCategoryDictionaryEncodeId(entry->id));
+			}
+		}
+		return CXTrue;
+	}
 	if (block->base == XNetBaseInt64) {
 		memcpy(attr->data, block->values.asInt64, bytes * sizeof(int64_t));
 		return CXTrue;
@@ -1661,8 +2245,22 @@ static CXNetworkRef XNetBuildNetwork(const XNetParser *parser, XNetError *error)
 
 	// Populate node attributes
 	for (size_t i = 0; i < parser->vertexAttributes.count; i++) {
-		if (!XNetPopulateAttribute(network, XNetScopeNode, &parser->vertexAttributes.items[i])) {
-			XNetErrorSet(error, parser->line, "Failed to populate vertex attribute '%s'", parser->vertexAttributes.items[i].name);
+		const XNetAttributeBlock *block = &parser->vertexAttributes.items[i];
+		if (parser->legacy && block->base == XNetBaseString) {
+			char *baseName = NULL;
+			CXBool hasSuffix = XNetHasLegacyCategorySuffix(block->name, &baseName);
+			free(baseName);
+			if (hasSuffix) {
+				if (!XNetPopulateLegacyCategoricalAttribute(network, XNetScopeNode, block, error)) {
+					XNetErrorSet(error, parser->line, "Failed to populate legacy categorical vertex attribute '%s'", block->name);
+					CXFreeNetwork(network);
+					return NULL;
+				}
+				continue;
+			}
+		}
+		if (!XNetPopulateAttribute(network, XNetScopeNode, block)) {
+			XNetErrorSet(error, parser->line, "Failed to populate vertex attribute '%s'", block->name);
 			CXFreeNetwork(network);
 			return NULL;
 		}
@@ -1679,8 +2277,22 @@ static CXNetworkRef XNetBuildNetwork(const XNetParser *parser, XNetError *error)
 
 	// Edge attributes
 	for (size_t i = 0; i < parser->edgeAttributes.count; i++) {
-		if (!XNetPopulateAttribute(network, XNetScopeEdge, &parser->edgeAttributes.items[i])) {
-			XNetErrorSet(error, parser->line, "Failed to populate edge attribute '%s'", parser->edgeAttributes.items[i].name);
+		const XNetAttributeBlock *block = &parser->edgeAttributes.items[i];
+		if (parser->legacy && block->base == XNetBaseString) {
+			char *baseName = NULL;
+			CXBool hasSuffix = XNetHasLegacyCategorySuffix(block->name, &baseName);
+			free(baseName);
+			if (hasSuffix) {
+				if (!XNetPopulateLegacyCategoricalAttribute(network, XNetScopeEdge, block, error)) {
+					XNetErrorSet(error, parser->line, "Failed to populate legacy categorical edge attribute '%s'", block->name);
+					CXFreeNetwork(network);
+					return NULL;
+				}
+				continue;
+			}
+		}
+		if (!XNetPopulateAttribute(network, XNetScopeEdge, block)) {
+			XNetErrorSet(error, parser->line, "Failed to populate edge attribute '%s'", block->name);
 			CXFreeNetwork(network);
 			return NULL;
 		}
@@ -1713,8 +2325,22 @@ static CXNetworkRef XNetBuildNetwork(const XNetParser *parser, XNetError *error)
 
 	// Graph attributes
 	for (size_t i = 0; i < parser->graphAttributes.count; i++) {
-		if (!XNetPopulateAttribute(network, XNetScopeGraph, &parser->graphAttributes.items[i])) {
-			XNetErrorSet(error, parser->line, "Failed to populate graph attribute '%s'", parser->graphAttributes.items[i].name);
+		const XNetAttributeBlock *block = &parser->graphAttributes.items[i];
+		if (parser->legacy && block->base == XNetBaseString) {
+			char *baseName = NULL;
+			CXBool hasSuffix = XNetHasLegacyCategorySuffix(block->name, &baseName);
+			free(baseName);
+			if (hasSuffix) {
+				if (!XNetPopulateLegacyCategoricalAttribute(network, XNetScopeGraph, block, error)) {
+					XNetErrorSet(error, parser->line, "Failed to populate legacy categorical graph attribute '%s'", block->name);
+					CXFreeNetwork(network);
+					return NULL;
+				}
+				continue;
+			}
+		}
+		if (!XNetPopulateAttribute(network, XNetScopeGraph, block)) {
+			XNetErrorSet(error, parser->line, "Failed to populate graph attribute '%s'", block->name);
 			CXFreeNetwork(network);
 			return NULL;
 		}
@@ -1890,6 +2516,13 @@ static const char* XNetTypeCodeForAttribute(const XNetAttributeView *view, char 
 				snprintf(buffer, 16, "U%zu", (size_t)view->dimension);
 			}
 			return buffer;
+		case XNetBaseCategory:
+			if (view->dimension == 1) {
+				strcpy(buffer, "c");
+			} else {
+				snprintf(buffer, 16, "c%zu", (size_t)view->dimension);
+			}
+			return buffer;
 		default:
 			return NULL;
 	}
@@ -1920,6 +2553,9 @@ static CXBool XNetAttributeSupportedForWrite(const CXAttributeRef attribute, XNe
 				return CXFalse;
 			}
 			*outBase = XNetBaseString;
+			return CXTrue;
+		case CXDataAttributeCategoryType:
+			*outBase = XNetBaseCategory;
 			return CXTrue;
 		default:
 			return CXFalse;
@@ -2051,6 +2687,104 @@ static void XNetWriteEscapedString(FILE *file, const char *value) {
 	fputc('"', file);
 }
 
+typedef struct {
+	int32_t id;
+	const char *label;
+	uint32_t length;
+} XNetCategoryWriteEntry;
+
+static int XNetCategoryEntryCompare(const void *lhs, const void *rhs) {
+	const XNetCategoryWriteEntry *a = (const XNetCategoryWriteEntry *)lhs;
+	const XNetCategoryWriteEntry *b = (const XNetCategoryWriteEntry *)rhs;
+	if (a->id < b->id) {
+		return -1;
+	}
+	if (a->id > b->id) {
+		return 1;
+	}
+	if (!a->label || !b->label) {
+		return 0;
+	}
+	return strcmp(a->label, b->label);
+}
+
+static XNetCategoryWriteEntry* XNetCollectCategoryEntries(const CXAttributeRef attribute, size_t *outCount) {
+	if (outCount) {
+		*outCount = 0;
+	}
+	if (!attribute || !attribute->categoricalDictionary) {
+		return NULL;
+	}
+	size_t count = (size_t)CXStringDictionaryCount(attribute->categoricalDictionary);
+	if (count == 0) {
+		return NULL;
+	}
+	XNetCategoryWriteEntry *entries = calloc(count, sizeof(XNetCategoryWriteEntry));
+	if (!entries) {
+		return NULL;
+	}
+	size_t idx = 0;
+	CXStringDictionaryFOR(entry, attribute->categoricalDictionary) {
+		int32_t id = 0;
+		if (!XNetCategoryDictionaryDecodeId(entry->data, &id)) {
+			free(entries);
+			return NULL;
+		}
+		entries[idx].id = id;
+		entries[idx].label = entry->key;
+		entries[idx].length = (uint32_t)strlen(entry->key);
+		idx++;
+	}
+	if (idx > 1) {
+		qsort(entries, idx, sizeof(XNetCategoryWriteEntry), XNetCategoryEntryCompare);
+	}
+	if (outCount) {
+		*outCount = idx;
+	}
+	return entries;
+}
+
+static CXBool XNetWriteCategoryDictionary(FILE *file, const XNetAttributeView *view, XNetAttributeScope scope) {
+	if (!file || !view || !view->attribute) {
+		return CXFalse;
+	}
+	if (view->base != XNetBaseCategory) {
+		return CXTrue;
+	}
+	if (!view->attribute->categoricalDictionary || CXStringDictionaryCount(view->attribute->categoricalDictionary) == 0) {
+		return CXTrue;
+	}
+	size_t entryCount = 0;
+	XNetCategoryWriteEntry *entries = XNetCollectCategoryEntries(view->attribute, &entryCount);
+	if (!entries || entryCount == 0) {
+		free(entries);
+		return CXFalse;
+	}
+	const char *prefix = NULL;
+	switch (scope) {
+		case XNetScopeNode:
+			prefix = "#vdict";
+			break;
+		case XNetScopeEdge:
+			prefix = "#edict";
+			break;
+		case XNetScopeGraph:
+			prefix = "#gdict";
+			break;
+		default:
+			free(entries);
+			return CXFalse;
+	}
+	fprintf(file, "%s \"%s\" %zu\n", prefix, view->name, entryCount);
+	for (size_t idx = 0; idx < entryCount; idx++) {
+		fprintf(file, "%" PRId32 " ", entries[idx].id);
+		XNetWriteEscapedString(file, entries[idx].label);
+		fputc('\n', file);
+	}
+	free(entries);
+	return CXTrue;
+}
+
 static CXBool XNetWriteVertexAttributes(FILE *file, const XNetAttributeViewList *attrs, const CXIndex *activeNodes, CXSize nodeCount) {
 	for (size_t i = 0; i < attrs->count; i++) {
 		const XNetAttributeView *view = &attrs->items[i];
@@ -2060,6 +2794,9 @@ static CXBool XNetWriteVertexAttributes(FILE *file, const XNetAttributeViewList 
 			return CXFalse;
 		}
 		fprintf(file, "#v \"%s\" %s\n", view->name, typeStr);
+		if (!XNetWriteCategoryDictionary(file, view, XNetScopeNode)) {
+			return CXFalse;
+		}
 		if (view->base == XNetBaseString) {
 			CXString *values = (CXString *)view->attribute->data;
 			for (CXSize idx = 0; idx < nodeCount; idx++) {
@@ -2130,6 +2867,19 @@ static CXBool XNetWriteVertexAttributes(FILE *file, const XNetAttributeViewList 
 					}
 					uint64_t value = values[(size_t)original * view->attribute->dimension + d];
 					fprintf(file, "%" PRIu64, value);
+				}
+				fputc('\n', file);
+			}
+		} else if (view->base == XNetBaseCategory) {
+			int32_t *values = (int32_t *)view->attribute->data;
+			for (CXSize idx = 0; idx < nodeCount; idx++) {
+				CXIndex original = activeNodes[idx];
+				for (CXSize d = 0; d < view->dimension; d++) {
+					if (d > 0) {
+						fputc(' ', file);
+					}
+					int32_t value = values[(size_t)original * view->attribute->dimension + d];
+					fprintf(file, "%" PRId32, value);
 				}
 				fputc('\n', file);
 			}
@@ -2147,6 +2897,9 @@ static CXBool XNetWriteEdgeAttributes(FILE *file, const XNetAttributeViewList *a
 			return CXFalse;
 		}
 		fprintf(file, "#e \"%s\" %s\n", view->name, typeStr);
+		if (!XNetWriteCategoryDictionary(file, view, XNetScopeEdge)) {
+			return CXFalse;
+		}
 		if (view->base == XNetBaseString) {
 			CXString *values = (CXString *)view->attribute->data;
 			for (CXSize idx = 0; idx < edgeCount; idx++) {
@@ -2220,6 +2973,19 @@ static CXBool XNetWriteEdgeAttributes(FILE *file, const XNetAttributeViewList *a
 				}
 				fputc('\n', file);
 			}
+		} else if (view->base == XNetBaseCategory) {
+			int32_t *values = (int32_t *)view->attribute->data;
+			for (CXSize idx = 0; idx < edgeCount; idx++) {
+				CXIndex original = edgeOrder[idx];
+				for (CXSize d = 0; d < view->dimension; d++) {
+					if (d > 0) {
+						fputc(' ', file);
+					}
+					int32_t value = values[(size_t)original * view->attribute->dimension + d];
+					fprintf(file, "%" PRId32, value);
+				}
+				fputc('\n', file);
+			}
 		}
 	}
 	return CXTrue;
@@ -2234,6 +3000,9 @@ static CXBool XNetWriteGraphAttributes(FILE *file, const XNetAttributeViewList *
 			return CXFalse;
 		}
 		fprintf(file, "#g \"%s\" %s\n", view->name, typeStr);
+		if (!XNetWriteCategoryDictionary(file, view, XNetScopeGraph)) {
+			return CXFalse;
+		}
 		if (view->base == XNetBaseString) {
 			CXString *value = (CXString *)view->attribute->data;
 			XNetWriteEscapedString(file, value && value[0] ? value[0] : "");
@@ -2281,6 +3050,15 @@ static CXBool XNetWriteGraphAttributes(FILE *file, const XNetAttributeViewList *
 					fputc(' ', file);
 				}
 				fprintf(file, "%" PRIu64, value[d]);
+			}
+			fputc('\n', file);
+		} else if (view->base == XNetBaseCategory) {
+			int32_t *value = (int32_t *)view->attribute->data;
+			for (CXSize d = 0; d < view->dimension; d++) {
+				if (d > 0) {
+					fputc(' ', file);
+				}
+				fprintf(file, "%" PRId32, value[d]);
 			}
 			fputc('\n', file);
 		}

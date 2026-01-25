@@ -28,6 +28,12 @@
 - Added native and WASM test coverage for array sorting helpers and index-paired variants.
 - Added a natural-order string comparator for categorical-style sorting (numeric-aware string ordering) with native tests.
 
+## 2026-01-24
+
+- Added categorical attribute dictionaries to XNET and BXNET/ZXNET serialization, including dictionary stanzas in XNET and dictionary blocks in the binary formats.
+- Categorical codes are now signed 32-bit integers; `-1` is treated as the missing-value sentinel.
+- Legacy XNET loader now recognizes `__category` string attributes and converts them into categorical attributes sorted by frequency; the `__NA__` label maps to id `-1`.
+
 ## 2026-01-02
 
 - Added `getBufferMemoryUsage()` to report WASM buffer memory usage (topology buffers including node/edge free lists, sparse attributes, dense buffers) plus total WASM heap size.

@@ -2,4 +2,4 @@
  * Primary entry that re-exports the Helios network API.
  * Consumers can import directly from `helios-network`.
  */
-export { default, AttributeType, DenseColorEncodingFormat, getHeliosModule, NodeSelector, EdgeSelector } from './js/HeliosNetwork.js';
+export { default, AttributeType, CategorySortOrder, DenseColorEncodingFormat, getHeliosModule, NodeSelector, EdgeSelector } from './js/HeliosNetwork.js';

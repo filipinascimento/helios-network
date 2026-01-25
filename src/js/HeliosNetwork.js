@@ -26,6 +26,13 @@ const DenseColorEncodingFormat = Object.freeze({
 	Uint32x4: 1,
 });
 
+const CategorySortOrder = Object.freeze({
+	None: 0,
+	Frequency: 1,
+	Alphabetical: 2,
+	Natural: 3,
+});
+
 /**
  * Cached WASM module promise and resolved instance.
  * @type {Promise<object>|null}
@@ -92,7 +99,7 @@ const TypedArrayForType = {
 	[AttributeType.Double]: Float64Array,
 	[AttributeType.Integer]: Int32Array,
 	[AttributeType.UnsignedInteger]: Uint32Array,
-	[AttributeType.Category]: Uint32Array,
+	[AttributeType.Category]: Int32Array,
 	[AttributeType.BigInteger]: BigInt64Array,
 	[AttributeType.UnsignedBigInteger]: BigUint64Array,
 };
@@ -4122,6 +4129,66 @@ export class HeliosNetwork extends BaseEventTarget {
 	}
 
 	/**
+	 * Converts a string node attribute into categorical codes.
+	 *
+	 * @param {string} name - Attribute identifier.
+	 * @param {{sortOrder?: CategorySortOrder|string, missingLabel?: string}} [options] - Categorization options.
+	 */
+	categorizeNodeAttribute(name, options) {
+		this._categorizeAttribute('node', name, options);
+	}
+
+	/**
+	 * Converts a string edge attribute into categorical codes.
+	 *
+	 * @param {string} name - Attribute identifier.
+	 * @param {{sortOrder?: CategorySortOrder|string, missingLabel?: string}} [options] - Categorization options.
+	 */
+	categorizeEdgeAttribute(name, options) {
+		this._categorizeAttribute('edge', name, options);
+	}
+
+	/**
+	 * Converts a string network attribute into categorical codes.
+	 *
+	 * @param {string} name - Attribute identifier.
+	 * @param {{sortOrder?: CategorySortOrder|string, missingLabel?: string}} [options] - Categorization options.
+	 */
+	categorizeNetworkAttribute(name, options) {
+		this._categorizeAttribute('network', name, options);
+	}
+
+	/**
+	 * Converts a categorical node attribute back into strings.
+	 *
+	 * @param {string} name - Attribute identifier.
+	 * @param {{missingLabel?: string}} [options] - Decategorization options.
+	 */
+	decategorizeNodeAttribute(name, options) {
+		this._decategorizeAttribute('node', name, options);
+	}
+
+	/**
+	 * Converts a categorical edge attribute back into strings.
+	 *
+	 * @param {string} name - Attribute identifier.
+	 * @param {{missingLabel?: string}} [options] - Decategorization options.
+	 */
+	decategorizeEdgeAttribute(name, options) {
+		this._decategorizeAttribute('edge', name, options);
+	}
+
+	/**
+	 * Converts a categorical network attribute back into strings.
+	 *
+	 * @param {string} name - Attribute identifier.
+	 * @param {{missingLabel?: string}} [options] - Decategorization options.
+	 */
+	decategorizeNetworkAttribute(name, options) {
+		this._decategorizeAttribute('network', name, options);
+	}
+
+	/**
 	 * Lists all node attribute names currently registered on the network.
 	 * @returns {string[]} Node attribute identifiers.
 	 */
@@ -4695,6 +4762,13 @@ export class HeliosNetwork extends BaseEventTarget {
 		}
 	}
 
+	_scopeId(scope) {
+		if (scope === 'node') return 0;
+		if (scope === 'edge') return 1;
+		if (scope === 'network') return 2;
+		throw new Error(`Unknown attribute scope "${scope}"`);
+	}
+
 	_colorEncodedRegistry(scope) {
 		if (scope === 'node') return this._denseColorNodeAttributes;
 		if (scope === 'edge') return this._denseColorEdgeAttributes;
@@ -4724,6 +4798,84 @@ export class HeliosNetwork extends BaseEventTarget {
 			return DenseColorEncodingFormat.Uint8x4;
 		}
 		return DenseColorEncodingFormat.Uint8x4;
+	}
+
+	_normalizeCategorySortOrder(value) {
+		if (typeof value === 'number' && Number.isFinite(value)) {
+			return value;
+		}
+		if (typeof value === 'string') {
+			const normalized = value.trim().toLowerCase();
+			if (normalized === 'frequency') return CategorySortOrder.Frequency;
+			if (normalized === 'alphabetical' || normalized === 'alpha') return CategorySortOrder.Alphabetical;
+			if (normalized === 'natural') return CategorySortOrder.Natural;
+		}
+		return CategorySortOrder.None;
+	}
+
+	_categorizeAttribute(scope, name, options) {
+		this._assertCanAllocate(`categorize ${scope} attribute`);
+		this._ensureActive();
+		const meta = this._ensureAttributeMetadata(scope, name);
+		if (!meta || meta.type !== AttributeType.String) {
+			throw new Error(`Attribute "${name}" on ${scope} is not a string attribute`);
+		}
+		const categorizeFn = this.module._CXNetworkCategorizeAttribute;
+		if (typeof categorizeFn !== 'function') {
+			throw new Error('Categorical helpers are unavailable in this WASM build');
+		}
+		const sortOrder = this._normalizeCategorySortOrder(options?.sortOrder);
+		const missingLabel = options?.missingLabel ?? '__NA__';
+		const nameCstr = new CString(this.module, name);
+		const missingCstr = missingLabel != null ? new CString(this.module, missingLabel) : null;
+		let ok = false;
+		try {
+			ok = categorizeFn.call(this.module, this.ptr, this._scopeId(scope), nameCstr.ptr, sortOrder, missingCstr ? missingCstr.ptr : 0);
+		} finally {
+			nameCstr.dispose();
+			if (missingCstr) missingCstr.dispose();
+		}
+		if (!ok) {
+			throw new Error(`Failed to categorize ${scope} attribute "${name}"`);
+		}
+		meta.type = AttributeType.Category;
+		meta.dimension = 1;
+		meta.stride = this.module._CXAttributeStride(meta.attributePtr);
+		meta.complex = false;
+		if (meta.stringPointers) {
+			meta.stringPointers.clear();
+		}
+	}
+
+	_decategorizeAttribute(scope, name, options) {
+		this._assertCanAllocate(`decategorize ${scope} attribute`);
+		this._ensureActive();
+		const meta = this._ensureAttributeMetadata(scope, name);
+		if (!meta || meta.type !== AttributeType.Category) {
+			throw new Error(`Attribute "${name}" on ${scope} is not a categorical attribute`);
+		}
+		const decategorizeFn = this.module._CXNetworkDecategorizeAttribute;
+		if (typeof decategorizeFn !== 'function') {
+			throw new Error('Categorical helpers are unavailable in this WASM build');
+		}
+		const missingLabel = options?.missingLabel ?? '__NA__';
+		const nameCstr = new CString(this.module, name);
+		const missingCstr = missingLabel != null ? new CString(this.module, missingLabel) : null;
+		let ok = false;
+		try {
+			ok = decategorizeFn.call(this.module, this.ptr, this._scopeId(scope), nameCstr.ptr, missingCstr ? missingCstr.ptr : 0);
+		} finally {
+			nameCstr.dispose();
+			if (missingCstr) missingCstr.dispose();
+		}
+		if (!ok) {
+			throw new Error(`Failed to decategorize ${scope} attribute "${name}"`);
+		}
+		meta.type = AttributeType.String;
+		meta.dimension = 1;
+		meta.stride = this.module._CXAttributeStride(meta.attributePtr);
+		meta.complex = true;
+		meta.stringPointers = new Map();
 	}
 
 	_defineDenseColorEncodedAttribute(scope, sourceName, encodedName, options) {
@@ -6226,5 +6378,5 @@ export class HeliosNetwork extends BaseEventTarget {
 
 HeliosNetwork.EVENTS = HELIOS_NETWORK_EVENTS;
 
-export { AttributeType, DenseColorEncodingFormat, NodeSelector, EdgeSelector, getModule as getHeliosModule };
+export { AttributeType, CategorySortOrder, DenseColorEncodingFormat, NodeSelector, EdgeSelector, getModule as getHeliosModule };
 export default HeliosNetwork;

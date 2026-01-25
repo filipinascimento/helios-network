@@ -5,6 +5,7 @@
 static const CXIndex CXInvalidIndexValue = CXIndexMAX;
 static const char kCXNetworkVersionString[] = CXNETWORK_VERSION_STRING;
 static const uint64_t kCXMaxVersionValue = 9007199254740991ULL; /* Number.MAX_SAFE_INTEGER */
+static const char kCXCategoryMissingLabel[] = "__NA__";
 
 const char* CXNetworkVersionString(void) {
 	return kCXNetworkVersionString;
@@ -111,7 +112,7 @@ static CXBool CXAttributeComputeLayout(
 			baseSize = sizeof(double);
 			break;
 		case CXDataAttributeCategoryType:
-			baseSize = sizeof(uint32_t);
+			baseSize = sizeof(int32_t);
 			break;
 		case CXDataAttributeType:
 			baseSize = sizeof(uintptr_t);
@@ -229,6 +230,57 @@ static void CXNetworkBumpAttributeDictionaryVersions(CXStringDictionaryRef dicti
 		if (attribute) {
 			CXVersionBump(&attribute->version);
 		}
+	}
+}
+
+static void* CXCategoryDictionaryEncodeId(int32_t id) {
+	uint32_t raw = (uint32_t)id;
+	return (void *)(uintptr_t)(raw + 1u);
+}
+
+static CXBool CXCategoryDictionaryDecodeId(const void *data, int32_t *outId) {
+	if (!outId) {
+		return CXFalse;
+	}
+	uintptr_t raw = (uintptr_t)data;
+	if (raw == 0) {
+		return CXFalse;
+	}
+	*outId = (int32_t)(uint32_t)(raw - 1u);
+	return CXTrue;
+}
+
+static CXAttributeRef CXNetworkGetAttributeForScope(CXNetworkRef network, CXAttributeScope scope, const CXString name) {
+	if (!network || !name) {
+		return NULL;
+	}
+	switch (scope) {
+		case CXAttributeScopeNode:
+			return CXNetworkGetNodeAttribute(network, name);
+		case CXAttributeScopeEdge:
+			return CXNetworkGetEdgeAttribute(network, name);
+		case CXAttributeScopeNetwork:
+			return CXNetworkGetNetworkAttribute(network, name);
+		default:
+			return NULL;
+	}
+}
+
+static void CXNetworkRemoveDenseForScope(CXNetworkRef network, CXAttributeScope scope, const CXString name) {
+	if (!network || !name) {
+		return;
+	}
+	switch (scope) {
+		case CXAttributeScopeNode:
+			CXNetworkRemoveDenseNodeAttribute(network, name);
+			break;
+		case CXAttributeScopeEdge:
+			CXNetworkRemoveDenseEdgeAttribute(network, name);
+			break;
+		case CXAttributeScopeNetwork:
+			break;
+		default:
+			break;
 	}
 }
 
@@ -1896,6 +1948,396 @@ CXAttributeRef CXNetworkGetEdgeAttribute(CXNetworkRef network, const CXString na
 /** Retrieves the network-level attribute descriptor for the supplied name. */
 CXAttributeRef CXNetworkGetNetworkAttribute(CXNetworkRef network, const CXString name) {
 	return network ? CXNetworkGetAttribute(network->networkAttributes, name) : NULL;
+}
+
+CXStringDictionaryRef CXNetworkGetAttributeCategoryDictionary(CXNetworkRef network, CXAttributeScope scope, const CXString name) {
+	CXAttributeRef attr = CXNetworkGetAttributeForScope(network, scope, name);
+	return attr ? attr->categoricalDictionary : NULL;
+}
+
+typedef struct {
+	const char *label;
+	uint32_t count;
+	CXSize order;
+} CXCategoryEntryInfo;
+
+static int CXCategoryEntryCompareFrequency(const void *lhs, const void *rhs) {
+	const CXCategoryEntryInfo *a = (const CXCategoryEntryInfo *)lhs;
+	const CXCategoryEntryInfo *b = (const CXCategoryEntryInfo *)rhs;
+	if (a->count > b->count) {
+		return -1;
+	}
+	if (a->count < b->count) {
+		return 1;
+	}
+	if (!a->label || !b->label) {
+		return 0;
+	}
+	return strcmp(a->label, b->label);
+}
+
+static int CXCategoryEntryCompareAlphabetical(const void *lhs, const void *rhs) {
+	const CXCategoryEntryInfo *a = (const CXCategoryEntryInfo *)lhs;
+	const CXCategoryEntryInfo *b = (const CXCategoryEntryInfo *)rhs;
+	if (!a->label && !b->label) {
+		return 0;
+	}
+	if (!a->label) {
+		return -1;
+	}
+	if (!b->label) {
+		return 1;
+	}
+	return strcmp(a->label, b->label);
+}
+
+static int CXCategoryEntryCompareNatural(const void *lhs, const void *rhs) {
+	const CXCategoryEntryInfo *a = (const CXCategoryEntryInfo *)lhs;
+	const CXCategoryEntryInfo *b = (const CXCategoryEntryInfo *)rhs;
+	return CXStringCompareNatural(a->label, b->label);
+}
+
+static CXBool CXCategoryEntryListEnsure(CXCategoryEntryInfo **items, CXSize *capacity, CXSize required) {
+	if (!items || !capacity) {
+		return CXFalse;
+	}
+	if (*capacity >= required) {
+		return CXTrue;
+	}
+	CXSize newCapacity = *capacity > 0 ? *capacity : 4;
+	while (newCapacity < required) {
+		newCapacity = CXCapacityGrow(newCapacity);
+		if (newCapacity < required) {
+			newCapacity = required;
+			break;
+		}
+	}
+	CXCategoryEntryInfo *next = realloc(*items, newCapacity * sizeof(CXCategoryEntryInfo));
+	if (!next) {
+		return CXFalse;
+	}
+	for (CXSize i = *capacity; i < newCapacity; i++) {
+		next[i].label = NULL;
+		next[i].count = 0;
+		next[i].order = 0;
+	}
+	*items = next;
+	*capacity = newCapacity;
+	return CXTrue;
+}
+
+CXBool CXNetworkSetAttributeCategoryDictionary(
+	CXNetworkRef network,
+	CXAttributeScope scope,
+	const CXString name,
+	const CXString *labels,
+	const int32_t *ids,
+	CXSize count,
+	CXBool remapExisting
+) {
+	if (!network || !name) {
+		return CXFalse;
+	}
+	CXAttributeRef attr = CXNetworkGetAttributeForScope(network, scope, name);
+	if (!attr || attr->type != CXDataAttributeCategoryType) {
+		return CXFalse;
+	}
+	if (!attr->categoricalDictionary) {
+		attr->categoricalDictionary = CXNewStringDictionary();
+		if (!attr->categoricalDictionary) {
+			return CXFalse;
+		}
+	}
+
+	CXIntegerDictionaryRef oldIdMap = NULL;
+	CXString *oldLabels = NULL;
+	CXSize oldLabelCount = 0;
+	if (remapExisting && attr->categoricalDictionary) {
+		oldIdMap = CXNewIntegerDictionary();
+		if (!oldIdMap) {
+			return CXFalse;
+		}
+		CXStringDictionaryFOR(entry, attr->categoricalDictionary) {
+			int32_t id = 0;
+			if (!CXCategoryDictionaryDecodeId(entry->data, &id)) {
+				continue;
+			}
+			CXString copy = CXNewStringFromString(entry->key);
+			if (!copy) {
+				CXIntegerDictionaryDestroy(oldIdMap);
+				return CXFalse;
+			}
+			oldLabels = realloc(oldLabels, sizeof(CXString) * (oldLabelCount + 1));
+			if (!oldLabels) {
+				free(copy);
+				CXIntegerDictionaryDestroy(oldIdMap);
+				return CXFalse;
+			}
+			oldLabels[oldLabelCount++] = copy;
+			CXIntegerDictionarySetEntry(oldIdMap, id, copy);
+		}
+	}
+
+	CXStringDictionaryClear(attr->categoricalDictionary);
+	for (CXSize idx = 0; idx < count; idx++) {
+		const char *label = labels ? labels[idx] : NULL;
+		if (!label) {
+			continue;
+		}
+		int32_t id = ids ? ids[idx] : (int32_t)idx;
+		CXStringDictionarySetEntry(attr->categoricalDictionary, label, CXCategoryDictionaryEncodeId(id));
+	}
+
+	if (remapExisting && oldIdMap) {
+		int32_t *codes = (int32_t *)attr->data;
+		if (codes) {
+			for (CXSize idx = 0; idx < attr->capacity * attr->dimension; idx++) {
+				int32_t code = codes[idx];
+				if (code < 0) {
+					continue;
+				}
+				CXString oldLabel = (CXString)CXIntegerDictionaryEntryForKey(oldIdMap, code);
+				if (!oldLabel) {
+					codes[idx] = -1;
+					continue;
+				}
+				void *newEntry = CXStringDictionaryEntryForKey(attr->categoricalDictionary, oldLabel);
+				int32_t newId = 0;
+				if (!newEntry || !CXCategoryDictionaryDecodeId(newEntry, &newId)) {
+					codes[idx] = -1;
+				} else {
+					codes[idx] = newId;
+				}
+			}
+		}
+		for (CXSize idx = 0; idx < oldLabelCount; idx++) {
+			free(oldLabels[idx]);
+		}
+		free(oldLabels);
+		CXIntegerDictionaryDestroy(oldIdMap);
+	}
+
+	CXVersionBump(&attr->version);
+	return CXTrue;
+}
+
+CXBool CXNetworkCategorizeAttribute(CXNetworkRef network, CXAttributeScope scope, const CXString name, CXCategorySortOrder sortOrder, const CXString missingLabel) {
+	if (!network || !name) {
+		return CXFalse;
+	}
+	CXAttributeRef attr = CXNetworkGetAttributeForScope(network, scope, name);
+	if (!attr || attr->type != CXStringAttributeType || attr->dimension != 1) {
+		return CXFalse;
+	}
+	const char *missing = missingLabel ? missingLabel : kCXCategoryMissingLabel;
+	CXSize elementCount = attr->capacity * attr->dimension;
+	CXString *values = (CXString *)attr->data;
+	if (elementCount > 0 && !values) {
+		return CXFalse;
+	}
+
+	CXStringDictionaryRef map = CXNewStringDictionary();
+	if (!map) {
+		return CXFalse;
+	}
+	CXCategoryEntryInfo *entries = NULL;
+	CXSize entryCount = 0;
+	CXSize entryCapacity = 0;
+	CXBool hasMissing = CXFalse;
+
+	for (CXSize idx = 0; idx < elementCount; idx++) {
+		CXString value = values ? values[idx] : NULL;
+		if (!value || value[0] == '\0' || (missing && strcmp(value, missing) == 0)) {
+			hasMissing = CXTrue;
+			continue;
+		}
+		void *stored = CXStringDictionaryEntryForKey(map, value);
+		if (stored) {
+			CXSize entryIndex = (CXSize)((uintptr_t)stored - 1u);
+			if (entryIndex < entryCount) {
+				entries[entryIndex].count++;
+			}
+			continue;
+		}
+		if (!CXCategoryEntryListEnsure(&entries, &entryCapacity, entryCount + 1)) {
+			CXStringDictionaryDestroy(map);
+			free(entries);
+			return CXFalse;
+		}
+		entries[entryCount].label = value;
+		entries[entryCount].count = 1;
+		entries[entryCount].order = entryCount;
+		CXStringDictionarySetEntry(map, value, (void *)(uintptr_t)(entryCount + 1u));
+		entryCount++;
+	}
+
+	if (entryCount > 1) {
+		switch (sortOrder) {
+			case CX_CATEGORY_SORT_FREQUENCY:
+				qsort(entries, entryCount, sizeof(CXCategoryEntryInfo), CXCategoryEntryCompareFrequency);
+				break;
+			case CX_CATEGORY_SORT_ALPHABETICAL:
+				qsort(entries, entryCount, sizeof(CXCategoryEntryInfo), CXCategoryEntryCompareAlphabetical);
+				break;
+			case CX_CATEGORY_SORT_NATURAL:
+				qsort(entries, entryCount, sizeof(CXCategoryEntryInfo), CXCategoryEntryCompareNatural);
+				break;
+			case CX_CATEGORY_SORT_NONE:
+			default:
+				break;
+		}
+	}
+
+	int32_t *codes = calloc(elementCount > 0 ? elementCount : 1, sizeof(int32_t));
+	if (!codes) {
+		CXStringDictionaryDestroy(map);
+		free(entries);
+		return CXFalse;
+	}
+
+	if (!attr->categoricalDictionary) {
+		attr->categoricalDictionary = CXNewStringDictionary();
+		if (!attr->categoricalDictionary) {
+			CXStringDictionaryDestroy(map);
+			free(entries);
+			free(codes);
+			return CXFalse;
+		}
+	} else {
+		CXStringDictionaryClear(attr->categoricalDictionary);
+	}
+
+	if (hasMissing && missing) {
+		CXStringDictionarySetEntry(attr->categoricalDictionary, missing, CXCategoryDictionaryEncodeId(-1));
+	}
+
+	for (CXSize idx = 0; idx < entryCount; idx++) {
+		int32_t id = (int32_t)idx;
+		CXStringDictionarySetEntry(attr->categoricalDictionary, entries[idx].label, CXCategoryDictionaryEncodeId(id));
+	}
+
+	for (CXSize idx = 0; idx < elementCount; idx++) {
+		CXString value = values ? values[idx] : NULL;
+		if (!value || value[0] == '\0' || (missing && strcmp(value, missing) == 0)) {
+			codes[idx] = -1;
+			continue;
+		}
+		void *stored = CXStringDictionaryEntryForKey(attr->categoricalDictionary, value);
+		int32_t id = 0;
+		if (!stored || !CXCategoryDictionaryDecodeId(stored, &id)) {
+			codes[idx] = -1;
+		} else {
+			codes[idx] = id;
+		}
+	}
+
+	for (CXSize idx = 0; idx < elementCount; idx++) {
+		if (values && values[idx]) {
+			free(values[idx]);
+			values[idx] = NULL;
+		}
+	}
+	free(attr->data);
+
+	CXSize elementSize = 0;
+	CXSize stride = 0;
+	CXBool usesJavascriptShadow = CXFalse;
+	if (!CXAttributeComputeLayout(CXDataAttributeCategoryType, 1, &elementSize, &stride, &usesJavascriptShadow)) {
+		CXStringDictionaryDestroy(map);
+		free(entries);
+		free(codes);
+		return CXFalse;
+	}
+	attr->type = CXDataAttributeCategoryType;
+	attr->dimension = 1;
+	attr->elementSize = elementSize;
+	attr->stride = stride;
+	attr->usesJavascriptShadow = usesJavascriptShadow;
+	attr->data = (uint8_t *)codes;
+
+	CXNetworkRemoveDenseForScope(network, scope, name);
+	CXVersionBump(&attr->version);
+
+	CXStringDictionaryDestroy(map);
+	free(entries);
+	return CXTrue;
+}
+
+CXBool CXNetworkDecategorizeAttribute(CXNetworkRef network, CXAttributeScope scope, const CXString name, const CXString missingLabel) {
+	if (!network || !name) {
+		return CXFalse;
+	}
+	CXAttributeRef attr = CXNetworkGetAttributeForScope(network, scope, name);
+	if (!attr || attr->type != CXDataAttributeCategoryType || attr->dimension != 1) {
+		return CXFalse;
+	}
+	const char *missing = missingLabel ? missingLabel : kCXCategoryMissingLabel;
+	CXSize elementCount = attr->capacity * attr->dimension;
+	int32_t *codes = (int32_t *)attr->data;
+	if (elementCount > 0 && !codes) {
+		return CXFalse;
+	}
+
+	CXIntegerDictionaryRef idMap = CXNewIntegerDictionary();
+	if (!idMap) {
+		return CXFalse;
+	}
+	if (attr->categoricalDictionary) {
+		CXStringDictionaryFOR(entry, attr->categoricalDictionary) {
+			int32_t id = 0;
+			if (!CXCategoryDictionaryDecodeId(entry->data, &id)) {
+				continue;
+			}
+			CXIntegerDictionarySetEntry(idMap, id, entry->key);
+		}
+	}
+
+	CXString *strings = calloc(elementCount > 0 ? elementCount : 1, sizeof(CXString));
+	if (!strings) {
+		CXIntegerDictionaryDestroy(idMap);
+		return CXFalse;
+	}
+
+	for (CXSize idx = 0; idx < elementCount; idx++) {
+		int32_t code = codes ? codes[idx] : -1;
+		const char *label = NULL;
+		if (code < 0) {
+			label = missing ? missing : (const char *)CXIntegerDictionaryEntryForKey(idMap, code);
+		} else {
+			label = (const char *)CXIntegerDictionaryEntryForKey(idMap, code);
+		}
+		if (label) {
+			strings[idx] = CXNewStringFromString(label);
+		} else {
+			strings[idx] = NULL;
+		}
+	}
+
+	free(attr->data);
+	attr->data = (uint8_t *)strings;
+
+	CXSize elementSize = 0;
+	CXSize stride = 0;
+	CXBool usesJavascriptShadow = CXFalse;
+	if (!CXAttributeComputeLayout(CXStringAttributeType, 1, &elementSize, &stride, &usesJavascriptShadow)) {
+		CXIntegerDictionaryDestroy(idMap);
+		return CXFalse;
+	}
+	attr->type = CXStringAttributeType;
+	attr->dimension = 1;
+	attr->elementSize = elementSize;
+	attr->stride = stride;
+	attr->usesJavascriptShadow = usesJavascriptShadow;
+
+	if (attr->categoricalDictionary) {
+		CXStringDictionaryDestroy(attr->categoricalDictionary);
+		attr->categoricalDictionary = NULL;
+	}
+
+	CXNetworkRemoveDenseForScope(network, scope, name);
+	CXVersionBump(&attr->version);
+	CXIntegerDictionaryDestroy(idMap);
+	return CXTrue;
 }
 
 /** Returns a pointer to the raw node attribute buffer, or NULL when missing. */

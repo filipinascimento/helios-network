@@ -41,6 +41,23 @@ static void release_all_string_attributes(CXNetworkRef net) {
 	}
 }
 
+static CXBool lookup_category_id(CXStringDictionaryRef dictionary, const char *label, int32_t *outId) {
+	if (!dictionary || !label || !outId) {
+		return CXFalse;
+	}
+	CXStringDictionaryFOR(entry, dictionary) {
+		if (entry->key && strcmp(entry->key, label) == 0) {
+			uintptr_t raw = (uintptr_t)entry->data;
+			if (raw == 0) {
+				return CXFalse;
+			}
+			*outId = (int32_t)(uint32_t)(raw - 1u);
+			return CXTrue;
+		}
+	}
+	return CXFalse;
+}
+
 static void test_basic_network(void) {
 	CXNetworkRef net = CXNewNetwork(CXTrue);
 	assert(net);
@@ -614,6 +631,203 @@ static void test_xnet_round_trip(void) {
 	CXFreeNetwork(loaded);
 }
 
+static void test_categorical_helpers(void) {
+	CXNetworkRef net = CXNewNetwork(CXFalse);
+	assert(net);
+
+	CXIndex nodes[3];
+	assert(CXNetworkAddNodes(net, 3, nodes));
+	assert(CXNetworkDefineNodeAttribute(net, "group", CXStringAttributeType, 1));
+
+	CXString *values = (CXString *)CXNetworkGetNodeAttributeBuffer(net, "group");
+	values[nodes[0]] = CXNewStringFromString("alpha");
+	values[nodes[1]] = CXNewStringFromString("");
+	values[nodes[2]] = CXNewStringFromString("__NA__");
+
+	assert(CXNetworkCategorizeAttribute(net, CXAttributeScopeNode, "group", CX_CATEGORY_SORT_FREQUENCY, "__NA__"));
+	CXAttributeRef attr = CXNetworkGetNodeAttribute(net, "group");
+	assert(attr && attr->type == CXDataAttributeCategoryType);
+	int32_t *codes = (int32_t *)CXNetworkGetNodeAttributeBuffer(net, "group");
+	assert(codes);
+	assert(codes[nodes[0]] >= 0);
+	assert(codes[nodes[1]] == -1);
+	assert(codes[nodes[2]] == -1);
+
+	assert(CXNetworkDecategorizeAttribute(net, CXAttributeScopeNode, "group", "__NA__"));
+	CXString *restored = (CXString *)CXNetworkGetNodeAttributeBuffer(net, "group");
+	assert(restored);
+	assert(strcmp(restored[nodes[0]], "alpha") == 0);
+	assert(strcmp(restored[nodes[1]], "__NA__") == 0);
+	assert(strcmp(restored[nodes[2]], "__NA__") == 0);
+
+	release_all_string_attributes(net);
+	CXFreeNetwork(net);
+}
+
+static void test_categorical_serialization(void) {
+	CXNetworkRef net = CXNewNetwork(CXFalse);
+	assert(net);
+
+	CXIndex nodes[3];
+	assert(CXNetworkAddNodes(net, 3, nodes));
+
+	CXEdge edges[2] = {
+		{ .from = nodes[0], .to = nodes[1] },
+		{ .from = nodes[1], .to = nodes[2] },
+	};
+	CXIndex edgeIds[2];
+	assert(CXNetworkAddEdges(net, edges, 2, edgeIds));
+
+	assert(CXNetworkDefineNodeAttribute(net, "kind", CXDataAttributeCategoryType, 1));
+	int32_t *kinds = (int32_t *)CXNetworkGetNodeAttributeBuffer(net, "kind");
+	assert(kinds);
+	kinds[nodes[0]] = 0;
+	kinds[nodes[1]] = 2;
+	kinds[nodes[2]] = 0;
+	CXAttributeRef kindAttr = CXNetworkGetNodeAttribute(net, "kind");
+	assert(kindAttr && kindAttr->categoricalDictionary);
+	CXStringDictionarySetEntry(kindAttr->categoricalDictionary, "Apple", (void *)(uintptr_t)((uint32_t)0 + 1u));
+	CXStringDictionarySetEntry(kindAttr->categoricalDictionary, "Banana", (void *)(uintptr_t)((uint32_t)2 + 1u));
+
+	assert(CXNetworkDefineEdgeAttribute(net, "etype", CXDataAttributeCategoryType, 1));
+	int32_t *etypes = (int32_t *)CXNetworkGetEdgeAttributeBuffer(net, "etype");
+	assert(etypes);
+	etypes[edgeIds[0]] = 1;
+	etypes[edgeIds[1]] = 3;
+	CXAttributeRef etypeAttr = CXNetworkGetEdgeAttribute(net, "etype");
+	assert(etypeAttr && etypeAttr->categoricalDictionary);
+	CXStringDictionarySetEntry(etypeAttr->categoricalDictionary, "Fast", (void *)(uintptr_t)((uint32_t)1 + 1u));
+	CXStringDictionarySetEntry(etypeAttr->categoricalDictionary, "Slow", (void *)(uintptr_t)((uint32_t)3 + 1u));
+
+	assert(CXNetworkDefineNetworkAttribute(net, "family", CXDataAttributeCategoryType, 1));
+	int32_t *family = (int32_t *)CXNetworkGetNetworkAttributeBuffer(net, "family");
+	assert(family);
+	family[0] = 7;
+	CXAttributeRef familyAttr = CXNetworkGetNetworkAttribute(net, "family");
+	assert(familyAttr && familyAttr->categoricalDictionary);
+	CXStringDictionarySetEntry(familyAttr->categoricalDictionary, "Group7", (void *)(uintptr_t)((uint32_t)7 + 1u));
+
+	char xnetPath[] = "/tmp/cxnet-cat-XXXXXX";
+	int xnetFd = mkstemp(xnetPath);
+	assert(xnetFd >= 0);
+	close(xnetFd);
+	assert(CXNetworkWriteXNet(net, xnetPath));
+	CXNetworkRef xnetLoaded = CXNetworkReadXNet(xnetPath);
+	assert(xnetLoaded);
+	unlink(xnetPath);
+
+	CXAttributeRef loadedKind = CXNetworkGetNodeAttribute(xnetLoaded, "kind");
+	assert(loadedKind && loadedKind->categoricalDictionary);
+	assert(CXStringDictionaryCount(loadedKind->categoricalDictionary) == 2);
+	int32_t id = 0;
+	assert(lookup_category_id(loadedKind->categoricalDictionary, "Apple", &id) && id == 0);
+	assert(lookup_category_id(loadedKind->categoricalDictionary, "Banana", &id) && id == 2);
+	int32_t *loadedKinds = (int32_t *)CXNetworkGetNodeAttributeBuffer(xnetLoaded, "kind");
+	assert(loadedKinds);
+	assert(loadedKinds[0] == 0);
+	assert(loadedKinds[1] == 2);
+	assert(loadedKinds[2] == 0);
+
+	CXAttributeRef loadedEtype = CXNetworkGetEdgeAttribute(xnetLoaded, "etype");
+	assert(loadedEtype && loadedEtype->categoricalDictionary);
+	assert(CXStringDictionaryCount(loadedEtype->categoricalDictionary) == 2);
+	assert(lookup_category_id(loadedEtype->categoricalDictionary, "Fast", &id) && id == 1);
+	assert(lookup_category_id(loadedEtype->categoricalDictionary, "Slow", &id) && id == 3);
+	int32_t *loadedEtypes = (int32_t *)CXNetworkGetEdgeAttributeBuffer(xnetLoaded, "etype");
+	assert(loadedEtypes);
+	assert(loadedEtypes[0] == 1);
+	assert(loadedEtypes[1] == 3);
+
+	CXAttributeRef loadedFamily = CXNetworkGetNetworkAttribute(xnetLoaded, "family");
+	assert(loadedFamily && loadedFamily->categoricalDictionary);
+	assert(CXStringDictionaryCount(loadedFamily->categoricalDictionary) == 1);
+	assert(lookup_category_id(loadedFamily->categoricalDictionary, "Group7", &id) && id == 7);
+	int32_t *loadedFamilyValues = (int32_t *)CXNetworkGetNetworkAttributeBuffer(xnetLoaded, "family");
+	assert(loadedFamilyValues && loadedFamilyValues[0] == 7);
+
+	release_all_string_attributes(xnetLoaded);
+	CXFreeNetwork(xnetLoaded);
+
+	char bxPath[] = "/tmp/cxnet-cat-bx-XXXXXX";
+	int bxFd = mkstemp(bxPath);
+	assert(bxFd >= 0);
+	close(bxFd);
+	assert(CXNetworkWriteBXNet(net, bxPath));
+	CXNetworkRef bxLoaded = CXNetworkReadBXNet(bxPath);
+	assert(bxLoaded);
+	unlink(bxPath);
+
+	CXAttributeRef bxKind = CXNetworkGetNodeAttribute(bxLoaded, "kind");
+	assert(bxKind && bxKind->categoricalDictionary);
+	assert(CXStringDictionaryCount(bxKind->categoricalDictionary) == 2);
+	assert(lookup_category_id(bxKind->categoricalDictionary, "Apple", &id) && id == 0);
+	assert(lookup_category_id(bxKind->categoricalDictionary, "Banana", &id) && id == 2);
+	int32_t *bxKinds = (int32_t *)CXNetworkGetNodeAttributeBuffer(bxLoaded, "kind");
+	assert(bxKinds);
+	assert(bxKinds[0] == 0);
+	assert(bxKinds[1] == 2);
+	assert(bxKinds[2] == 0);
+
+	CXAttributeRef bxFamily = CXNetworkGetNetworkAttribute(bxLoaded, "family");
+	assert(bxFamily && bxFamily->categoricalDictionary);
+	assert(CXStringDictionaryCount(bxFamily->categoricalDictionary) == 1);
+	assert(lookup_category_id(bxFamily->categoricalDictionary, "Group7", &id) && id == 7);
+	int32_t *bxFamilyValues = (int32_t *)CXNetworkGetNetworkAttributeBuffer(bxLoaded, "family");
+	assert(bxFamilyValues && bxFamilyValues[0] == 7);
+
+	CXAttributeRef bxEtype = CXNetworkGetEdgeAttribute(bxLoaded, "etype");
+	assert(bxEtype && bxEtype->categoricalDictionary);
+	assert(CXStringDictionaryCount(bxEtype->categoricalDictionary) == 2);
+	assert(lookup_category_id(bxEtype->categoricalDictionary, "Fast", &id) && id == 1);
+	assert(lookup_category_id(bxEtype->categoricalDictionary, "Slow", &id) && id == 3);
+	int32_t *bxEtypes = (int32_t *)CXNetworkGetEdgeAttributeBuffer(bxLoaded, "etype");
+	assert(bxEtypes);
+	assert(bxEtypes[0] == 1);
+	assert(bxEtypes[1] == 3);
+
+	CXFreeNetwork(bxLoaded);
+
+	char zxPath[] = "/tmp/cxnet-cat-zx-XXXXXX";
+	int zxFd = mkstemp(zxPath);
+	assert(zxFd >= 0);
+	close(zxFd);
+	assert(CXNetworkWriteZXNet(net, zxPath, 4));
+	CXNetworkRef zxLoaded = CXNetworkReadZXNet(zxPath);
+	assert(zxLoaded);
+	unlink(zxPath);
+
+	CXAttributeRef zxKind = CXNetworkGetNodeAttribute(zxLoaded, "kind");
+	assert(zxKind && zxKind->categoricalDictionary);
+	assert(CXStringDictionaryCount(zxKind->categoricalDictionary) == 2);
+	assert(lookup_category_id(zxKind->categoricalDictionary, "Apple", &id) && id == 0);
+	assert(lookup_category_id(zxKind->categoricalDictionary, "Banana", &id) && id == 2);
+	int32_t *zxKinds = (int32_t *)CXNetworkGetNodeAttributeBuffer(zxLoaded, "kind");
+	assert(zxKinds);
+	assert(zxKinds[0] == 0);
+	assert(zxKinds[1] == 2);
+	assert(zxKinds[2] == 0);
+
+	CXAttributeRef zxFamily = CXNetworkGetNetworkAttribute(zxLoaded, "family");
+	assert(zxFamily && zxFamily->categoricalDictionary);
+	assert(CXStringDictionaryCount(zxFamily->categoricalDictionary) == 1);
+	assert(lookup_category_id(zxFamily->categoricalDictionary, "Group7", &id) && id == 7);
+	int32_t *zxFamilyValues = (int32_t *)CXNetworkGetNetworkAttributeBuffer(zxLoaded, "family");
+	assert(zxFamilyValues && zxFamilyValues[0] == 7);
+
+	CXAttributeRef zxEtype = CXNetworkGetEdgeAttribute(zxLoaded, "etype");
+	assert(zxEtype && zxEtype->categoricalDictionary);
+	assert(CXStringDictionaryCount(zxEtype->categoricalDictionary) == 2);
+	assert(lookup_category_id(zxEtype->categoricalDictionary, "Fast", &id) && id == 1);
+	assert(lookup_category_id(zxEtype->categoricalDictionary, "Slow", &id) && id == 3);
+	int32_t *zxEtypes = (int32_t *)CXNetworkGetEdgeAttributeBuffer(zxLoaded, "etype");
+	assert(zxEtypes);
+	assert(zxEtypes[0] == 1);
+	assert(zxEtypes[1] == 3);
+
+	CXFreeNetwork(zxLoaded);
+	CXFreeNetwork(net);
+}
+
 static void test_xnet_legacy_upgrade(void) {
 	const char *legacy =
 		"#vertices 3\n"
@@ -631,6 +845,10 @@ static void test_xnet_legacy_upgrade(void) {
 		"alpha\n"
 		"beta\n"
 		"gamma\n"
+		"#v \"Group__category\" s\n"
+		"alpha\n"
+		"\"__NA__\"\n"
+		"alpha\n"
 		"#e \"kind\" s\n"
 		"forward\n"
 		"back\n";
@@ -671,6 +889,20 @@ static void test_xnet_legacy_upgrade(void) {
 	assert(edgeKinds);
 	assert(strcmp(edgeKinds[0], "forward") == 0);
 	assert(strcmp(edgeKinds[1], "back") == 0);
+
+	CXAttributeRef groupAttr = CXNetworkGetNodeAttribute(net, "Group");
+	assert(groupAttr);
+	assert(groupAttr->type == CXDataAttributeCategoryType);
+	assert(groupAttr->categoricalDictionary);
+	assert(CXStringDictionaryCount(groupAttr->categoricalDictionary) == 2);
+	int32_t groupId = 0;
+	assert(lookup_category_id(groupAttr->categoricalDictionary, "alpha", &groupId) && groupId == 0);
+	assert(lookup_category_id(groupAttr->categoricalDictionary, "__NA__", &groupId) && groupId == -1);
+	int32_t *groupCodes = (int32_t *)CXNetworkGetNodeAttributeBuffer(net, "Group");
+	assert(groupCodes);
+	assert(groupCodes[0] == 0);
+	assert(groupCodes[1] == -1);
+	assert(groupCodes[2] == 0);
 
 	char upgradePath[] = "/tmp/cxnet-upgrade-XXXXXX";
 	int upgradeFd = mkstemp(upgradePath);
@@ -914,6 +1146,8 @@ int main(void) {
 	test_basic_network();
 	test_attributes();
 	test_xnet_round_trip();
+	test_categorical_serialization();
+	test_categorical_helpers();
 	test_xnet_legacy_upgrade();
 	test_xnet_legacy_vertices_tokens_and_unescaped_strings();
 	test_xnet_string_escaping();

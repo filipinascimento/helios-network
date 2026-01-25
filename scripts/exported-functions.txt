@@ -101,6 +101,8 @@ _CXNetworkWriteXNetFiltered
 _CXNetworkReadBXNet
 _CXNetworkReadZXNet
 _CXNetworkReadXNet
+_CXNetworkCategorizeAttribute
+_CXNetworkDecategorizeAttribute
 _CXNetworkCompact
 _CXNetworkLeidenModularity
 _CXLeidenSessionCreate

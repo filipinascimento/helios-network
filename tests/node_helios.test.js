@@ -155,6 +155,30 @@ describe('HeliosNetwork (Node runtime)', () => {
 		expect(edgeMeta.get(edges[0])).toEqual({ custom: 42 });
 	});
 
+	test('categorizes and decategorizes string attributes', () => {
+		const nodes = network.addNodes(4);
+		network.defineNodeAttribute('group', AttributeType.String, 1);
+
+		network.setNodeStringAttribute('group', nodes[0], 'apple');
+		network.setNodeStringAttribute('group', nodes[1], '');
+		network.setNodeStringAttribute('group', nodes[2], '__NA__');
+		network.setNodeStringAttribute('group', nodes[3], 'banana');
+
+		network.categorizeNodeAttribute('group', { sortOrder: 'frequency' });
+		const categorized = network.getNodeAttributeBuffer('group').view;
+		expect(categorized).toBeInstanceOf(Int32Array);
+		expect(categorized[nodes[0]]).toBeGreaterThanOrEqual(0);
+		expect(categorized[nodes[1]]).toBe(-1);
+		expect(categorized[nodes[2]]).toBe(-1);
+		expect(categorized[nodes[3]]).toBeGreaterThanOrEqual(0);
+
+		network.decategorizeNodeAttribute('group');
+		expect(network.getNodeStringAttribute('group', nodes[0])).toBe('apple');
+		expect(network.getNodeStringAttribute('group', nodes[1])).toBe('__NA__');
+		expect(network.getNodeStringAttribute('group', nodes[2])).toBe('__NA__');
+		expect(network.getNodeStringAttribute('group', nodes[3])).toBe('banana');
+	});
+
 	test('creates node and edge selectors', () => {
 		const nodeSelector = network.createNodeSelector();
 		const edgeSelector = network.createEdgeSelector();

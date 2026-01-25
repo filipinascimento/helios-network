@@ -134,6 +134,8 @@ typedef struct {
 	uint32_t *crc;
 } CXInputStream;
 
+static CXBool CXReadExact(CXInputStream *stream, void *buffer, size_t length);
+
 typedef struct {
 	char *name;
 	CXAttributeRef attribute;
@@ -148,12 +150,6 @@ typedef struct {
 	size_t count;
 	size_t capacity;
 } CXAttributeLoadList;
-
-typedef enum {
-	CXAttributeScopeNode,
-	CXAttributeScopeEdge,
-	CXAttributeScopeNetwork
-} CXAttributeScope;
 
 typedef struct {
 	CXBool isDirected;
@@ -333,12 +329,123 @@ static CXBool CXExpectedStorageWidthForType(CXAttributeType type, uint32_t *outW
 			*outWidth = sizeof(uint64_t);
 			return CXTrue;
 		case CXDataAttributeCategoryType:
-			*outWidth = sizeof(uint32_t);
+			*outWidth = sizeof(int32_t);
 			return CXTrue;
 		default:
 			errno = ENOTSUP;
 			return CXFalse;
 	}
+}
+
+static void* CXCategoryDictionaryEncodeId(int32_t id) {
+	uint32_t raw = (uint32_t)id;
+	return (void *)(uintptr_t)(raw + 1u);
+}
+
+static CXBool CXCategoryDictionaryDecodeId(const void *data, int32_t *outId) {
+	if (!outId) {
+		return CXFalse;
+	}
+	uintptr_t raw = (uintptr_t)data;
+	if (raw == 0) {
+		return CXFalse;
+	}
+	*outId = (int32_t)(uint32_t)(raw - 1u);
+	return CXTrue;
+}
+
+typedef struct {
+	int32_t id;
+	const char *label;
+	uint32_t length;
+} CXCategoryEntry;
+
+static int CXCategoryEntryCompare(const void *lhs, const void *rhs) {
+	const CXCategoryEntry *a = (const CXCategoryEntry *)lhs;
+	const CXCategoryEntry *b = (const CXCategoryEntry *)rhs;
+	if (a->id < b->id) {
+		return -1;
+	}
+	if (a->id > b->id) {
+		return 1;
+	}
+	if (!a->label || !b->label) {
+		return 0;
+	}
+	return strcmp(a->label, b->label);
+}
+
+static CXBool CXAttributeDictionaryPayloadSize(const CXAttributeRef attribute, uint64_t *outSize) {
+	if (!outSize) {
+		return CXFalse;
+	}
+	*outSize = 0;
+	if (!attribute || !attribute->categoricalDictionary) {
+		return CXTrue;
+	}
+	CXSize count = CXStringDictionaryCount(attribute->categoricalDictionary);
+	if (count == 0) {
+		return CXTrue;
+	}
+	if (attribute->type != CXDataAttributeCategoryType) {
+		errno = ENOTSUP;
+		return CXFalse;
+	}
+	if (count > UINT32_MAX) {
+		errno = ERANGE;
+		return CXFalse;
+	}
+	uint64_t size = sizeof(uint32_t);
+	CXStringDictionaryFOR(entry, attribute->categoricalDictionary) {
+		size_t length = strlen(entry->key);
+		if (length > UINT32_MAX) {
+			errno = ERANGE;
+			return CXFalse;
+		}
+		if (size > UINT64_MAX - 8 - (uint64_t)length) {
+			errno = ERANGE;
+			return CXFalse;
+		}
+		size += 8 + (uint64_t)length;
+	}
+	*outSize = size;
+	return CXTrue;
+}
+
+static CXCategoryEntry* CXCollectCategoryEntries(const CXAttributeRef attribute, size_t *outCount) {
+	if (outCount) {
+		*outCount = 0;
+	}
+	if (!attribute || !attribute->categoricalDictionary) {
+		return NULL;
+	}
+	size_t count = (size_t)CXStringDictionaryCount(attribute->categoricalDictionary);
+	if (count == 0) {
+		return NULL;
+	}
+	CXCategoryEntry *entries = calloc(count, sizeof(CXCategoryEntry));
+	if (!entries) {
+		return NULL;
+	}
+	size_t idx = 0;
+	CXStringDictionaryFOR(entry, attribute->categoricalDictionary) {
+		int32_t id = 0;
+		if (!CXCategoryDictionaryDecodeId(entry->data, &id)) {
+			free(entries);
+			return NULL;
+		}
+		entries[idx].id = id;
+		entries[idx].label = entry->key;
+		entries[idx].length = (uint32_t)strlen(entry->key);
+		idx++;
+	}
+	if (idx > 1) {
+		qsort(entries, idx, sizeof(CXCategoryEntry), CXCategoryEntryCompare);
+	}
+	if (outCount) {
+		*outCount = idx;
+	}
+	return entries;
 }
 
 static CXBool CXNameInList(const char *name, const char *const *list, size_t count) {
@@ -417,6 +524,64 @@ static CXBool CXAttributeListCollectFiltered(CXStringDictionaryRef dictionary, C
 		qsort(outList->items, outList->count, sizeof(CXAttributeEntry), CXAttributeEntryCompare);
 	}
 
+	return CXTrue;
+}
+
+static CXBool CXReadAttributeDictionary(CXInputStream *stream, uint64_t dictionarySize, CXAttributeRef attribute) {
+	if (!stream || !attribute) {
+		return CXFalse;
+	}
+	if (dictionarySize == 0) {
+		return CXTrue;
+	}
+	if (attribute->type != CXDataAttributeCategoryType) {
+		errno = ENOTSUP;
+		return CXFalse;
+	}
+	if (dictionarySize < sizeof(uint32_t)) {
+		errno = EINVAL;
+		return CXFalse;
+	}
+	uint64_t consumed = 0;
+	uint8_t countBuffer[4];
+	if (!CXReadExact(stream, countBuffer, sizeof(countBuffer))) {
+		return CXFalse;
+	}
+	consumed += sizeof(uint32_t);
+	uint32_t count = cx_read_u32le(countBuffer);
+	for (uint32_t idx = 0; idx < count; idx++) {
+		if (consumed + 8 > dictionarySize) {
+			errno = EINVAL;
+			return CXFalse;
+		}
+		uint8_t header[8];
+		if (!CXReadExact(stream, header, sizeof(header))) {
+			return CXFalse;
+		}
+		consumed += sizeof(header);
+		int32_t id = (int32_t)cx_read_u32le(header);
+		uint32_t length = cx_read_u32le(header + 4);
+		if (length > UINT32_MAX || consumed + length > dictionarySize) {
+			errno = EINVAL;
+			return CXFalse;
+		}
+		char *label = malloc((size_t)length + 1);
+		if (!label) {
+			return CXFalse;
+		}
+		if (length > 0 && !CXReadExact(stream, label, length)) {
+			free(label);
+			return CXFalse;
+		}
+		label[length] = '\0';
+		consumed += length;
+		CXStringDictionarySetEntry(attribute->categoricalDictionary, label, CXCategoryDictionaryEncodeId(id));
+		free(label);
+	}
+	if (consumed != dictionarySize) {
+		errno = EINVAL;
+		return CXFalse;
+	}
 	return CXTrue;
 }
 
@@ -830,7 +995,7 @@ static CXBool CXReadAttributeDefinitionsChunk(CXInputStream *stream, uint64_t pa
 		}
 		CXAttributeType type = (CXAttributeType)descriptor[0];
 		uint16_t flags = cx_read_u16le(descriptor + 2);
-		if (flags != 0) {
+		if (flags & (CX_ATTR_FLAG_HAS_JAVASCRIPT_SHADOW | CX_ATTR_FLAG_POINTER_PAYLOAD)) {
 			free(name);
 			errno = ENOTSUP;
 			return CXFalse;
@@ -862,16 +1027,17 @@ static CXBool CXReadAttributeDefinitionsChunk(CXInputStream *stream, uint64_t pa
 			free(name);
 			return CXFalse;
 		}
-		if (dictionarySize != 0) {
-			free(name);
-			errno = ENOTSUP;
-			return CXFalse;
-		}
 
 		CXAttributeRef attribute = CXDefineAttributeForScope(network, scope, name, type, dimension);
 		if (!attribute) {
 			free(name);
 			return CXFalse;
+		}
+		if (dictionarySize > 0) {
+			if (!CXReadAttributeDictionary(stream, dictionarySize, attribute)) {
+				free(name);
+				return CXFalse;
+			}
 		}
 		if (!CXAttributeLoadListReserve(outList, outList->count + 1)) {
 			free(name);
@@ -887,7 +1053,7 @@ static CXBool CXReadAttributeDefinitionsChunk(CXInputStream *stream, uint64_t pa
 
 		remaining -= CXSizedBlockLength(nameSize);
 		remaining -= CXSizedBlockLength(descriptorSize);
-		remaining -= CXSizedBlockLength(0);
+		remaining -= CXSizedBlockLength(dictionarySize);
 	}
 
 	if (remaining != 0) {
@@ -1041,7 +1207,7 @@ static CXBool CXReadAttributeValuesIntoPlan(CXInputStream *stream, CXAttributeLo
 					break;
 				}
 				case CXDataAttributeCategoryType: {
-					uint32_t value = cx_read_u32le(buffer);
+					int32_t value = (int32_t)cx_read_u32le(buffer);
 					memcpy(target, &value, sizeof(value));
 					break;
 				}
@@ -1448,9 +1614,9 @@ static CXBool CXWriteAttributeValuesCallback(CXSizedWriterContext *context, void
 					break;
 				}
 				case CXDataAttributeCategoryType: {
-					uint32_t value = 0;
-					memcpy(&value, elementPtr, sizeof(uint32_t));
-					cx_write_u32le(value, encoded);
+					int32_t value = 0;
+					memcpy(&value, elementPtr, sizeof(int32_t));
+					cx_write_u32le((uint32_t)value, encoded);
 					break;
 				}
 				default:
@@ -1494,16 +1660,79 @@ static CXBool CXWriteAttributeValuesCallback(CXSizedWriterContext *context, void
 	return CXTrue;
 }
 
+typedef struct {
+	const CXCategoryEntry *entries;
+	size_t count;
+} CXDictionaryWriteContext;
+
+static CXBool CXWriteDictionaryPayload(CXSizedWriterContext *context, void *userData) {
+	if (!context || !userData) {
+		return CXFalse;
+	}
+	const CXDictionaryWriteContext *dict = (const CXDictionaryWriteContext *)userData;
+	if (dict->count > UINT32_MAX) {
+		return CXFalse;
+	}
+	uint8_t countBytes[4];
+	cx_write_u32le((uint32_t)dict->count, countBytes);
+	if (!CXSizedWriteBytes(context, countBytes, sizeof(countBytes))) {
+		return CXFalse;
+	}
+	for (size_t idx = 0; idx < dict->count; idx++) {
+		uint8_t header[8];
+		cx_write_u32le((uint32_t)dict->entries[idx].id, header);
+		cx_write_u32le(dict->entries[idx].length, header + 4);
+		if (!CXSizedWriteBytes(context, header, sizeof(header))) {
+			return CXFalse;
+		}
+		if (dict->entries[idx].length > 0 &&
+			!CXSizedWriteBytes(context, dict->entries[idx].label, dict->entries[idx].length)) {
+			return CXFalse;
+		}
+	}
+	return CXTrue;
+}
+
+static CXBool CXWriteAttributeDictionaryBlock(CXOutputStream *stream, const CXAttributeRef attribute) {
+	if (!stream || !attribute) {
+		return CXFalse;
+	}
+	uint64_t payloadSize = 0;
+	if (!CXAttributeDictionaryPayloadSize(attribute, &payloadSize)) {
+		return CXFalse;
+	}
+	if (payloadSize == 0) {
+		return CXWriteSizedRaw(stream, NULL, 0);
+	}
+	size_t entryCount = 0;
+	CXCategoryEntry *entries = CXCollectCategoryEntries(attribute, &entryCount);
+	if (!entries || entryCount == 0) {
+		free(entries);
+		return CXFalse;
+	}
+	CXDictionaryWriteContext ctx = {
+		.entries = entries,
+		.count = entryCount
+	};
+	CXBool ok = CXWriteSizedPayload(stream, payloadSize, CXWriteDictionaryPayload, &ctx);
+	free(entries);
+	return ok;
+}
+
 static CXBool CXWriteAttributeDefinitionsChunk(CXOutputStream *stream, CXWrittenChunkList *chunks, uint32_t chunkId, const CXAttributeList *attributes) {
 	const size_t attributeCount = attributes ? attributes->count : 0;
 	uint64_t payloadSize = CXSizedBlockLength(sizeof(uint32_t) * 2);
 
 	for (size_t idx = 0; idx < attributeCount; idx++) {
 		const CXAttributeEntry *entry = &attributes->items[idx];
+		uint64_t dictionarySize = 0;
+		if (!CXAttributeDictionaryPayloadSize(entry->attribute, &dictionarySize)) {
+			return CXFalse;
+		}
 		size_t nameLen = strlen(entry->name);
 		payloadSize += CXSizedBlockLength((uint64_t)nameLen);
 		payloadSize += CXSizedBlockLength(24);
-		payloadSize += CXSizedBlockLength(0);
+		payloadSize += CXSizedBlockLength(dictionarySize);
 	}
 
 	int64_t chunkOffset = stream->tell(stream->context);
@@ -1541,7 +1770,7 @@ static CXBool CXWriteAttributeDefinitionsChunk(CXOutputStream *stream, CXWritten
 			return CXFalse;
 		}
 
-		if (!CXWriteSizedRaw(stream, NULL, 0)) {
+		if (!CXWriteAttributeDictionaryBlock(stream, entry->attribute)) {
 			return CXFalse;
 		}
 	}
@@ -1893,19 +2122,19 @@ static CXBool CXNetworkSerialize(CXNetworkRef network, CXOutputStream *stream, C
 	}
 
 	for (size_t idx = 0; idx < nodeAttributes.count; idx++) {
-		if (nodeAttributes.items[idx].flags & (CX_ATTR_FLAG_HAS_DICTIONARY | CX_ATTR_FLAG_HAS_JAVASCRIPT_SHADOW | CX_ATTR_FLAG_POINTER_PAYLOAD)) {
+		if (nodeAttributes.items[idx].flags & (CX_ATTR_FLAG_HAS_JAVASCRIPT_SHADOW | CX_ATTR_FLAG_POINTER_PAYLOAD)) {
 			errno = ENOTSUP;
 			goto cleanup;
 		}
 	}
 	for (size_t idx = 0; idx < edgeAttributes.count; idx++) {
-		if (edgeAttributes.items[idx].flags & (CX_ATTR_FLAG_HAS_DICTIONARY | CX_ATTR_FLAG_HAS_JAVASCRIPT_SHADOW | CX_ATTR_FLAG_POINTER_PAYLOAD)) {
+		if (edgeAttributes.items[idx].flags & (CX_ATTR_FLAG_HAS_JAVASCRIPT_SHADOW | CX_ATTR_FLAG_POINTER_PAYLOAD)) {
 			errno = ENOTSUP;
 			goto cleanup;
 		}
 	}
 	for (size_t idx = 0; idx < networkAttributes.count; idx++) {
-		if (networkAttributes.items[idx].flags & (CX_ATTR_FLAG_HAS_DICTIONARY | CX_ATTR_FLAG_HAS_JAVASCRIPT_SHADOW | CX_ATTR_FLAG_POINTER_PAYLOAD)) {
+		if (networkAttributes.items[idx].flags & (CX_ATTR_FLAG_HAS_JAVASCRIPT_SHADOW | CX_ATTR_FLAG_POINTER_PAYLOAD)) {
 			errno = ENOTSUP;
 			goto cleanup;
 		}

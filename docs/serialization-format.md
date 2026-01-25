@@ -104,14 +104,21 @@ Each declaration chunk begins with a block containing the attribute count
    - `uint32 storage width` (number of bytes per element on disk)
    - `uint32 reserved`
    - `uint64 capacity`
-3. Dictionary block (reserved for categorical dictionaries; presently zero-length).
+3. Dictionary block (categorical dictionaries). The block is empty unless the
+   attribute type is categorical and a dictionary is present. The payload is:
+   - `uint32 entry_count`
+   - For each entry:
+     - `int32 id` (signed category id)
+     - `uint32 byte_length`
+     - UTF-8 bytes for the label
 
 The current implementation supports scalar numeric attribute types:
 boolean, float, double, 32-bit signed integer, 32-bit unsigned integer,
-64-bit signed/unsigned big integers, and categorical integers. Attribute
+64-bit signed/unsigned big integers, and categorical integers (signed 32-bit).
+Attribute
 types that rely on pointer payloads (strings, raw data, Javascript-backed
-attributes) are not yet serialized. Declarations containing non-zero flags
-or dictionary payloads are rejected by the reader.
+attributes) are not yet serialized. Declarations containing unsupported
+flags are rejected by the reader.
 
 #### Attribute Value Chunks (`NVAL`, `EVAL`, `GVAL`)
 

@@ -50,10 +50,13 @@ edges         := "#edges" SP ("directed" | "undirected")
 edge_list     := { edge_line }
 edge_line     := index SP index
 vertex_attrs  := { vertex_attr_block }
-vertex_attr_block := "#v" SP quoted_name SP type_token NEWLINE value_line{count}
+vertex_attr_block := "#v" SP quoted_name SP type_token NEWLINE dict_block? value_line{count}
 original_ids  := auto block written by Helios writer
 edge_attrs    := { edge_attr_block }
-edge_attr_block := "#e" SP quoted_name SP type_token NEWLINE value_line{edge_count}
+edge_attr_block := "#e" SP quoted_name SP type_token NEWLINE dict_block? value_line{edge_count}
+dict_block    := dict_header NEWLINE dict_entry{count}
+dict_header   := ("#vdict" | "#edict" | "#gdict") SP quoted_name SP count
+dict_entry    := index SP string
 ```
 
 `SP` represents one or more whitespace characters. `value_line` is shaped by the
@@ -70,6 +73,9 @@ attribute type (see below) and must not be empty or commented.
 | `<from> <to>`        | Edge list entry using zero-based indices.                  |
 | `#v "<name>" <type>` | Vertex attribute block (optional, multiple).               |
 | `#e "<name>" <type>` | Edge attribute block (optional, multiple).                 |
+| `#vdict "<name>" <count>` | Categorical dictionary for a vertex attribute.        |
+| `#edict "<name>" <count>` | Categorical dictionary for an edge attribute.          |
+| `#gdict "<name>" <count>` | Categorical dictionary for a graph attribute.          |
 
 Helios always appends a vertex attribute named `_original_ids_` (type `s`)
 containing the pre-compaction vertex identifiers. Readers must accept the block
@@ -90,10 +96,24 @@ when present but may also ingest files that omit it.
 | `IN`  | BigInteger vector (`N ≥ 2`)       |
 | `U`   | 64-bit unsigned BigInteger scalar |
 | `UN`  | Unsigned BigInteger vector (`N ≥ 2`) |
+| `c`   | Categorical scalar (signed 32-bit codes) |
+| `cN`  | Categorical vector (`N ≥ 2`)            |
 
-Strings cannot be vectorized. For numeric vectors, elements on each value line
+Strings cannot be vectorized. For numeric and categorical vectors, elements on each value line
 are separated by single spaces. All attribute values must be present; missing or
 extra tokens cause the parser to reject the file.
+
+Categorical values are signed 32-bit integers. The recommended missing-value
+sentinel is `-1`, leaving `0` as a valid category id.
+
+### Categorical Dictionaries
+
+Categorical attributes (`c`/`cN`) may declare a dictionary stanza immediately
+after the attribute header. The dictionary uses explicit integer ids so sparse
+category ids are supported. Each entry line contains the numeric id and its
+string label. The attribute values remain numeric codes in the value block.
+When no dictionary stanza is present, categorical values are treated as raw
+codes without labels.
 
 ### Validation Rules
 
@@ -143,6 +163,12 @@ edge_attrs     := { legacy_edge_attr_block }
   | `v3`  | 3D float vector               |
 
 - Comments are not allowed inside the edge list, matching the 1.0.0 behavior.
+- Legacy categorical attributes can be encoded as string attributes whose names
+  end with `__category`. When loading, Helios strips the suffix, converts the
+  string values into categorical codes (sorted by descending frequency, with
+  a bytewise label tie-break). Missing or empty strings are treated as
+  `__NA__`; the sentinel string maps to id `-1` and is treated as missing.
+  Other labels receive ids starting at `0`.
 
 ### Normalization
 
