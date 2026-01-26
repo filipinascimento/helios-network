@@ -126,3 +126,29 @@ test('HeliosNetwork emits attribute events for define/set/remove', async () => {
 		network.dispose();
 	}
 });
+
+test('HeliosNetwork emits attribute events for categorize/decategorize', async () => {
+	const network = await HeliosNetwork.create({ directed: false, initialNodes: 0, initialEdges: 0 });
+	try {
+		const ops = [];
+		network.on(HeliosNetwork.EVENTS.attributeChanged, (event) => {
+			const detail = event.detail;
+			if (detail?.scope === 'node' && detail?.name === 'group') {
+				ops.push(detail.op);
+			}
+		});
+
+		const nodes = network.addNodes(2);
+		network.defineNodeAttribute('group', AttributeType.String, 1);
+		network.setNodeStringAttribute('group', nodes[0], 'apple');
+		network.setNodeStringAttribute('group', nodes[1], 'banana');
+
+		network.categorizeNodeAttribute('group');
+		network.decategorizeNodeAttribute('group');
+
+		expect(ops).toContain('categorize');
+		expect(ops).toContain('decategorize');
+	} finally {
+		network.dispose();
+	}
+});

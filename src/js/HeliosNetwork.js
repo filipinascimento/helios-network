@@ -5511,6 +5511,7 @@ export class HeliosNetwork extends BaseEventTarget {
 		if (meta.stringPointers) {
 			meta.stringPointers.clear();
 		}
+		this._bumpAttributeVersion(scope, name, { op: 'categorize' });
 	}
 
 	_decategorizeAttribute(scope, name, options) {
@@ -5542,6 +5543,7 @@ export class HeliosNetwork extends BaseEventTarget {
 		meta.stride = this.module._CXAttributeStride(meta.attributePtr);
 		meta.complex = true;
 		meta.stringPointers = new Map();
+		this._bumpAttributeVersion(scope, name, { op: 'decategorize' });
 	}
 
 	_defineDenseColorEncodedAttribute(scope, sourceName, encodedName, options) {

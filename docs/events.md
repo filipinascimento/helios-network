@@ -181,14 +181,14 @@ Emitted as a generic “something structural changed” signal.
 
 #### `attribute:changed`
 
-This is emitted when Helios Network itself changes attribute data through a managed API (e.g. string attributes, JS-managed attributes, node→edge copy) or when user code explicitly bumps a version.
+This is emitted when Helios Network itself changes attribute data or metadata through a managed API (e.g. string attributes, JS-managed attributes, node→edge copy, categorize/decategorize) or when user code explicitly bumps a version.
 
 ```ts
 {
   scope: 'node' | 'edge' | 'network',
   name: string,
   version: number,
-  op: 'set' | 'delete' | 'clear' | 'copy' | 'bump',
+  op: 'set' | 'delete' | 'clear' | 'copy' | 'bump' | 'categorize' | 'decategorize',
   index: number | null
 }
 ```
