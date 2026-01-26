@@ -8,7 +8,7 @@ class HeliosNetworkConan(ConanFile):
             self.options.rm_safe("fPIC")
 
     name = "helios-network"
-    version = "0.5.0"
+    version = "0.5.1"
     license = "MIT"
     url = "https://github.com/helios-graphs/helios-network"
     description = "Helios Network native graph core compiled as a C library"

@@ -37,7 +37,7 @@ extern "C" {
 #endif
 
 #ifndef CXNETWORK_VERSION_MINOR
-#define CXNETWORK_VERSION_MINOR 4
+#define CXNETWORK_VERSION_MINOR 5
 #endif
 
 #ifndef CXNETWORK_VERSION_PATCH
@@ -45,7 +45,7 @@ extern "C" {
 #endif
 
 #ifndef CXNETWORK_VERSION_STRING
-#define CXNETWORK_VERSION_STRING "0.5.0"
+#define CXNETWORK_VERSION_STRING "0.5.1"
 #endif
 
 /**
