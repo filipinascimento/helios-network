@@ -2126,6 +2126,47 @@ CXStringDictionaryRef CXNetworkGetAttributeCategoryDictionary(CXNetworkRef netwo
 	return attr ? attr->categoricalDictionary : NULL;
 }
 
+CXSize CXNetworkGetAttributeCategoryDictionaryCount(CXNetworkRef network, CXAttributeScope scope, const CXString name) {
+	CXAttributeRef attr = CXNetworkGetAttributeForScope(network, scope, name);
+	if (!attr || !attr->categoricalDictionary) {
+		return 0;
+	}
+	return CXStringDictionaryCount(attr->categoricalDictionary);
+}
+
+CXBool CXNetworkGetAttributeCategoryDictionaryEntries(
+	CXNetworkRef network,
+	CXAttributeScope scope,
+	const CXString name,
+	int32_t *outIds,
+	CXString *outLabels,
+	CXSize capacity
+) {
+	CXAttributeRef attr = CXNetworkGetAttributeForScope(network, scope, name);
+	if (!attr || !attr->categoricalDictionary) {
+		return CXFalse;
+	}
+	CXSize count = CXStringDictionaryCount(attr->categoricalDictionary);
+	if (capacity < count) {
+		return CXFalse;
+	}
+	CXSize idx = 0;
+	CXStringDictionaryFOR(entry, attr->categoricalDictionary) {
+		int32_t id = 0;
+		if (!CXCategoryDictionaryDecodeId(entry->data, &id)) {
+			continue;
+		}
+		if (outIds) {
+			outIds[idx] = id;
+		}
+		if (outLabels) {
+			outLabels[idx] = entry->key;
+		}
+		idx += 1;
+	}
+	return CXTrue;
+}
+
 typedef struct {
 	const char *label;
 	uint32_t count;

@@ -179,6 +179,22 @@ describe('HeliosNetwork (Node runtime)', () => {
 		expect(network.getNodeStringAttribute('group', nodes[3])).toBe('banana');
 	});
 
+	test('reads category dictionaries for categorized attributes', () => {
+		const nodes = network.addNodes(3);
+		network.defineNodeAttribute('species', AttributeType.String, 1);
+		network.setNodeStringAttribute('species', nodes[0], 'alpha');
+		network.setNodeStringAttribute('species', nodes[1], 'beta');
+		network.setNodeStringAttribute('species', nodes[2], 'alpha');
+
+		network.categorizeNodeAttribute('species', { sortOrder: 'alphabetical' });
+		const dict = network.getNodeAttributeCategoryDictionary('species');
+		expect(dict.entries.length).toBeGreaterThanOrEqual(2);
+		const labels = dict.labels.slice();
+		expect(labels).toEqual(expect.arrayContaining(['alpha', 'beta']));
+		expect(dict.ids.length).toBe(dict.entries.length);
+		expect(dict.entries.every((entry) => typeof entry.id === 'number' && typeof entry.label === 'string')).toBe(true);
+	});
+
 	test('creates node and edge selectors', () => {
 		const nodeSelector = network.createNodeSelector();
 		const edgeSelector = network.createEdgeSelector();

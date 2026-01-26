@@ -45,7 +45,7 @@ extern "C" {
 #endif
 
 #ifndef CXNETWORK_VERSION_STRING
-#define CXNETWORK_VERSION_STRING "0.4.1"
+#define CXNETWORK_VERSION_STRING "0.5.0"
 #endif
 
 /**
@@ -369,6 +369,15 @@ CX_EXTERN CXAttributeRef CXNetworkGetEdgeAttribute(CXNetworkRef network, const C
 CX_EXTERN CXAttributeRef CXNetworkGetNetworkAttribute(CXNetworkRef network, const CXString name);
 
 CX_EXTERN CXStringDictionaryRef CXNetworkGetAttributeCategoryDictionary(CXNetworkRef network, CXAttributeScope scope, const CXString name);
+CX_EXTERN CXSize CXNetworkGetAttributeCategoryDictionaryCount(CXNetworkRef network, CXAttributeScope scope, const CXString name);
+CX_EXTERN CXBool CXNetworkGetAttributeCategoryDictionaryEntries(
+	CXNetworkRef network,
+	CXAttributeScope scope,
+	const CXString name,
+	int32_t *outIds,
+	CXString *outLabels,
+	CXSize capacity
+);
 CX_EXTERN CXBool CXNetworkSetAttributeCategoryDictionary(
 	CXNetworkRef network,
 	CXAttributeScope scope,

@@ -1,5 +1,14 @@
 # CHANGES
 
+## 2026-01-28
+
+- Added native + JS accessors for categorical attribute dictionaries (`get*AttributeCategoryDictionary` / `set*AttributeCategoryDictionary`).
+- Added tests covering category dictionary retrieval after categorization.
+
+## 2026-01-26
+
+- Leiden community outputs are categorical by default (`categoricalCommunities=true`), with an opt-out to keep integer storage.
+
 ## 2026-01-25
 
 - Added multi-category attributes (weighted or unweighted) backed by CSR-style buffers.

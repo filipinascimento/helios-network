@@ -1637,6 +1637,7 @@ class EdgeSelector extends Selector {
 						maxLevels: sessionOptions.maxLevels ?? 32,
 						maxPasses: sessionOptions.maxPasses ?? 8,
 						outNodeCommunityAttribute: sessionOptions.outNodeCommunityAttribute ?? 'community',
+						categoricalCommunities: sessionOptions.categoricalCommunities !== false,
 					};
 				},
 				buildPayload: (snapshot) => {
@@ -1658,15 +1659,21 @@ class EdgeSelector extends Selector {
 				},
 				applyResult: (result, snapshot) => {
 					const outName = snapshot.outNodeCommunityAttribute;
+					const categorical = snapshot.categoricalCommunities !== false;
 					if (!outName) {
 						throw new Error('outNodeCommunityAttribute is required');
 					}
 					if (!network._nodeAttributes.has(outName)) {
-						network.defineNodeAttribute(outName, AttributeType.UnsignedInteger, 1);
+						network.defineNodeAttribute(outName, categorical ? AttributeType.Category : AttributeType.UnsignedInteger, 1);
 					} else {
 						const meta = network._nodeAttributes.get(outName);
-						if (meta && meta.type !== AttributeType.UnsignedInteger) {
-							throw new Error(`Node attribute "${outName}" must be UnsignedInteger`);
+						if (meta) {
+							if (categorical && meta.type !== AttributeType.Category) {
+								throw new Error(`Node attribute "${outName}" must be Category`);
+							}
+							if (!categorical && meta.type !== AttributeType.UnsignedInteger) {
+								throw new Error(`Node attribute "${outName}" must be UnsignedInteger`);
+							}
 						}
 					}
 
@@ -1785,9 +1792,12 @@ class EdgeSelector extends Selector {
 		}
 
 		async runWorker(options = {}) {
-			const { outNodeCommunityAttribute, ...runnerOptions } = options ?? {};
+			const { outNodeCommunityAttribute, categoricalCommunities, ...runnerOptions } = options ?? {};
 			if (outNodeCommunityAttribute) {
 				this.options = { ...this.options, outNodeCommunityAttribute: String(outNodeCommunityAttribute) };
+			}
+			if (categoricalCommunities != null) {
+				this.options = { ...this.options, categoricalCommunities: Boolean(categoricalCommunities) };
 			}
 			try {
 				return await this._base.runWorker(runnerOptions);
@@ -1807,6 +1817,7 @@ class EdgeSelector extends Selector {
 		}
 
 		const outNodeCommunityAttribute = options.outNodeCommunityAttribute ?? this.options?.outNodeCommunityAttribute ?? 'community';
+		const categoricalCommunities = options.categoricalCommunities ?? this.options?.categoricalCommunities ?? true;
 		if (!outNodeCommunityAttribute) {
 			throw new Error('outNodeCommunityAttribute is required');
 		}
@@ -1842,14 +1853,24 @@ class EdgeSelector extends Selector {
 
 			if (!network._nodeAttributes.has(outNodeCommunityAttribute)) {
 				network._nodeAttributes.set(outNodeCommunityAttribute, {
-					type: AttributeType.UnsignedInteger,
-				dimension: 1,
-				complex: false,
-				jsStore: new Map(),
-				stringPointers: new Map(),
-				nextHandle: 1,
-			});
-		}
+					type: categoricalCommunities ? AttributeType.Category : AttributeType.UnsignedInteger,
+					dimension: 1,
+					complex: false,
+					jsStore: new Map(),
+					stringPointers: new Map(),
+					nextHandle: 1,
+				});
+			} else {
+				const meta = network._nodeAttributes.get(outNodeCommunityAttribute);
+				if (meta) {
+					if (categoricalCommunities && meta.type !== AttributeType.Category) {
+						throw new Error(`Node attribute "${outNodeCommunityAttribute}" must be Category`);
+					}
+					if (!categoricalCommunities && meta.type !== AttributeType.UnsignedInteger) {
+						throw new Error(`Node attribute "${outNodeCommunityAttribute}" must be UnsignedInteger`);
+					}
+				}
+			}
 
 		return { communityCount, modularity };
 	}
@@ -4410,6 +4431,69 @@ export class HeliosNetwork extends BaseEventTarget {
 		return this._attributeInfo('network', name);
 	}
 
+	/**
+	 * Returns categorical dictionary entries for a node attribute.
+	 * @param {string} name - Attribute identifier.
+	 * @param {{sortById?:boolean}=} options - Optional sort control.
+	 * @returns {{entries:{id:number,label:string}[], ids:number[], labels:string[]}}
+	 */
+	getNodeAttributeCategoryDictionary(name, options) {
+		return this._getAttributeCategoryDictionary('node', name, options);
+	}
+
+	/**
+	 * Returns categorical dictionary entries for an edge attribute.
+	 * @param {string} name - Attribute identifier.
+	 * @param {{sortById?:boolean}=} options - Optional sort control.
+	 * @returns {{entries:{id:number,label:string}[], ids:number[], labels:string[]}}
+	 */
+	getEdgeAttributeCategoryDictionary(name, options) {
+		return this._getAttributeCategoryDictionary('edge', name, options);
+	}
+
+	/**
+	 * Returns categorical dictionary entries for a network attribute.
+	 * @param {string} name - Attribute identifier.
+	 * @param {{sortById?:boolean}=} options - Optional sort control.
+	 * @returns {{entries:{id:number,label:string}[], ids:number[], labels:string[]}}
+	 */
+	getNetworkAttributeCategoryDictionary(name, options) {
+		return this._getAttributeCategoryDictionary('network', name, options);
+	}
+
+	/**
+	 * Replaces the categorical dictionary for a node attribute.
+	 * @param {string} name - Attribute identifier.
+	 * @param {(string|{id:number,label:string})[]} entries - Labels or {id,label} entries.
+	 * @param {{remapExisting?:boolean}=} options - When true, remaps stored codes to the new ids.
+	 * @returns {boolean} Whether the update succeeded.
+	 */
+	setNodeAttributeCategoryDictionary(name, entries, options) {
+		return this._setAttributeCategoryDictionary('node', name, entries, options);
+	}
+
+	/**
+	 * Replaces the categorical dictionary for an edge attribute.
+	 * @param {string} name - Attribute identifier.
+	 * @param {(string|{id:number,label:string})[]} entries - Labels or {id,label} entries.
+	 * @param {{remapExisting?:boolean}=} options - When true, remaps stored codes to the new ids.
+	 * @returns {boolean} Whether the update succeeded.
+	 */
+	setEdgeAttributeCategoryDictionary(name, entries, options) {
+		return this._setAttributeCategoryDictionary('edge', name, entries, options);
+	}
+
+	/**
+	 * Replaces the categorical dictionary for a network attribute.
+	 * @param {string} name - Attribute identifier.
+	 * @param {(string|{id:number,label:string})[]} entries - Labels or {id,label} entries.
+	 * @param {{remapExisting?:boolean}=} options - When true, remaps stored codes to the new ids.
+	 * @returns {boolean} Whether the update succeeded.
+	 */
+	setNetworkAttributeCategoryDictionary(name, entries, options) {
+		return this._setAttributeCategoryDictionary('network', name, entries, options);
+	}
+
 	getNodeAttributeVersion(name) {
 		return this._getAttributeVersion('node', name);
 	}
@@ -5479,6 +5563,124 @@ export class HeliosNetwork extends BaseEventTarget {
 		return CategorySortOrder.None;
 	}
 
+	_getAttributeCategoryDictionary(scope, name, options = {}) {
+		this._ensureActive();
+		if (typeof name !== 'string' || !name) {
+			throw new Error('Attribute name must be a non-empty string');
+		}
+		const countFn = this.module._CXNetworkGetAttributeCategoryDictionaryCount;
+		const entriesFn = this.module._CXNetworkGetAttributeCategoryDictionaryEntries;
+		if (typeof countFn !== 'function' || typeof entriesFn !== 'function') {
+			throw new Error('Category dictionary helpers are unavailable in this WASM build');
+		}
+		const nameCstr = new CString(this.module, name);
+		let count = 0;
+		try {
+			count = countFn.call(this.module, this.ptr, this._scopeId(scope), nameCstr.ptr) >>> 0;
+		} catch (error) {
+			nameCstr.dispose();
+			throw error;
+		}
+		if (!count) {
+			nameCstr.dispose();
+			return { entries: [], ids: [], labels: [] };
+		}
+		const idsPtr = this.module._malloc(count * 4);
+		const labelsPtr = this.module._malloc(count * 4);
+		if (!idsPtr || !labelsPtr) {
+			nameCstr.dispose();
+			if (idsPtr) this.module._free(idsPtr);
+			if (labelsPtr) this.module._free(labelsPtr);
+			throw new Error('Failed to allocate category dictionary buffers');
+		}
+		const ok = entriesFn.call(this.module, this.ptr, this._scopeId(scope), nameCstr.ptr, idsPtr, labelsPtr, count);
+		nameCstr.dispose();
+		if (!ok) {
+			this.module._free(idsPtr);
+			this.module._free(labelsPtr);
+			throw new Error(`Failed to read category dictionary for ${scope} attribute "${name}"`);
+		}
+		const idsView = new Int32Array(this.module.HEAP32.buffer, idsPtr, count);
+		const labelsView = new Uint32Array(this.module.HEAPU32.buffer, labelsPtr, count);
+		const entries = [];
+		for (let i = 0; i < count; i += 1) {
+			const labelPtr = labelsView[i];
+			const label = labelPtr ? this.module.UTF8ToString(labelPtr) : '';
+			entries.push({ id: idsView[i], label });
+		}
+		this.module._free(idsPtr);
+		this.module._free(labelsPtr);
+		if (options?.sortById !== false) {
+			entries.sort((a, b) => a.id - b.id);
+		}
+		const ids = entries.map((entry) => entry.id);
+		const labels = entries.map((entry) => entry.label);
+		return { entries, ids, labels };
+	}
+
+	_setAttributeCategoryDictionary(scope, name, entries, options = {}) {
+		this._ensureActive();
+		this._assertCanAllocate(`set ${scope} category dictionary`);
+		if (typeof name !== 'string' || !name) {
+			throw new Error('Attribute name must be a non-empty string');
+		}
+		const setFn = this.module._CXNetworkSetAttributeCategoryDictionary;
+		if (typeof setFn !== 'function') {
+			throw new Error('Category dictionary helpers are unavailable in this WASM build');
+		}
+		const labels = [];
+		const ids = [];
+		if (Array.isArray(entries)) {
+			for (let i = 0; i < entries.length; i += 1) {
+				const entry = entries[i];
+				if (typeof entry === 'string') {
+					labels.push(entry);
+					ids.push(i);
+					continue;
+				}
+				if (entry && typeof entry === 'object') {
+					const label = entry.label ?? entry.name ?? entry.value;
+					if (typeof label !== 'string') continue;
+					labels.push(label);
+					const id = Number(entry.id);
+					ids.push(Number.isFinite(id) ? id : labels.length - 1);
+				}
+			}
+		}
+		const count = labels.length;
+		const nameCstr = new CString(this.module, name);
+		const labelArray = new CStringArray(this.module, labels);
+		let idsPtr = 0;
+		try {
+			if (count) {
+				idsPtr = this.module._malloc(count * 4);
+				if (!idsPtr) {
+					throw new Error('Failed to allocate category id buffer');
+				}
+				this.module.HEAP32.set(Int32Array.from(ids), idsPtr / 4);
+			}
+			const remapExisting = options?.remapExisting !== false ? 1 : 0;
+			const ok = setFn.call(
+				this.module,
+				this.ptr,
+				this._scopeId(scope),
+				nameCstr.ptr,
+				labelArray.ptr,
+				idsPtr,
+				count,
+				remapExisting,
+			);
+			if (!ok) {
+				throw new Error(`Failed to update category dictionary for ${scope} attribute "${name}"`);
+			}
+			return true;
+		} finally {
+			nameCstr.dispose();
+			labelArray.dispose();
+			if (idsPtr) this.module._free(idsPtr);
+		}
+	}
+
 	_categorizeAttribute(scope, name, options) {
 		this._assertCanAllocate(`categorize ${scope} attribute`);
 		this._ensureActive();
@@ -6532,6 +6734,7 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * @param {number} [options.resolution=1] - Modularity resolution parameter (gamma).
 	 * @param {string|null} [options.edgeWeightAttribute=null] - Edge weight attribute name (dimension 1).
 	 * @param {string} [options.outNodeCommunityAttribute='community'] - Node attribute name to store the result.
+	 * @param {boolean} [options.categoricalCommunities=true] - Store communities as categorical codes instead of integers.
 	 * @param {number} [options.seed=0] - RNG seed (0 uses a default seed).
 	 * @param {number} [options.maxLevels=32] - Maximum aggregation levels.
 	 * @param {number} [options.maxPasses=8] - Max local-moving passes per phase.
@@ -6544,6 +6747,7 @@ export class HeliosNetwork extends BaseEventTarget {
 			resolution = 1,
 			edgeWeightAttribute = null,
 			outNodeCommunityAttribute = 'community',
+			categoricalCommunities = true,
 			seed = 0,
 			maxLevels = 32,
 			maxPasses = 8,
@@ -6599,7 +6803,7 @@ export class HeliosNetwork extends BaseEventTarget {
 
 		if (!this._nodeAttributes.has(outNodeCommunityAttribute)) {
 			this._nodeAttributes.set(outNodeCommunityAttribute, {
-				type: AttributeType.UnsignedInteger,
+				type: categoricalCommunities ? AttributeType.Category : AttributeType.UnsignedInteger,
 				dimension: 1,
 				complex: false,
 				jsStore: new Map(),
@@ -6608,8 +6812,13 @@ export class HeliosNetwork extends BaseEventTarget {
 			});
 		} else {
 			const meta = this._nodeAttributes.get(outNodeCommunityAttribute);
-			if (meta && meta.type !== AttributeType.UnsignedInteger) {
-				throw new Error(`Node attribute "${outNodeCommunityAttribute}" must be UnsignedInteger`);
+			if (meta) {
+				if (categoricalCommunities && meta.type !== AttributeType.Category) {
+					throw new Error(`Node attribute "${outNodeCommunityAttribute}" must be Category`);
+				}
+				if (!categoricalCommunities && meta.type !== AttributeType.UnsignedInteger) {
+					throw new Error(`Node attribute "${outNodeCommunityAttribute}" must be UnsignedInteger`);
+				}
 			}
 		}
 
@@ -6629,6 +6838,7 @@ export class HeliosNetwork extends BaseEventTarget {
 		 * @param {number} [options.maxLevels=32] - Maximum aggregation levels.
 		 * @param {number} [options.maxPasses=8] - Max local-moving passes per phase.
 		 * @param {string} [options.outNodeCommunityAttribute='community'] - Default output name for finalize().
+		 * @param {boolean} [options.categoricalCommunities=true] - Store communities as categorical codes instead of integers.
 		 * @returns {LeidenSession} Session handle.
 		 */
 		createLeidenSession(options = {}) {
@@ -6641,6 +6851,7 @@ export class HeliosNetwork extends BaseEventTarget {
 				maxLevels = 32,
 				maxPasses = 8,
 				outNodeCommunityAttribute = 'community',
+				categoricalCommunities = true,
 			} = options;
 
 		if (typeof this.module._CXLeidenSessionCreate !== 'function') {
@@ -6672,6 +6883,7 @@ export class HeliosNetwork extends BaseEventTarget {
 			}
 			return new LeidenSession(this.module, this, ptr, {
 				outNodeCommunityAttribute,
+				categoricalCommunities,
 				edgeWeightAttribute,
 				resolution,
 				seed,
