@@ -35,6 +35,158 @@ const CategorySortOrder = Object.freeze({
 });
 
 /**
+ * Options for categorizing string attributes.
+ * @typedef {object} CategorizeOptions
+ * @property {(CategorySortOrder|string)=} sortOrder - Ordering of categories.
+ * @property {string=} missingLabel - Label used for missing values.
+ */
+
+/**
+ * Options for decategorizing categorical attributes.
+ * @typedef {object} DecategorizeOptions
+ * @property {string=} missingLabel - Label used for missing values.
+ */
+
+/**
+ * Buffers returned for multi-category attributes.
+ * @typedef {object} MultiCategoryBuffers
+ * @property {Uint32Array} offsets
+ * @property {Uint32Array} ids
+ * @property {Float32Array|null} weights
+ * @property {number} offsetCount
+ * @property {number} entryCount
+ * @property {boolean} hasWeights
+ * @property {number} version
+ */
+
+/**
+ * Endpoint selection values for edge operations.
+ * @typedef {number|'source'|'destination'|'both'} EndpointSelection
+ */
+
+/**
+ * Selector options for index selectors.
+ * @typedef {object} SelectorOptions
+ * @property {'node'|'edge'=} scope - Selector scope.
+ * @property {boolean=} fullCoverage - Whether selector covers all active items.
+ */
+
+/**
+ * Event handler invoked by `on`/`off`.
+ * @callback EventHandler
+ * @param {any} event
+ * @returns {void}
+ */
+
+/**
+ * Event payload for `onAny` listeners.
+ * @typedef {object} AnyEventPayload
+ * @property {string} type
+ * @property {any} detail
+ * @property {any} event
+ * @property {HeliosNetwork} target
+ */
+
+/**
+ * Handler for `onAny` listeners.
+ * @callback AnyEventHandler
+ * @param {AnyEventPayload} payload
+ * @returns {void}
+ */
+
+/**
+ * Unsubscribe callback returned by event helpers.
+ * @callback UnsubscribeFn
+ * @returns {void}
+ */
+
+/**
+ * Options supporting abort signals for listener helpers.
+ * @typedef {object} SignalOptions
+ * @property {AbortSignal=} signal
+ */
+
+/**
+ * Options for buffer memory usage reports.
+ * @typedef {object} BufferMemoryUsageOptions
+ * @property {boolean=} refreshDense - Whether to repack dense buffers before reporting.
+ * @property {boolean=} includeJs - Whether to include JS-side allocations.
+ */
+
+/**
+ * Options for buffer version queries.
+ * @typedef {object} BufferVersionOptions
+ * @property {boolean=} refreshDense - Whether to repack dense buffers before reporting.
+ */
+
+/**
+ * Options for color-encoding dense buffers.
+ * @typedef {object} DenseColorEncodingOptions
+ * @property {(DenseColorEncodingFormat|string)=} format
+ */
+
+/**
+ * One dense buffer request represented as [scope, name].
+ * @typedef {Array.<string>} DenseBufferRequest
+ */
+
+/**
+ * List of dense buffer requests.
+ * @typedef {Array.<DenseBufferRequest>} DenseBufferRequestList
+ */
+
+/**
+ * Dense buffer views grouped by scope.
+ * @typedef {object} DenseBufferViews
+ * @property {Object.<string, any>} node
+ * @property {Object.<string, any>} edge
+ */
+
+/**
+ * Callback invoked with dense buffer views.
+ * @callback DenseBufferViewCallback
+ * @param {DenseBufferViews} buffers
+ * @returns {*}
+ */
+
+/**
+ * Node-to-edge passthrough descriptor.
+ * @typedef {object} NodeToEdgePassthrough
+ * @property {string} edgeName
+ * @property {string} sourceName
+ * @property {EndpointSelection} endpoints
+ * @property {boolean} doubleWidth
+ */
+
+/**
+ * Attribute filter lists per scope.
+ * @typedef {object} AttributeFilterMap
+ * @property {string[]} [node]
+ * @property {string[]} [edge]
+ * @property {string[]} [network]
+ * @property {string[]} [graph]
+ */
+
+/**
+ * Options for .bxnet/.xnet serialization.
+ * @typedef {object} SaveSerializedOptions
+ * @property {string=} path
+ * @property {('uint8array'|'arraybuffer'|'base64'|'blob')=} format
+ * @property {AttributeFilterMap=} allowAttributes
+ * @property {AttributeFilterMap=} ignoreAttributes
+ */
+
+/**
+ * Options for .zxnet serialization.
+ * @typedef {object} SaveZXNetOptions
+ * @property {string=} path
+ * @property {number=} compressionLevel
+ * @property {('uint8array'|'arraybuffer'|'base64'|'blob')=} format
+ * @property {AttributeFilterMap=} allowAttributes
+ * @property {AttributeFilterMap=} ignoreAttributes
+ */
+
+/**
  * Cached WASM module promise and resolved instance.
  * @type {Promise<object>|null}
  */
@@ -652,7 +804,7 @@ class Selector {
 	 * @param {HeliosNetwork} network - Owning Helios network wrapper.
 	 * @param {number} ptr - Pointer to the native selector.
 	 * @param {{destroyFn:function(number):void,countFn:function(number):number,dataFn:function(number):number}} fns - Selector function table.
-	 * @param {{scope?: 'node'|'edge', fullCoverage?: boolean}} [options] - Selector options.
+	 * @param {SelectorOptions} [options] - Selector options.
 	 */
 	constructor(module, network, ptr, fns, options = {}) {
 		this.module = module;
@@ -1866,9 +2018,9 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * If `options.signal` is provided, the listener is automatically removed on abort.
 	 *
 	 * @param {string} type
-	 * @param {(event: any) => void} handler
+	 * @param {EventHandler} handler
 	 * @param {AddEventListenerOptions} [options]
-	 * @returns {() => void} Unsubscribe function.
+	 * @returns {UnsubscribeFn} Unsubscribe function.
 	 */
 	on(type, handler, options = undefined) {
 		this.addEventListener(type, handler, options);
@@ -1893,7 +2045,7 @@ export class HeliosNetwork extends BaseEventTarget {
 	/**
 	 * Removes a listener previously added with `on`/`addEventListener`.
 	 * @param {string} type
-	 * @param {(event: any) => void} handler
+	 * @param {EventHandler} handler
 	 * @param {EventListenerOptions} [options]
 	 */
 	off(type, handler, options = undefined) {
@@ -1905,9 +2057,9 @@ export class HeliosNetwork extends BaseEventTarget {
 	 *
 	 * The handler is invoked as `handler({ type, detail, event, target })`.
 	 *
-	 * @param {(payload: {type: string, detail: any, event: any, target: HeliosNetwork}) => void} handler
-	 * @param {{signal?: AbortSignal}} [options]
-	 * @returns {() => void} Unsubscribe function.
+	 * @param {AnyEventHandler} handler
+	 * @param {SignalOptions} [options]
+	 * @returns {UnsubscribeFn} Unsubscribe function.
 	 */
 	onAny(handler, options = {}) {
 		this._anyEventListeners.add(handler);
@@ -1958,9 +2110,9 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * Pass `handler = null` to remove the binding.
 	 *
 	 * @param {string} typeWithNamespace
-	 * @param {(event: any) => void | null} handler
+	 * @param {EventHandler|null} handler
 	 * @param {AddEventListenerOptions} [options]
-	 * @returns {(() => void) | undefined}
+	 * @returns {UnsubscribeFn|undefined}
 	 */
 	listen(typeWithNamespace, handler, options = undefined) {
 		const { type, namespace } = parseNamespacedType(typeWithNamespace);
@@ -2077,7 +2229,7 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * Runs a callback inside a buffer access session, ensuring cleanup even on throw.
 	 *
 	 * @template T
-	 * @param {() => T} fn - Callback to execute.
+	 * @param {function(): T} fn - Callback to execute.
 	 * @returns {T} Callback result.
 	 */
 	withBufferAccess(fn) {
@@ -2351,7 +2503,7 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * - When dense buffers are aliased into sparse storage, `bytes` is reported as 0 (because no extra memory
 	 *   is owned by the dense buffer). `viewBytes` still reports the logical span of the dense view.
 	 *
-	 * @param {{refreshDense?:boolean, includeJs?:boolean}} [options]
+	 * @param {BufferMemoryUsageOptions} [options]
 	 * @returns {object}
 	 */
 	getBufferMemoryUsage(options = {}) {
@@ -2688,7 +2840,7 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * Returns a dictionary containing version counters for all tracked items.
 	 * Values are the version numbers only (no metadata).
 	 *
-	 * @param {{refreshDense?:boolean}} [options]
+	 * @param {BufferVersionOptions} [options]
 	 * @returns {object}
 	 */
 	getBufferVersions(options = {}) {
@@ -2808,7 +2960,7 @@ export class HeliosNetwork extends BaseEventTarget {
 	 *
 	 * @param {string} sourceName - Node attribute identifier.
 	 * @param {string} edgeName - Edge attribute identifier that will expose the derived values.
-	 * @param {'source'|'destination'|'both'|0|1|-1} [endpoints='both'] - Which endpoint to propagate.
+	 * @param {EndpointSelection} [endpoints='both'] - Which endpoint to propagate (0/1/-1).
 	 * @param {boolean} [doubleWidth=true] - When copying a single endpoint, duplicate it to fill a double-width layout.
 	 */
 	defineNodeToEdgeAttribute(sourceName, edgeName, endpoints = 'both', doubleWidth = true) {
@@ -2847,7 +2999,7 @@ export class HeliosNetwork extends BaseEventTarget {
 	/**
 	 * Returns a snapshot of node-to-edge passthrough registrations.
 	 * Each entry describes the node source, the derived edge attribute, and the endpoint policy.
-	 * @returns {Array<{edgeName:string,sourceName:string,endpoints:'source'|'destination'|'both',doubleWidth:boolean}>}
+	 * @returns {Array.<NodeToEdgePassthrough>}
 	 */
 	getNodeToEdgePassthroughs() {
 		this._ensureActive();
@@ -3164,7 +3316,7 @@ export class HeliosNetwork extends BaseEventTarget {
 	 *
 	 * @param {string} sourceName - Source attribute identifier or "index".
 	 * @param {string} encodedName - Name of the packed buffer to register.
-	 * @param {{format?: DenseColorEncodingFormat|string}} [options] - Encoding options.
+	 * @param {DenseColorEncodingOptions} [options] - Encoding options.
 	 */
 	defineDenseColorEncodedNodeAttribute(sourceName, encodedName, options = {}) {
 		this._defineDenseColorEncodedAttribute('node', sourceName, encodedName, options);
@@ -3175,7 +3327,7 @@ export class HeliosNetwork extends BaseEventTarget {
 	 *
 	 * @param {string} sourceName - Source attribute identifier or "index".
 	 * @param {string} encodedName - Name of the packed buffer to register.
-	 * @param {{format?: DenseColorEncodingFormat|string}} [options] - Encoding options.
+	 * @param {DenseColorEncodingOptions} [options] - Encoding options.
 	 */
 	defineDenseColorEncodedEdgeAttribute(sourceName, encodedName, options = {}) {
 		this._defineDenseColorEncodedAttribute('edge', sourceName, encodedName, options);
@@ -3302,8 +3454,8 @@ export class HeliosNetwork extends BaseEventTarget {
 	/**
 	 * Provides typed dense views inside a buffer access session.
 	 *
-	 * @param {Array<[string, string]>} requests - List of scope/name pairs; use name "index" to request the index buffer (scope must be "node" or "edge").
-	 * @param {(buffers: {node: Record<string, any>, edge: Record<string, any>}) => any} fn - Callback receiving typed views.
+	 * @param {DenseBufferRequestList} requests - List of scope/name pairs; use name "index" to request the index buffer (scope must be "node" or "edge").
+	 * @param {DenseBufferViewCallback} fn - Callback receiving typed views.
 	 * @returns {*} Callback return value.
 	 */
 	withDenseBufferViews(requests, fn) {
@@ -3330,8 +3482,8 @@ export class HeliosNetwork extends BaseEventTarget {
 	/**
 	 * Updates all requested dense buffers (may allocate) and returns typed views in one call.
 	 *
-	 * @param {Array<[string,string]>} requests - List of scope/name pairs; use name "index" for the index buffer.
-	 * @returns {{node: Record<string, any>, edge: Record<string, any>}} Typed dense views grouped by scope.
+	 * @param {DenseBufferRequestList} requests - List of scope/name pairs; use name "index" for the index buffer.
+	 * @returns {DenseBufferViews} Typed dense views grouped by scope.
 	 */
 	updateAndGetDenseBufferViews(requests) {
 		this._ensureActive();
@@ -3673,11 +3825,7 @@ export class HeliosNetwork extends BaseEventTarget {
 	/**
 	 * Serializes the network into the `.bxnet` container format.
 	 *
-	 * @param {object} [options]
-	 * @param {string} [options.path] - Node-only destination path. When omitted the bytes are returned.
-	 * @param {'uint8array'|'arraybuffer'|'base64'|'blob'} [options.format='uint8array'] - Desired return representation.
-	 * @param {{node?: string[], edge?: string[], network?: string[], graph?: string[]}} [options.allowAttributes] - Restrict saved attributes to these names per scope.
-	 * @param {{node?: string[], edge?: string[], network?: string[], graph?: string[]}} [options.ignoreAttributes] - Exclude these attribute names per scope.
+	 * @param {SaveSerializedOptions} [options]
 	 * @returns {Promise<Uint8Array|ArrayBuffer|string|Blob|undefined>} Serialized payload or void when writing directly to disk.
 	 */
 	async saveBXNet(options = {}) {
@@ -3687,11 +3835,7 @@ export class HeliosNetwork extends BaseEventTarget {
 	/**
 	 * Serializes the network into the human-readable `.xnet` container format.
 	 *
-	 * @param {object} [options]
-	 * @param {string} [options.path] - Node-only destination path. When omitted the bytes are returned.
-	 * @param {'uint8array'|'arraybuffer'|'base64'|'blob'} [options.format='uint8array'] - Desired return representation.
-	 * @param {{node?: string[], edge?: string[], network?: string[], graph?: string[]}} [options.allowAttributes] - Restrict saved attributes to these names per scope.
-	 * @param {{node?: string[], edge?: string[], network?: string[], graph?: string[]}} [options.ignoreAttributes] - Exclude these attribute names per scope.
+	 * @param {SaveSerializedOptions} [options]
 	 * @returns {Promise<Uint8Array|ArrayBuffer|string|Blob|undefined>} Serialized payload or void when writing directly to disk.
 	 */
 	async saveXNet(options = {}) {
@@ -3701,12 +3845,7 @@ export class HeliosNetwork extends BaseEventTarget {
 	/**
 	 * Serializes the network into the BGZF-compressed `.zxnet` container format.
 	 *
-	 * @param {object} [options]
-	 * @param {string} [options.path] - Node-only destination path. When omitted the bytes are returned.
-	 * @param {number} [options.compressionLevel=6] - BGZF compression level (0-9).
-	 * @param {'uint8array'|'arraybuffer'|'base64'|'blob'} [options.format='uint8array'] - Desired return representation.
-	 * @param {{node?: string[], edge?: string[], network?: string[], graph?: string[]}} [options.allowAttributes] - Restrict saved attributes to these names per scope.
-	 * @param {{node?: string[], edge?: string[], network?: string[], graph?: string[]}} [options.ignoreAttributes] - Exclude these attribute names per scope.
+	 * @param {SaveZXNetOptions} [options]
 	 * @returns {Promise<Uint8Array|ArrayBuffer|string|Blob|undefined>} Serialized payload or void when writing directly to disk.
 	 */
 	async saveZXNet(options = {}) {
@@ -4164,7 +4303,7 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * Converts a string node attribute into categorical codes.
 	 *
 	 * @param {string} name - Attribute identifier.
-	 * @param {{sortOrder?: CategorySortOrder|string, missingLabel?: string}} [options] - Categorization options.
+	 * @param {CategorizeOptions} [options] - Categorization options.
 	 */
 	categorizeNodeAttribute(name, options) {
 		this._categorizeAttribute('node', name, options);
@@ -4174,7 +4313,7 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * Converts a string edge attribute into categorical codes.
 	 *
 	 * @param {string} name - Attribute identifier.
-	 * @param {{sortOrder?: CategorySortOrder|string, missingLabel?: string}} [options] - Categorization options.
+	 * @param {CategorizeOptions} [options] - Categorization options.
 	 */
 	categorizeEdgeAttribute(name, options) {
 		this._categorizeAttribute('edge', name, options);
@@ -4184,7 +4323,7 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * Converts a string network attribute into categorical codes.
 	 *
 	 * @param {string} name - Attribute identifier.
-	 * @param {{sortOrder?: CategorySortOrder|string, missingLabel?: string}} [options] - Categorization options.
+	 * @param {CategorizeOptions} [options] - Categorization options.
 	 */
 	categorizeNetworkAttribute(name, options) {
 		this._categorizeAttribute('network', name, options);
@@ -4194,7 +4333,7 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * Converts a categorical node attribute back into strings.
 	 *
 	 * @param {string} name - Attribute identifier.
-	 * @param {{missingLabel?: string}} [options] - Decategorization options.
+	 * @param {DecategorizeOptions} [options] - Decategorization options.
 	 */
 	decategorizeNodeAttribute(name, options) {
 		this._decategorizeAttribute('node', name, options);
@@ -4204,7 +4343,7 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * Converts a categorical edge attribute back into strings.
 	 *
 	 * @param {string} name - Attribute identifier.
-	 * @param {{missingLabel?: string}} [options] - Decategorization options.
+	 * @param {DecategorizeOptions} [options] - Decategorization options.
 	 */
 	decategorizeEdgeAttribute(name, options) {
 		this._decategorizeAttribute('edge', name, options);
@@ -4214,7 +4353,7 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * Converts a categorical network attribute back into strings.
 	 *
 	 * @param {string} name - Attribute identifier.
-	 * @param {{missingLabel?: string}} [options] - Decategorization options.
+	 * @param {DecategorizeOptions} [options] - Decategorization options.
 	 */
 	decategorizeNetworkAttribute(name, options) {
 		this._decategorizeAttribute('network', name, options);
@@ -4489,7 +4628,7 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * Retrieves the buffer views for a multi-category node attribute.
 	 *
 	 * @param {string} name - Attribute identifier.
-	 * @returns {{offsets:Uint32Array,ids:Uint32Array,weights:Float32Array|null,offsetCount:number,entryCount:number,hasWeights:boolean,version:number}}
+	 * @returns {MultiCategoryBuffers}
 	 */
 	getNodeMultiCategoryBuffers(name) {
 		return this._getMultiCategoryBuffers('node', name);
@@ -4499,7 +4638,7 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * Retrieves the buffer views for a multi-category edge attribute.
 	 *
 	 * @param {string} name - Attribute identifier.
-	 * @returns {{offsets:Uint32Array,ids:Uint32Array,weights:Float32Array|null,offsetCount:number,entryCount:number,hasWeights:boolean,version:number}}
+	 * @returns {MultiCategoryBuffers}
 	 */
 	getEdgeMultiCategoryBuffers(name) {
 		return this._getMultiCategoryBuffers('edge', name);
@@ -4509,7 +4648,7 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * Retrieves the buffer views for a multi-category network attribute.
 	 *
 	 * @param {string} name - Attribute identifier.
-	 * @returns {{offsets:Uint32Array,ids:Uint32Array,weights:Float32Array|null,offsetCount:number,entryCount:number,hasWeights:boolean,version:number}}
+	 * @returns {MultiCategoryBuffers}
 	 */
 	getNetworkMultiCategoryBuffers(name) {
 		return this._getMultiCategoryBuffers('network', name);
@@ -6097,7 +6236,7 @@ export class HeliosNetwork extends BaseEventTarget {
 	 *
 	 * @param {string} sourceName - Node attribute identifier.
 	 * @param {string} destinationName - Edge attribute identifier.
-	 * @param {'source'|'destination'|'both'|0|1|-1} [endpoints='both'] - Which endpoints to copy.
+	 * @param {EndpointSelection} [endpoints='both'] - Which endpoints to copy (0/1/-1).
 	 * @param {boolean} [doubleWidth=true] - When copying a single endpoint, duplicate it to fill double width.
 	 */
 	copyNodeAttributeToEdgeAttribute(sourceName, destinationName, endpoints = 'both', doubleWidth = true) {
