@@ -1,5 +1,11 @@
 # CHANGES
 
+## 2026-01-25
+
+- Added multi-category attributes (weighted or unweighted) backed by CSR-style buffers.
+- Added XNET `m`/`mw` tokens and legacy `__multicategory*` prefix support, plus BXNET/ZXNET serialization for multi-category values.
+- Added JS and native tests covering multi-category buffers, weights, and serialization round-trips.
+
 ## 2026-01-22
 
 - Fixed node→edge passthrough updates to refresh dense edge buffers when the source node attribute version changes (version-based refresh, not just dirty flags).

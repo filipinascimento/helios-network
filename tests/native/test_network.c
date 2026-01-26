@@ -828,6 +828,186 @@ static void test_categorical_serialization(void) {
 	CXFreeNetwork(net);
 }
 
+static void test_multicategory_serialization(void) {
+	CXNetworkRef net = CXNewNetwork(CXFalse);
+	assert(net);
+
+	CXIndex nodes[3];
+	assert(CXNetworkAddNodes(net, 3, nodes));
+
+	CXEdge edges[2] = {
+		{ .from = nodes[0], .to = nodes[1] },
+		{ .from = nodes[1], .to = nodes[2] },
+	};
+	CXIndex edgeIds[2];
+	assert(CXNetworkAddEdges(net, edges, 2, edgeIds));
+
+	assert(CXNetworkDefineMultiCategoryAttribute(net, CXAttributeScopeNode, "tags", CXFalse));
+	const char *tags0[] = { "alpha", "beta" };
+	assert(CXNetworkSetMultiCategoryEntryByLabels(net, CXAttributeScopeNode, "tags", nodes[0], tags0, 2, NULL));
+	assert(CXNetworkSetMultiCategoryEntryByLabels(net, CXAttributeScopeNode, "tags", nodes[1], NULL, 0, NULL));
+	const char *tags2[] = { "beta" };
+	assert(CXNetworkSetMultiCategoryEntryByLabels(net, CXAttributeScopeNode, "tags", nodes[2], tags2, 1, NULL));
+
+	assert(CXNetworkDefineMultiCategoryAttribute(net, CXAttributeScopeEdge, "topics", CXTrue));
+	const char *topics0[] = { "x", "y" };
+	float topicWeights0[] = { 0.2f, 0.8f };
+	assert(CXNetworkSetMultiCategoryEntryByLabels(net, CXAttributeScopeEdge, "topics", edgeIds[0], topics0, 2, topicWeights0));
+	const char *topics1[] = { "y" };
+	float topicWeights1[] = { 1.0f };
+	assert(CXNetworkSetMultiCategoryEntryByLabels(net, CXAttributeScopeEdge, "topics", edgeIds[1], topics1, 1, topicWeights1));
+
+	char xnetPath[] = "/tmp/cxnet-mc-XXXXXX";
+	int xnetFd = mkstemp(xnetPath);
+	assert(xnetFd >= 0);
+	close(xnetFd);
+	assert(CXNetworkWriteXNet(net, xnetPath));
+	CXNetworkRef xnetLoaded = CXNetworkReadXNet(xnetPath);
+	assert(xnetLoaded);
+	unlink(xnetPath);
+
+	CXAttributeRef tagsAttr = CXNetworkGetNodeAttribute(xnetLoaded, "tags");
+	assert(tagsAttr && tagsAttr->type == CXDataAttributeMultiCategoryType);
+	int32_t alphaId = 0;
+	int32_t betaId = 0;
+	assert(lookup_category_id(tagsAttr->categoricalDictionary, "alpha", &alphaId));
+	assert(lookup_category_id(tagsAttr->categoricalDictionary, "beta", &betaId));
+	uint32_t *tagOffsets = CXNetworkGetMultiCategoryOffsets(xnetLoaded, CXAttributeScopeNode, "tags");
+	uint32_t *tagIds = CXNetworkGetMultiCategoryIds(xnetLoaded, CXAttributeScopeNode, "tags");
+	assert(tagOffsets && tagIds);
+	assert(tagOffsets[0] == 0 && tagOffsets[1] == 2 && tagOffsets[2] == 2 && tagOffsets[3] == 3);
+	assert(tagIds[0] == (uint32_t)alphaId);
+	assert(tagIds[1] == (uint32_t)betaId);
+	assert(tagIds[2] == (uint32_t)betaId);
+
+	CXAttributeRef topicsAttr = CXNetworkGetEdgeAttribute(xnetLoaded, "topics");
+	assert(topicsAttr && topicsAttr->type == CXDataAttributeMultiCategoryType);
+	assert(CXNetworkMultiCategoryHasWeights(xnetLoaded, CXAttributeScopeEdge, "topics"));
+	int32_t xId = 0;
+	int32_t yId = 0;
+	assert(lookup_category_id(topicsAttr->categoricalDictionary, "x", &xId));
+	assert(lookup_category_id(topicsAttr->categoricalDictionary, "y", &yId));
+	uint32_t *topicOffsets = CXNetworkGetMultiCategoryOffsets(xnetLoaded, CXAttributeScopeEdge, "topics");
+	uint32_t *topicIds = CXNetworkGetMultiCategoryIds(xnetLoaded, CXAttributeScopeEdge, "topics");
+	float *topicWeights = CXNetworkGetMultiCategoryWeights(xnetLoaded, CXAttributeScopeEdge, "topics");
+	assert(topicOffsets && topicIds && topicWeights);
+	assert(topicOffsets[0] == 0 && topicOffsets[1] == 2 && topicOffsets[2] == 3);
+	assert(topicIds[0] == (uint32_t)xId);
+	assert(topicIds[1] == (uint32_t)yId);
+	assert(topicIds[2] == (uint32_t)yId);
+	assert(fabsf(topicWeights[0] - 0.2f) < 1e-6f);
+	assert(fabsf(topicWeights[1] - 0.8f) < 1e-6f);
+	assert(fabsf(topicWeights[2] - 1.0f) < 1e-6f);
+
+	CXFreeNetwork(xnetLoaded);
+
+	char bxPath[] = "/tmp/cxnet-mc-bx-XXXXXX";
+	int bxFd = mkstemp(bxPath);
+	assert(bxFd >= 0);
+	close(bxFd);
+	assert(CXNetworkWriteBXNet(net, bxPath));
+	CXNetworkRef bxLoaded = CXNetworkReadBXNet(bxPath);
+	assert(bxLoaded);
+	unlink(bxPath);
+
+	uint32_t *bxTagOffsets = CXNetworkGetMultiCategoryOffsets(bxLoaded, CXAttributeScopeNode, "tags");
+	uint32_t *bxTagIds = CXNetworkGetMultiCategoryIds(bxLoaded, CXAttributeScopeNode, "tags");
+	assert(bxTagOffsets && bxTagIds);
+	assert(bxTagOffsets[0] == 0 && bxTagOffsets[1] == 2 && bxTagOffsets[2] == 2 && bxTagOffsets[3] == 3);
+
+	uint32_t *bxTopicOffsets = CXNetworkGetMultiCategoryOffsets(bxLoaded, CXAttributeScopeEdge, "topics");
+	uint32_t *bxTopicIds = CXNetworkGetMultiCategoryIds(bxLoaded, CXAttributeScopeEdge, "topics");
+	float *bxTopicWeights = CXNetworkGetMultiCategoryWeights(bxLoaded, CXAttributeScopeEdge, "topics");
+	assert(bxTopicOffsets && bxTopicIds && bxTopicWeights);
+	assert(bxTopicOffsets[0] == 0 && bxTopicOffsets[1] == 2 && bxTopicOffsets[2] == 3);
+
+	CXFreeNetwork(bxLoaded);
+
+	char zxPath[] = "/tmp/cxnet-mc-zx-XXXXXX";
+	int zxFd = mkstemp(zxPath);
+	assert(zxFd >= 0);
+	close(zxFd);
+	assert(CXNetworkWriteZXNet(net, zxPath, 4));
+	CXNetworkRef zxLoaded = CXNetworkReadZXNet(zxPath);
+	assert(zxLoaded);
+	unlink(zxPath);
+
+	uint32_t *zxTagOffsets = CXNetworkGetMultiCategoryOffsets(zxLoaded, CXAttributeScopeNode, "tags");
+	uint32_t *zxTagIds = CXNetworkGetMultiCategoryIds(zxLoaded, CXAttributeScopeNode, "tags");
+	assert(zxTagOffsets && zxTagIds);
+	assert(zxTagOffsets[0] == 0 && zxTagOffsets[1] == 2 && zxTagOffsets[2] == 2 && zxTagOffsets[3] == 3);
+
+	uint32_t *zxTopicOffsets = CXNetworkGetMultiCategoryOffsets(zxLoaded, CXAttributeScopeEdge, "topics");
+	uint32_t *zxTopicIds = CXNetworkGetMultiCategoryIds(zxLoaded, CXAttributeScopeEdge, "topics");
+	float *zxTopicWeights = CXNetworkGetMultiCategoryWeights(zxLoaded, CXAttributeScopeEdge, "topics");
+	assert(zxTopicOffsets && zxTopicIds && zxTopicWeights);
+	assert(zxTopicOffsets[0] == 0 && zxTopicOffsets[1] == 2 && zxTopicOffsets[2] == 3);
+
+	CXFreeNetwork(zxLoaded);
+	CXFreeNetwork(net);
+}
+
+static void test_xnet_legacy_multicategory(void) {
+	const char *legacy =
+		"#vertices 2\n"
+		"\"First\"\n"
+		"\"Second\"\n"
+		"#edges nonweighted undirected\n"
+		"0 1\n"
+		"#v \"__multicategoryTags\" s\n"
+		"\"alpha;beta%3Bomega\"\n"
+		"\"beta%3Bomega\"\n"
+		"#e \"__multicategory_weightedTopics\" s\n"
+		"\"x:0.1;y%3Aalt:0.9\"\n"
+		"\"y%3Aalt:1.0\"\n";
+
+	char legacyPath[] = "/tmp/cxnet-legacy-mc-XXXXXX";
+	int fd = mkstemp(legacyPath);
+	assert(fd >= 0);
+	size_t legacyLen = strlen(legacy);
+	assert(write(fd, legacy, legacyLen) == (ssize_t)legacyLen);
+	close(fd);
+
+	CXNetworkRef net = CXNetworkReadXNet(legacyPath);
+	assert(net);
+	unlink(legacyPath);
+
+	CXAttributeRef tagsAttr = CXNetworkGetNodeAttribute(net, "Tags");
+	assert(tagsAttr && tagsAttr->type == CXDataAttributeMultiCategoryType);
+	int32_t alphaId = 0;
+	int32_t betaOmegaId = 0;
+	assert(lookup_category_id(tagsAttr->categoricalDictionary, "alpha", &alphaId));
+	assert(lookup_category_id(tagsAttr->categoricalDictionary, "beta;omega", &betaOmegaId));
+	uint32_t *tagOffsets = CXNetworkGetMultiCategoryOffsets(net, CXAttributeScopeNode, "Tags");
+	uint32_t *tagIds = CXNetworkGetMultiCategoryIds(net, CXAttributeScopeNode, "Tags");
+	assert(tagOffsets && tagIds);
+	assert(tagOffsets[0] == 0 && tagOffsets[1] == 2 && tagOffsets[2] == 3);
+	assert(tagIds[0] == (uint32_t)alphaId);
+	assert(tagIds[1] == (uint32_t)betaOmegaId);
+	assert(tagIds[2] == (uint32_t)betaOmegaId);
+
+	CXAttributeRef topicsAttr = CXNetworkGetEdgeAttribute(net, "Topics");
+	assert(topicsAttr && topicsAttr->type == CXDataAttributeMultiCategoryType);
+	assert(CXNetworkMultiCategoryHasWeights(net, CXAttributeScopeEdge, "Topics"));
+	int32_t xId = 0;
+	int32_t yAltId = 0;
+	assert(lookup_category_id(topicsAttr->categoricalDictionary, "x", &xId));
+	assert(lookup_category_id(topicsAttr->categoricalDictionary, "y:alt", &yAltId));
+	uint32_t *topicOffsets = CXNetworkGetMultiCategoryOffsets(net, CXAttributeScopeEdge, "Topics");
+	uint32_t *topicIds = CXNetworkGetMultiCategoryIds(net, CXAttributeScopeEdge, "Topics");
+	float *topicWeights = CXNetworkGetMultiCategoryWeights(net, CXAttributeScopeEdge, "Topics");
+	assert(topicOffsets && topicIds && topicWeights);
+	assert(topicOffsets[0] == 0 && topicOffsets[1] == 2 && topicOffsets[2] == 3);
+	assert(topicIds[0] == (uint32_t)xId);
+	assert(topicIds[1] == (uint32_t)yAltId);
+	assert(topicIds[2] == (uint32_t)yAltId);
+	assert(fabsf(topicWeights[0] - 0.1f) < 1e-6f);
+	assert(fabsf(topicWeights[1] - 0.9f) < 1e-6f);
+	assert(fabsf(topicWeights[2] - 1.0f) < 1e-6f);
+
+	CXFreeNetwork(net);
+}
+
 static void test_xnet_legacy_upgrade(void) {
 	const char *legacy =
 		"#vertices 3\n"
@@ -1148,7 +1328,9 @@ int main(void) {
 	test_xnet_round_trip();
 	test_categorical_serialization();
 	test_categorical_helpers();
+	test_multicategory_serialization();
 	test_xnet_legacy_upgrade();
+	test_xnet_legacy_multicategory();
 	test_xnet_legacy_vertices_tokens_and_unescaped_strings();
 	test_xnet_string_escaping();
 	test_xnet_invalid_inputs();

@@ -26,7 +26,8 @@ enum {
 enum {
 	CX_ATTR_FLAG_HAS_DICTIONARY = 1u << 0,
 	CX_ATTR_FLAG_HAS_JAVASCRIPT_SHADOW = 1u << 1,
-	CX_ATTR_FLAG_POINTER_PAYLOAD = 1u << 2
+	CX_ATTR_FLAG_POINTER_PAYLOAD = 1u << 2,
+	CX_ATTR_FLAG_HAS_MULTICATEGORY_WEIGHTS = 1u << 3
 };
 
 typedef struct {
@@ -143,6 +144,7 @@ typedef struct {
 	uint32_t storageWidth;
 	uint32_t dimension;
 	uint64_t capacity;
+	CXBool hasWeights;
 } CXAttributeLoadEntry;
 
 typedef struct {
@@ -278,6 +280,7 @@ static CXBool CXAttributeStorageInfo(CXAttributeRef attribute, uint32_t *storage
 		case CXBigIntegerAttributeType:
 		case CXUnsignedBigIntegerAttributeType:
 		case CXDataAttributeCategoryType:
+		case CXDataAttributeMultiCategoryType:
 			break;
 		default:
 			return CXFalse;
@@ -293,9 +296,43 @@ static CXBool CXAttributeStorageInfo(CXAttributeRef attribute, uint32_t *storage
 			flagBits |= CX_ATTR_FLAG_HAS_DICTIONARY;
 		}
 	}
+	if (attribute->type == CXDataAttributeMultiCategoryType && attribute->multiCategory && attribute->multiCategory->hasWeights) {
+		flagBits |= CX_ATTR_FLAG_HAS_MULTICATEGORY_WEIGHTS;
+	}
 
 	*storageWidth = width;
 	*flags = flagBits;
+	return CXTrue;
+}
+
+static CXBool CXMultiCategoryEnsureEntryCapacityInternal(CXMultiCategoryBuffer *buffer, CXSize required) {
+	if (!buffer) {
+		return CXFalse;
+	}
+	if (required <= buffer->entryCapacity) {
+		return CXTrue;
+	}
+	CXSize newCapacity = buffer->entryCapacity > 0 ? buffer->entryCapacity : 4;
+	while (newCapacity < required) {
+		newCapacity = CXCapacityGrow(newCapacity);
+		if (newCapacity < required) {
+			newCapacity = required;
+			break;
+		}
+	}
+	uint32_t *newIds = realloc(buffer->ids, newCapacity * sizeof(uint32_t));
+	if (!newIds) {
+		return CXFalse;
+	}
+	buffer->ids = newIds;
+	if (buffer->hasWeights) {
+		float *newWeights = realloc(buffer->weights, newCapacity * sizeof(float));
+		if (!newWeights) {
+			return CXFalse;
+		}
+		buffer->weights = newWeights;
+	}
+	buffer->entryCapacity = newCapacity;
 	return CXTrue;
 }
 
@@ -330,6 +367,9 @@ static CXBool CXExpectedStorageWidthForType(CXAttributeType type, uint32_t *outW
 			return CXTrue;
 		case CXDataAttributeCategoryType:
 			*outWidth = sizeof(int32_t);
+			return CXTrue;
+		case CXDataAttributeMultiCategoryType:
+			*outWidth = 0;
 			return CXTrue;
 		default:
 			errno = ENOTSUP;
@@ -387,7 +427,7 @@ static CXBool CXAttributeDictionaryPayloadSize(const CXAttributeRef attribute, u
 	if (count == 0) {
 		return CXTrue;
 	}
-	if (attribute->type != CXDataAttributeCategoryType) {
+	if (attribute->type != CXDataAttributeCategoryType && attribute->type != CXDataAttributeMultiCategoryType) {
 		errno = ENOTSUP;
 		return CXFalse;
 	}
@@ -534,7 +574,7 @@ static CXBool CXReadAttributeDictionary(CXInputStream *stream, uint64_t dictiona
 	if (dictionarySize == 0) {
 		return CXTrue;
 	}
-	if (attribute->type != CXDataAttributeCategoryType) {
+	if (attribute->type != CXDataAttributeCategoryType && attribute->type != CXDataAttributeMultiCategoryType) {
 		errno = ENOTSUP;
 		return CXFalse;
 	}
@@ -898,20 +938,39 @@ static CXBool CXReadEdgeChunk(CXInputStream *stream, uint64_t payloadSize, CXNet
 	return CXTrue;
 }
 
-static CXAttributeRef CXDefineAttributeForScope(CXNetworkRef network, CXAttributeScope scope, char *name, CXAttributeType type, uint32_t dimension) {
+static CXAttributeRef CXDefineAttributeForScope(
+	CXNetworkRef network,
+	CXAttributeScope scope,
+	char *name,
+	CXAttributeType type,
+	uint32_t dimension,
+	CXBool hasWeights
+) {
 	switch (scope) {
 		case CXAttributeScopeNode:
-			if (!CXNetworkDefineNodeAttribute(network, name, type, dimension)) {
+			if (type == CXDataAttributeMultiCategoryType) {
+				if (!CXNetworkDefineMultiCategoryAttribute(network, scope, name, hasWeights)) {
+					return NULL;
+				}
+			} else if (!CXNetworkDefineNodeAttribute(network, name, type, dimension)) {
 				return NULL;
 			}
 			return CXNetworkGetNodeAttribute(network, name);
 		case CXAttributeScopeEdge:
-			if (!CXNetworkDefineEdgeAttribute(network, name, type, dimension)) {
+			if (type == CXDataAttributeMultiCategoryType) {
+				if (!CXNetworkDefineMultiCategoryAttribute(network, scope, name, hasWeights)) {
+					return NULL;
+				}
+			} else if (!CXNetworkDefineEdgeAttribute(network, name, type, dimension)) {
 				return NULL;
 			}
 			return CXNetworkGetEdgeAttribute(network, name);
 		case CXAttributeScopeNetwork:
-			if (!CXNetworkDefineNetworkAttribute(network, name, type, dimension)) {
+			if (type == CXDataAttributeMultiCategoryType) {
+				if (!CXNetworkDefineMultiCategoryAttribute(network, scope, name, hasWeights)) {
+					return NULL;
+				}
+			} else if (!CXNetworkDefineNetworkAttribute(network, name, type, dimension)) {
 				return NULL;
 			}
 			return CXNetworkGetNetworkAttribute(network, name);
@@ -1003,6 +1062,11 @@ static CXBool CXReadAttributeDefinitionsChunk(CXInputStream *stream, uint64_t pa
 		uint32_t dimension = cx_read_u32le(descriptor + 4);
 		uint32_t storageWidth = cx_read_u32le(descriptor + 8);
 		uint64_t capacity = cx_read_u64le(descriptor + 16);
+		if (type == CXDataAttributeMultiCategoryType && dimension != 1) {
+			free(name);
+			errno = EINVAL;
+			return CXFalse;
+		}
 
 		uint32_t expectedWidth = 0;
 		if (!CXExpectedStorageWidthForType(type, &expectedWidth)) {
@@ -1028,7 +1092,8 @@ static CXBool CXReadAttributeDefinitionsChunk(CXInputStream *stream, uint64_t pa
 			return CXFalse;
 		}
 
-		CXAttributeRef attribute = CXDefineAttributeForScope(network, scope, name, type, dimension);
+		CXBool hasWeights = (flags & CX_ATTR_FLAG_HAS_MULTICATEGORY_WEIGHTS) ? CXTrue : CXFalse;
+		CXAttributeRef attribute = CXDefineAttributeForScope(network, scope, name, type, dimension, hasWeights);
 		if (!attribute) {
 			free(name);
 			return CXFalse;
@@ -1050,6 +1115,7 @@ static CXBool CXReadAttributeDefinitionsChunk(CXInputStream *stream, uint64_t pa
 		entry->storageWidth = storageWidth;
 		entry->dimension = dimension;
 		entry->capacity = capacity;
+		entry->hasWeights = hasWeights;
 
 		remaining -= CXSizedBlockLength(nameSize);
 		remaining -= CXSizedBlockLength(descriptorSize);
@@ -1130,12 +1196,94 @@ static CXBool CXReadStringAttributeValues(CXInputStream *stream, CXAttributeLoad
 	return CXTrue;
 }
 
+static CXBool CXReadMultiCategoryValues(CXInputStream *stream, CXAttributeLoadEntry *plan, uint64_t valueBytes) {
+	if (!stream || !plan || !plan->attribute || plan->attribute->type != CXDataAttributeMultiCategoryType) {
+		return CXFalse;
+	}
+	CXMultiCategoryBuffer *buffer = plan->attribute->multiCategory;
+	if (!buffer) {
+		return CXFalse;
+	}
+	uint64_t consumed = 0;
+	uint64_t offsetCount = 0;
+	if (!CXReadU64(stream, &offsetCount)) {
+		return CXFalse;
+	}
+	consumed += sizeof(uint64_t);
+	uint64_t expectedOffsets = plan->capacity + 1u;
+	if (offsetCount != expectedOffsets) {
+		errno = EINVAL;
+		return CXFalse;
+	}
+	if (offsetCount > SIZE_MAX || consumed + offsetCount * sizeof(uint32_t) > valueBytes) {
+		errno = EINVAL;
+		return CXFalse;
+	}
+	if (offsetCount > 0) {
+		if (!CXReadExact(stream, buffer->offsets, (size_t)offsetCount * sizeof(uint32_t))) {
+			return CXFalse;
+		}
+	}
+	consumed += offsetCount * sizeof(uint32_t);
+	uint64_t entryCount = 0;
+	if (!CXReadU64(stream, &entryCount)) {
+		return CXFalse;
+	}
+	consumed += sizeof(uint64_t);
+	if (entryCount > UINT32_MAX || consumed + entryCount * sizeof(uint32_t) > valueBytes) {
+		errno = EINVAL;
+		return CXFalse;
+	}
+	buffer->hasWeights = plan->hasWeights ? CXTrue : CXFalse;
+	if (!CXMultiCategoryEnsureEntryCapacityInternal(buffer, (CXSize)entryCount)) {
+		return CXFalse;
+	}
+	if (entryCount > 0) {
+		if (!CXReadExact(stream, buffer->ids, (size_t)entryCount * sizeof(uint32_t))) {
+			return CXFalse;
+		}
+	}
+	consumed += entryCount * sizeof(uint32_t);
+	if (plan->hasWeights) {
+		if (consumed + entryCount * sizeof(float) > valueBytes) {
+			errno = EINVAL;
+			return CXFalse;
+		}
+		if (entryCount > 0) {
+			if (!CXReadExact(stream, buffer->weights, (size_t)entryCount * sizeof(float))) {
+				return CXFalse;
+			}
+		}
+		consumed += entryCount * sizeof(float);
+	}
+	buffer->entryCount = (CXSize)entryCount;
+	uint32_t last = buffer->offsets ? buffer->offsets[offsetCount - 1u] : 0;
+	if ((uint64_t)last != entryCount) {
+		errno = EINVAL;
+		return CXFalse;
+	}
+	for (uint64_t idx = 1; idx < offsetCount; idx++) {
+		if (buffer->offsets[idx] < buffer->offsets[idx - 1]) {
+			errno = EINVAL;
+			return CXFalse;
+		}
+	}
+	if (consumed != valueBytes) {
+		errno = EINVAL;
+		return CXFalse;
+	}
+	return CXTrue;
+}
+
 static CXBool CXReadAttributeValuesIntoPlan(CXInputStream *stream, CXAttributeLoadEntry *plan, uint64_t valueBytes) {
 	if (!stream || !plan || !plan->attribute) {
 		return CXFalse;
 	}
 	if (plan->type == CXStringAttributeType) {
 		return CXReadStringAttributeValues(stream, plan, valueBytes);
+	}
+	if (plan->type == CXDataAttributeMultiCategoryType) {
+		return CXReadMultiCategoryValues(stream, plan, valueBytes);
 	}
 	uint64_t capacity = plan->capacity;
 	uint64_t dimension = plan->dimension;
@@ -1508,13 +1656,70 @@ typedef struct {
 	const CXAttributeEntry *entry;
 } CXAttributeValueWriterContext;
 
+static CXBool CXWriteMultiCategoryValues(CXSizedWriterContext *context, const CXAttributeRef attribute) {
+	if (!context || !attribute || attribute->type != CXDataAttributeMultiCategoryType || !attribute->multiCategory) {
+		return CXFalse;
+	}
+	const CXMultiCategoryBuffer *buffer = attribute->multiCategory;
+	uint64_t offsetCount = (uint64_t)attribute->capacity + 1u;
+	uint64_t entryCount = (uint64_t)buffer->entryCount;
+	if (offsetCount > UINT64_MAX / sizeof(uint32_t)) {
+		return CXFalse;
+	}
+	if (entryCount > UINT64_MAX / sizeof(uint32_t)) {
+		return CXFalse;
+	}
+	if (buffer->offsets && offsetCount > 0) {
+		uint32_t last = buffer->offsets[offsetCount - 1u];
+		if ((uint64_t)last != entryCount) {
+			return CXFalse;
+		}
+	}
+	uint8_t countBytes[8];
+	cx_write_u64le(offsetCount, countBytes);
+	if (!CXSizedWriteBytes(context, countBytes, sizeof(countBytes))) {
+		return CXFalse;
+	}
+	if (offsetCount > 0 && buffer->offsets) {
+		if (!CXSizedWriteBytes(context, buffer->offsets, offsetCount * sizeof(uint32_t))) {
+			return CXFalse;
+		}
+	}
+	cx_write_u64le(entryCount, countBytes);
+	if (!CXSizedWriteBytes(context, countBytes, sizeof(countBytes))) {
+		return CXFalse;
+	}
+	if (entryCount > 0 && buffer->ids) {
+		if (!CXSizedWriteBytes(context, buffer->ids, entryCount * sizeof(uint32_t))) {
+			return CXFalse;
+		}
+	}
+	if (buffer->hasWeights) {
+		if (entryCount > 0 && !buffer->weights) {
+			return CXFalse;
+		}
+		if (entryCount > 0) {
+			if (!CXSizedWriteBytes(context, buffer->weights, entryCount * sizeof(float))) {
+				return CXFalse;
+			}
+		}
+	}
+	return CXTrue;
+}
+
 static CXBool CXWriteAttributeValuesCallback(CXSizedWriterContext *context, void *userData) {
 	CXAttributeValueWriterContext *valueCtx = (CXAttributeValueWriterContext *)userData;
 	if (!context || !valueCtx || !valueCtx->entry) {
 		return CXFalse;
 	}
 	CXAttributeRef attribute = valueCtx->entry->attribute;
-	if (!attribute || !attribute->data) {
+	if (!attribute) {
+		return CXFalse;
+	}
+	if (attribute->type == CXDataAttributeMultiCategoryType) {
+		return CXWriteMultiCategoryValues(context, attribute);
+	}
+	if (!attribute->data) {
 		return CXFalse;
 	}
 
@@ -1805,7 +2010,28 @@ static CXBool CXWriteAttributeValuesChunk(CXOutputStream *stream, CXWrittenChunk
 		}
 		uint64_t elementCount = capacity * dimension;
 		uint64_t valueBytes = 0;
-		if (entry->attribute->type == CXStringAttributeType) {
+		if (entry->attribute->type == CXDataAttributeMultiCategoryType) {
+			const CXMultiCategoryBuffer *buffer = entry->attribute->multiCategory;
+			uint64_t offsetCount = capacity + 1u;
+			uint64_t entryCount = buffer ? (uint64_t)buffer->entryCount : 0;
+			if (offsetCount > UINT64_MAX / sizeof(uint32_t)) {
+				errno = ERANGE;
+				goto cleanup;
+			}
+			if (entryCount > UINT64_MAX / sizeof(uint32_t)) {
+				errno = ERANGE;
+				goto cleanup;
+			}
+			valueBytes = sizeof(uint64_t) + offsetCount * sizeof(uint32_t);
+			valueBytes += sizeof(uint64_t) + entryCount * sizeof(uint32_t);
+			if (buffer && buffer->hasWeights) {
+				if (entryCount > UINT64_MAX / sizeof(float) || valueBytes > UINT64_MAX - entryCount * sizeof(float)) {
+					errno = ERANGE;
+					goto cleanup;
+				}
+				valueBytes += entryCount * sizeof(float);
+			}
+		} else if (entry->attribute->type == CXStringAttributeType) {
 			const uint8_t *base = (const uint8_t *)entry->attribute->data;
 			for (CXSize capIdx = 0; capIdx < entry->attribute->capacity; capIdx++) {
 				const CXString *strings = base ? (const CXString *)(base + ((size_t)capIdx * entry->attribute->stride)) : NULL;

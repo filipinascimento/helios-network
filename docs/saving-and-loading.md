@@ -13,6 +13,7 @@ Helios exposes high-level helpers for writing and reading the human-readable `.x
 - Use `.zxnet` when you want a compressed payload; `.bxnet` stays uncompressed and is cheaper to load.
 - Always call `dispose()` on networks you no longer need to free native memory.
 - Categorical attributes serialize their dictionaries in XNET/BXNET/ZXNET; missing values use the `-1` sentinel and default label `__NA__`.
+- Multi-category attributes (including weighted sets) serialize in XNET/BXNET/ZXNET using their CSR-like buffers and categorical dictionaries.
 
 > **Note:** `saveXNet` compacts the network so node identifiers become contiguous (`0..n-1`). The original IDs are preserved in the `_original_ids_` vertex attribute.
 

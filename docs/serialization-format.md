@@ -99,36 +99,55 @@ Each declaration chunk begins with a block containing the attribute count
 2. Descriptor block (24 bytes):
    - `uint8  type` (`CXAttributeType`)
    - `uint8  reserved`
-   - `uint16 flags` (currently zero; non-zero indicates unsupported features)
+   - `uint16 flags` (bitfield; non-zero flags may be required for decoding)
    - `uint32 dimension`
    - `uint32 storage width` (number of bytes per element on disk)
    - `uint32 reserved`
    - `uint64 capacity`
 3. Dictionary block (categorical dictionaries). The block is empty unless the
-   attribute type is categorical and a dictionary is present. The payload is:
+   attribute type is categorical or multi-category and a dictionary is present.
+   The payload is:
    - `uint32 entry_count`
    - For each entry:
      - `int32 id` (signed category id)
      - `uint32 byte_length`
      - UTF-8 bytes for the label
 
+Multi-category attributes set `storage width` to `0` because their values are
+encoded in a separate CSR-like payload.
+
 The current implementation supports scalar numeric attribute types:
 boolean, float, double, 32-bit signed integer, 32-bit unsigned integer,
-64-bit signed/unsigned big integers, and categorical integers (signed 32-bit).
-Attribute
+64-bit signed/unsigned big integers, categorical integers (signed 32-bit), and
+multi-category attributes (CSR-like sparse storage with an optional weight
+stream). Attribute
 types that rely on pointer payloads (strings, raw data, Javascript-backed
 attributes) are not yet serialized. Declarations containing unsupported
 flags are rejected by the reader.
+
+Flag bits used by the current implementation:
+
+| Bit | Flag Name                              | Meaning |
+|----:|----------------------------------------|---------|
+| 0   | `CX_ATTR_FLAG_HAS_DICTIONARY`           | A categorical dictionary block follows. |
+| 3   | `CX_ATTR_FLAG_HAS_MULTICATEGORY_WEIGHTS` | Multi-category values include weights. |
 
 #### Attribute Value Chunks (`NVAL`, `EVAL`, `GVAL`)
 
 Start with a block containing the attribute count. Each attribute contributes:
 
 1. Name block (matching the declaration block).
-2. Value block containing `capacity * dimension` elements. Elements are stored
-   using the `storage width` recorded in the descriptor and appear in the same
-   order as the declaration chunk. Numeric values are little-endian; boolean
-   values are raw bytes.
+2. Value block payload:
+   - For scalar/vector numeric attributes: `capacity * dimension` elements
+     stored using the `storage width` from the descriptor. Elements appear in
+     the same order as the declaration chunk. Numeric values are little-endian;
+     boolean values are raw bytes.
+   - For multi-category attributes: a CSR-like payload:
+     - `uint64 offset_count` (must equal `capacity + 1`)
+     - `uint32[offset_count] offsets`
+     - `uint64 entry_count`
+     - `uint32[entry_count] ids`
+     - Optional `float[entry_count] weights` when the weights flag is set
 
 ### Footer
 
@@ -170,9 +189,9 @@ and compare against the stored value.
 
 ## Limitations
 
-- Serialization currently supports numeric and boolean attributes. Pointer-based
-  attribute types (strings, raw data blobs, Javascript-backed payloads) are not
-  yet persisted.
+- Serialization currently supports numeric, categorical, and multi-category
+  attributes (with optional weights). Pointer-based attribute types (strings,
+  raw data blobs, Javascript-backed payloads) are not yet persisted.
 - The chunk order is fixed; readers expect the sequence listed above.
 - `.zxnet` uses BGZF compression but retains the same logical layout. Offsets
   recorded in the footer are BGZF virtual offsets, suitable for `bgzf_seek`.

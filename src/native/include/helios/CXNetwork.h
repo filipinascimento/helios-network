@@ -64,6 +64,7 @@ typedef enum {
 	CXJavascriptAttributeType = 8,
 	CXBigIntegerAttributeType = 9,
 	CXUnsignedBigIntegerAttributeType = 10,
+	CXDataAttributeMultiCategoryType = 11,
 	CXUnknownAttributeType = 255
 } CXAttributeType;
 
@@ -80,6 +81,15 @@ typedef enum {
 	CX_CATEGORY_SORT_NATURAL = 3
 } CXCategorySortOrder;
 
+typedef struct CXMultiCategoryBuffer {
+	uint32_t *offsets;
+	uint32_t *ids;
+	float *weights;
+	CXSize entryCount;
+	CXSize entryCapacity;
+	CXBool hasWeights;
+} CXMultiCategoryBuffer;
+
 /**
  * Describes a single attribute buffer stored in linear memory. Attributes can
  * be associated with nodes, edges, or the network as a whole.
@@ -92,6 +102,7 @@ typedef struct {
 	CXSize capacity;
 	uint8_t *data;
 	CXStringDictionaryRef categoricalDictionary;
+	CXMultiCategoryBuffer *multiCategory;
 	CXBool usesJavascriptShadow;
 	uint64_t version;
 } CXAttribute;
@@ -369,6 +380,52 @@ CX_EXTERN CXBool CXNetworkSetAttributeCategoryDictionary(
 );
 CX_EXTERN CXBool CXNetworkCategorizeAttribute(CXNetworkRef network, CXAttributeScope scope, const CXString name, CXCategorySortOrder sortOrder, const CXString missingLabel);
 CX_EXTERN CXBool CXNetworkDecategorizeAttribute(CXNetworkRef network, CXAttributeScope scope, const CXString name, const CXString missingLabel);
+
+// Multi-category attribute helpers.
+CX_EXTERN CXBool CXNetworkDefineMultiCategoryAttribute(CXNetworkRef network, CXAttributeScope scope, const CXString name, CXBool hasWeights);
+CX_EXTERN CXBool CXNetworkSetMultiCategoryEntry(
+	CXNetworkRef network,
+	CXAttributeScope scope,
+	const CXString name,
+	CXIndex index,
+	const uint32_t *ids,
+	CXSize count,
+	const float *weights
+);
+CX_EXTERN CXBool CXNetworkSetMultiCategoryEntryByLabels(
+	CXNetworkRef network,
+	CXAttributeScope scope,
+	const CXString name,
+	CXIndex index,
+	const CXString *labels,
+	CXSize count,
+	const float *weights
+);
+CX_EXTERN CXBool CXNetworkClearMultiCategoryEntry(CXNetworkRef network, CXAttributeScope scope, const CXString name, CXIndex index);
+CX_EXTERN CXBool CXNetworkSetMultiCategoryBuffers(
+	CXNetworkRef network,
+	CXAttributeScope scope,
+	const CXString name,
+	const uint32_t *offsets,
+	CXSize offsetCount,
+	const uint32_t *ids,
+	CXSize idCount,
+	const float *weights
+);
+CX_EXTERN CXBool CXNetworkGetMultiCategoryEntryRange(
+	CXNetworkRef network,
+	CXAttributeScope scope,
+	const CXString name,
+	CXIndex index,
+	CXSize *outStart,
+	CXSize *outEnd
+);
+CX_EXTERN uint32_t* CXNetworkGetMultiCategoryOffsets(CXNetworkRef network, CXAttributeScope scope, const CXString name);
+CX_EXTERN uint32_t* CXNetworkGetMultiCategoryIds(CXNetworkRef network, CXAttributeScope scope, const CXString name);
+CX_EXTERN float* CXNetworkGetMultiCategoryWeights(CXNetworkRef network, CXAttributeScope scope, const CXString name);
+CX_EXTERN CXSize CXNetworkGetMultiCategoryOffsetCount(CXNetworkRef network, CXAttributeScope scope, const CXString name);
+CX_EXTERN CXSize CXNetworkGetMultiCategoryEntryCount(CXNetworkRef network, CXAttributeScope scope, const CXString name);
+CX_EXTERN CXBool CXNetworkMultiCategoryHasWeights(CXNetworkRef network, CXAttributeScope scope, const CXString name);
 
 /** Returns a pointer to the raw node attribute buffer for the named attribute. */
 CX_EXTERN void* CXNetworkGetNodeAttributeBuffer(CXNetworkRef network, const CXString name);

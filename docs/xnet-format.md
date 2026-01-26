@@ -21,7 +21,8 @@ focusing on syntax and validation rules rather than API usage.
   appear between sections but are forbidden inside edge lists or attribute
   blocks. A lone `#` introduces a directive, not a comment.
 - **Blank lines** – Ignored between sections, disallowed inside edge lists and
-  attribute blocks.
+  attribute blocks (except that multi-category entries may use an empty line to
+  represent an empty set).
 - **Indices** – Node and edge identifiers are zero-based integers.
 - **Strings** – Values may be quoted or unquoted. Quoted strings support the
   escapes `\n`, `\r`, `\t`, `\\`, and `\"`. Unquoted strings cannot start with `#`
@@ -98,6 +99,8 @@ when present but may also ingest files that omit it.
 | `UN`  | Unsigned BigInteger vector (`N ≥ 2`) |
 | `c`   | Categorical scalar (signed 32-bit codes) |
 | `cN`  | Categorical vector (`N ≥ 2`)            |
+| `m`   | Multi-category scalar (multiple labels) |
+| `mw`  | Weighted multi-category scalar          |
 
 Strings cannot be vectorized. For numeric and categorical vectors, elements on each value line
 are separated by single spaces. All attribute values must be present; missing or
@@ -106,14 +109,42 @@ extra tokens cause the parser to reject the file.
 Categorical values are signed 32-bit integers. The recommended missing-value
 sentinel is `-1`, leaving `0` as a valid category id.
 
+Multi-category attributes are scalar-only and represent a sparse set of labels
+per element. `m` stores labels only; `mw` stores labels with weights. The legacy
+alias `mc` is accepted for unweighted multi-category values.
+
+### Multi-Category Values
+
+For multi-category attributes, each value line consists of zero or more labels
+separated by whitespace. Weighted attributes append a `:<weight>` suffix to each
+label.
+
+Examples:
+
+```
+#v "Tags" m
+"alpha" "beta"
+
+"beta"
+
+#e "Topics" mw
+"x":0.1 "y":0.9
+"y":1.0
+```
+
+Labels obey the same quoting and escaping rules as string values. An empty line
+represents an empty set. For weighted attributes, missing or malformed weights
+raise an error.
+
 ### Categorical Dictionaries
 
-Categorical attributes (`c`/`cN`) may declare a dictionary stanza immediately
-after the attribute header. The dictionary uses explicit integer ids so sparse
-category ids are supported. Each entry line contains the numeric id and its
-string label. The attribute values remain numeric codes in the value block.
-When no dictionary stanza is present, categorical values are treated as raw
-codes without labels.
+Categorical attributes (`c`/`cN`) and multi-category attributes (`m`/`mw`) may
+declare a dictionary stanza immediately after the attribute header. The
+dictionary uses explicit integer ids so sparse category ids are supported. Each
+entry line contains the numeric id and its string label. The attribute values
+remain numeric codes in the value block. When no dictionary stanza is present,
+categorical values are treated as raw codes without labels and multi-category
+values dynamically populate the dictionary as labels are encountered.
 
 ### Validation Rules
 
@@ -169,6 +200,12 @@ edge_attrs     := { legacy_edge_attr_block }
   a bytewise label tie-break). Missing or empty strings are treated as
   `__NA__`; the sentinel string maps to id `-1` and is treated as missing.
   Other labels receive ids starting at `0`.
+- Legacy multi-category attributes can be encoded as string attributes whose
+  names start with `__multicategory` (unweighted) or `__multicategory_weighted`
+  (weighted). The prefix is stripped to derive the attribute name. Values are
+  semicolon-separated lists; weighted entries append `:<weight>` to each label
+  (e.g. `alpha;beta` or `alpha:0.2;beta:0.8`). If labels contain `;`, `:`, or
+  `%`, they must be percent-encoded as `%3B`, `%3A`, and `%25`.
 
 ### Normalization
 

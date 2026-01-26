@@ -18,6 +18,7 @@ const AttributeType = Object.freeze({
 	Javascript: 8,
 	BigInteger: 9,
 	UnsignedBigInteger: 10,
+	MultiCategory: 11,
 	Unknown: 255,
 });
 
@@ -127,6 +128,7 @@ const TYPE_ELEMENT_SIZE = {
 	[AttributeType.Javascript]: 4,
 	[AttributeType.BigInteger]: 8,
 	[AttributeType.UnsignedBigInteger]: 8,
+	[AttributeType.MultiCategory]: 0,
 };
 
 /**
@@ -4129,6 +4131,36 @@ export class HeliosNetwork extends BaseEventTarget {
 	}
 
 	/**
+	 * Defines a multi-category node attribute.
+	 *
+	 * @param {string} name - Attribute identifier.
+	 * @param {boolean} [hasWeights=false] - Whether weights are stored per category.
+	 */
+	defineNodeMultiCategoryAttribute(name, hasWeights = false) {
+		this._defineMultiCategoryAttribute('node', name, hasWeights);
+	}
+
+	/**
+	 * Defines a multi-category edge attribute.
+	 *
+	 * @param {string} name - Attribute identifier.
+	 * @param {boolean} [hasWeights=false] - Whether weights are stored per category.
+	 */
+	defineEdgeMultiCategoryAttribute(name, hasWeights = false) {
+		this._defineMultiCategoryAttribute('edge', name, hasWeights);
+	}
+
+	/**
+	 * Defines a multi-category network attribute.
+	 *
+	 * @param {string} name - Attribute identifier.
+	 * @param {boolean} [hasWeights=false] - Whether weights are stored per category.
+	 */
+	defineNetworkMultiCategoryAttribute(name, hasWeights = false) {
+		this._defineMultiCategoryAttribute('network', name, hasWeights);
+	}
+
+	/**
 	 * Converts a string node attribute into categorical codes.
 	 *
 	 * @param {string} name - Attribute identifier.
@@ -4315,6 +4347,53 @@ export class HeliosNetwork extends BaseEventTarget {
 	}
 
 	/**
+	 * Defines a multi-category attribute backed by sparse CSR-like buffers.
+	 * @private
+	 *
+	 * @param {'node'|'edge'|'network'} scope - Attribute scope.
+	 * @param {string} name - Attribute identifier.
+	 * @param {boolean} hasWeights - Whether the attribute stores weights per category.
+	 */
+	_defineMultiCategoryAttribute(scope, name, hasWeights) {
+		this._assertCanAllocate(`define ${scope} multi-category attribute`);
+		this._ensureActive();
+		const metaMap = this._attributeMap(scope);
+		if (metaMap.has(name)) {
+			throw new Error(`Attribute "${name}" already defined on ${scope}`);
+		}
+		const defineFn = this.module._CXNetworkDefineMultiCategoryAttribute;
+		if (typeof defineFn !== 'function') {
+			throw new Error('Multi-category attributes are unavailable in this WASM build');
+		}
+		const cstr = new CString(this.module, name);
+		let success = false;
+		try {
+			success = defineFn.call(this.module, this.ptr, this._scopeId(scope), cstr.ptr, hasWeights ? 1 : 0);
+		} finally {
+			cstr.dispose();
+		}
+		if (!success) {
+			throw new Error(`Failed to define ${scope} multi-category attribute "${name}"`);
+		}
+		metaMap.set(name, {
+			type: AttributeType.MultiCategory,
+			dimension: 1,
+			hasWeights: !!hasWeights,
+			complex: false,
+			jsStore: new Map(),
+			stringPointers: new Map(),
+			nextHandle: 1,
+		});
+		this._emitAttributeEvent(HELIOS_NETWORK_EVENTS.attributeDefined, {
+			scope,
+			name,
+			type: AttributeType.MultiCategory,
+			dimension: 1,
+			version: this._getAttributeVersion(scope, name),
+		});
+	}
+
+	/**
 	 * Internal helper used to register attributes with the native layer.
 	 * @private
 	 *
@@ -4407,6 +4486,68 @@ export class HeliosNetwork extends BaseEventTarget {
 	}
 
 	/**
+	 * Retrieves the buffer views for a multi-category node attribute.
+	 *
+	 * @param {string} name - Attribute identifier.
+	 * @returns {{offsets:Uint32Array,ids:Uint32Array,weights:Float32Array|null,offsetCount:number,entryCount:number,hasWeights:boolean,version:number}}
+	 */
+	getNodeMultiCategoryBuffers(name) {
+		return this._getMultiCategoryBuffers('node', name);
+	}
+
+	/**
+	 * Retrieves the buffer views for a multi-category edge attribute.
+	 *
+	 * @param {string} name - Attribute identifier.
+	 * @returns {{offsets:Uint32Array,ids:Uint32Array,weights:Float32Array|null,offsetCount:number,entryCount:number,hasWeights:boolean,version:number}}
+	 */
+	getEdgeMultiCategoryBuffers(name) {
+		return this._getMultiCategoryBuffers('edge', name);
+	}
+
+	/**
+	 * Retrieves the buffer views for a multi-category network attribute.
+	 *
+	 * @param {string} name - Attribute identifier.
+	 * @returns {{offsets:Uint32Array,ids:Uint32Array,weights:Float32Array|null,offsetCount:number,entryCount:number,hasWeights:boolean,version:number}}
+	 */
+	getNetworkMultiCategoryBuffers(name) {
+		return this._getMultiCategoryBuffers('network', name);
+	}
+
+	/**
+	 * Returns the [start, end) slice for a multi-category node entry.
+	 *
+	 * @param {string} name - Attribute identifier.
+	 * @param {number} index - Node index.
+	 * @returns {{start:number,end:number}}
+	 */
+	getNodeMultiCategoryEntryRange(name, index) {
+		return this._getMultiCategoryEntryRange('node', name, index);
+	}
+
+	/**
+	 * Returns the [start, end) slice for a multi-category edge entry.
+	 *
+	 * @param {string} name - Attribute identifier.
+	 * @param {number} index - Edge index.
+	 * @returns {{start:number,end:number}}
+	 */
+	getEdgeMultiCategoryEntryRange(name, index) {
+		return this._getMultiCategoryEntryRange('edge', name, index);
+	}
+
+	/**
+	 * Returns the [start, end) slice for a multi-category network entry.
+	 *
+	 * @param {string} name - Attribute identifier.
+	 * @returns {{start:number,end:number}}
+	 */
+	getNetworkMultiCategoryEntryRange(name) {
+		return this._getMultiCategoryEntryRange('network', name, 0);
+	}
+
+	/**
 	 * Assigns a string attribute to a node.
 	 *
 	 * @param {string} name - Attribute identifier.
@@ -4487,6 +4628,141 @@ export class HeliosNetwork extends BaseEventTarget {
 		return this._getStringAttribute('network', name, 0);
 	}
 
+	/**
+	 * Sets a multi-category node entry using category labels.
+	 *
+	 * @param {string} name - Attribute identifier.
+	 * @param {number} index - Node index.
+	 * @param {string[]} categories - Category labels.
+	 * @param {number[]|Float32Array} [weights] - Optional weights (required for weighted attributes).
+	 */
+	setNodeMultiCategoryEntry(name, index, categories, weights) {
+		this._setMultiCategoryEntryByLabels('node', name, index, categories, weights);
+	}
+
+	/**
+	 * Sets a multi-category edge entry using category labels.
+	 *
+	 * @param {string} name - Attribute identifier.
+	 * @param {number} index - Edge index.
+	 * @param {string[]} categories - Category labels.
+	 * @param {number[]|Float32Array} [weights] - Optional weights (required for weighted attributes).
+	 */
+	setEdgeMultiCategoryEntry(name, index, categories, weights) {
+		this._setMultiCategoryEntryByLabels('edge', name, index, categories, weights);
+	}
+
+	/**
+	 * Sets the multi-category network entry using category labels.
+	 *
+	 * @param {string} name - Attribute identifier.
+	 * @param {string[]} categories - Category labels.
+	 * @param {number[]|Float32Array} [weights] - Optional weights (required for weighted attributes).
+	 */
+	setNetworkMultiCategoryEntry(name, categories, weights) {
+		this._setMultiCategoryEntryByLabels('network', name, 0, categories, weights);
+	}
+
+	/**
+	 * Sets a multi-category node entry using category ids.
+	 *
+	 * @param {string} name - Attribute identifier.
+	 * @param {number} index - Node index.
+	 * @param {Uint32Array|number[]} ids - Category ids.
+	 * @param {number[]|Float32Array} [weights] - Optional weights (required for weighted attributes).
+	 */
+	setNodeMultiCategoryEntryByIds(name, index, ids, weights) {
+		this._setMultiCategoryEntryByIds('node', name, index, ids, weights);
+	}
+
+	/**
+	 * Sets a multi-category edge entry using category ids.
+	 *
+	 * @param {string} name - Attribute identifier.
+	 * @param {number} index - Edge index.
+	 * @param {Uint32Array|number[]} ids - Category ids.
+	 * @param {number[]|Float32Array} [weights] - Optional weights (required for weighted attributes).
+	 */
+	setEdgeMultiCategoryEntryByIds(name, index, ids, weights) {
+		this._setMultiCategoryEntryByIds('edge', name, index, ids, weights);
+	}
+
+	/**
+	 * Sets the multi-category network entry using category ids.
+	 *
+	 * @param {string} name - Attribute identifier.
+	 * @param {Uint32Array|number[]} ids - Category ids.
+	 * @param {number[]|Float32Array} [weights] - Optional weights (required for weighted attributes).
+	 */
+	setNetworkMultiCategoryEntryByIds(name, ids, weights) {
+		this._setMultiCategoryEntryByIds('network', name, 0, ids, weights);
+	}
+
+	/**
+	 * Clears a multi-category node entry.
+	 *
+	 * @param {string} name - Attribute identifier.
+	 * @param {number} index - Node index.
+	 */
+	clearNodeMultiCategoryEntry(name, index) {
+		this._clearMultiCategoryEntry('node', name, index);
+	}
+
+	/**
+	 * Clears a multi-category edge entry.
+	 *
+	 * @param {string} name - Attribute identifier.
+	 * @param {number} index - Edge index.
+	 */
+	clearEdgeMultiCategoryEntry(name, index) {
+		this._clearMultiCategoryEntry('edge', name, index);
+	}
+
+	/**
+	 * Clears the multi-category network entry.
+	 *
+	 * @param {string} name - Attribute identifier.
+	 */
+	clearNetworkMultiCategoryEntry(name) {
+		this._clearMultiCategoryEntry('network', name, 0);
+	}
+
+	/**
+	 * Replaces the multi-category node buffers in bulk.
+	 *
+	 * @param {string} name - Attribute identifier.
+	 * @param {Uint32Array|number[]} offsets - CSR offsets (length = nodeCapacity + 1).
+	 * @param {Uint32Array|number[]} ids - Flat category ids.
+	 * @param {number[]|Float32Array} [weights] - Optional weights (required for weighted attributes).
+	 */
+	setNodeMultiCategoryBuffers(name, offsets, ids, weights) {
+		this._setMultiCategoryBuffers('node', name, offsets, ids, weights);
+	}
+
+	/**
+	 * Replaces the multi-category edge buffers in bulk.
+	 *
+	 * @param {string} name - Attribute identifier.
+	 * @param {Uint32Array|number[]} offsets - CSR offsets (length = edgeCapacity + 1).
+	 * @param {Uint32Array|number[]} ids - Flat category ids.
+	 * @param {number[]|Float32Array} [weights] - Optional weights (required for weighted attributes).
+	 */
+	setEdgeMultiCategoryBuffers(name, offsets, ids, weights) {
+		this._setMultiCategoryBuffers('edge', name, offsets, ids, weights);
+	}
+
+	/**
+	 * Replaces the multi-category network buffers in bulk.
+	 *
+	 * @param {string} name - Attribute identifier.
+	 * @param {Uint32Array|number[]} offsets - CSR offsets (length = 2).
+	 * @param {Uint32Array|number[]} ids - Flat category ids.
+	 * @param {number[]|Float32Array} [weights] - Optional weights (required for weighted attributes).
+	 */
+	setNetworkMultiCategoryBuffers(name, offsets, ids, weights) {
+		this._setMultiCategoryBuffers('network', name, offsets, ids, weights);
+	}
+
 	_getAttributeVersion(scope, name) {
 		const versionFn = this.module._CXAttributeVersion;
 		if (typeof versionFn !== 'function') {
@@ -4559,6 +4835,31 @@ export class HeliosNetwork extends BaseEventTarget {
 		return bumped;
 	}
 
+	_recordAttributeChange(scope, name, change = null) {
+		const versionFn = this.module._CXAttributeVersion;
+		let version = 0;
+		if (typeof versionFn === 'function') {
+			version = this._getAttributeVersion(scope, name);
+		} else {
+			version = this._nextLocalVersion(`attr:${scope}:${name}`);
+		}
+		this._localVersions.set(`attr:${scope}:${name}`, version);
+		if (scope === 'node') {
+			this._markPassthroughEdgesDirtyForNode(name);
+			this._markColorEncodedDirtyForSource('node', name);
+		} else if (scope === 'edge') {
+			this._markColorEncodedDirtyForSource('edge', name);
+		}
+		this._emitAttributeEvent(HELIOS_NETWORK_EVENTS.attributeChanged, {
+			scope,
+			name,
+			version,
+			op: change?.op ?? 'bump',
+			index: typeof change?.index === 'number' ? change.index : null,
+		});
+		return version;
+	}
+
 	/**
 	 * Internal helper that resolves attribute metadata and buffer handles.
 	 * @private
@@ -4603,6 +4904,9 @@ export class HeliosNetwork extends BaseEventTarget {
 				bumpVersion: () => this._bumpAttributeVersion(scope, name, { op: 'bump' }),
 			};
 		}
+		if (meta.type === AttributeType.MultiCategory) {
+			throw new Error(`Multi-category attributes require get${scope === 'node' ? 'Node' : scope === 'edge' ? 'Edge' : 'Network'}MultiCategoryBuffers("${name}")`);
+		}
 
 		const TypedArrayCtor = TypedArrayForType[meta.type];
 		if (!TypedArrayCtor) {
@@ -4617,6 +4921,229 @@ export class HeliosNetwork extends BaseEventTarget {
 			version,
 			bumpVersion: () => this._bumpAttributeVersion(scope, name, { op: 'bump' }),
 		};
+	}
+
+	_getMultiCategoryBuffers(scope, name) {
+		this._ensureActive();
+		const meta = this._ensureAttributeMetadata(scope, name);
+		if (!meta || meta.type !== AttributeType.MultiCategory) {
+			throw new Error(`Attribute "${name}" on ${scope} is not a multi-category attribute`);
+		}
+		const offsetsFn = this.module._CXNetworkGetMultiCategoryOffsets;
+		const idsFn = this.module._CXNetworkGetMultiCategoryIds;
+		const weightsFn = this.module._CXNetworkGetMultiCategoryWeights;
+		const offsetCountFn = this.module._CXNetworkGetMultiCategoryOffsetCount;
+		const entryCountFn = this.module._CXNetworkGetMultiCategoryEntryCount;
+		const hasWeightsFn = this.module._CXNetworkMultiCategoryHasWeights;
+		if (typeof offsetsFn !== 'function' || typeof idsFn !== 'function' || typeof offsetCountFn !== 'function' || typeof entryCountFn !== 'function') {
+			throw new Error('Multi-category buffers are unavailable in this WASM build');
+		}
+		const cstr = new CString(this.module, name);
+		let offsetsPtr = 0;
+		let idsPtr = 0;
+		let weightsPtr = 0;
+		let offsetCount = 0;
+		let entryCount = 0;
+		let hasWeights = false;
+		try {
+			offsetCount = offsetCountFn.call(this.module, this.ptr, this._scopeId(scope), cstr.ptr) >>> 0;
+			entryCount = entryCountFn.call(this.module, this.ptr, this._scopeId(scope), cstr.ptr) >>> 0;
+			offsetsPtr = offsetsFn.call(this.module, this.ptr, this._scopeId(scope), cstr.ptr) >>> 0;
+			idsPtr = idsFn.call(this.module, this.ptr, this._scopeId(scope), cstr.ptr) >>> 0;
+			hasWeights = typeof hasWeightsFn === 'function'
+				? !!hasWeightsFn.call(this.module, this.ptr, this._scopeId(scope), cstr.ptr)
+				: !!meta.hasWeights;
+			weightsPtr = hasWeights && typeof weightsFn === 'function'
+				? weightsFn.call(this.module, this.ptr, this._scopeId(scope), cstr.ptr) >>> 0
+				: 0;
+		} finally {
+			cstr.dispose();
+		}
+		if (offsetCount && !offsetsPtr) {
+			throw new Error(`Offsets buffer for "${name}" is not available`);
+		}
+		if (entryCount && !idsPtr) {
+			throw new Error(`Ids buffer for "${name}" is not available`);
+		}
+		if (hasWeights && entryCount && !weightsPtr) {
+			throw new Error(`Weights buffer for "${name}" is not available`);
+		}
+		return {
+			offsets: new Uint32Array(this.module.HEAPU32.buffer, offsetsPtr, offsetCount),
+			ids: new Uint32Array(this.module.HEAPU32.buffer, idsPtr, entryCount),
+			weights: hasWeights ? new Float32Array(this.module.HEAPF32.buffer, weightsPtr, entryCount) : null,
+			offsetCount,
+			entryCount,
+			hasWeights,
+			version: this._getAttributeVersion(scope, name),
+			bumpVersion: () => this._recordAttributeChange(scope, name, { op: 'bump' }),
+		};
+	}
+
+	_getMultiCategoryEntryRange(scope, name, index) {
+		this._ensureActive();
+		const meta = this._ensureAttributeMetadata(scope, name);
+		if (!meta || meta.type !== AttributeType.MultiCategory) {
+			throw new Error(`Attribute "${name}" on ${scope} is not a multi-category attribute`);
+		}
+		const rangeFn = this.module._CXNetworkGetMultiCategoryEntryRange;
+		if (typeof rangeFn !== 'function') {
+			throw new Error('Multi-category range queries are unavailable in this WASM build');
+		}
+		const startPtr = this.module._malloc(4);
+		const endPtr = this.module._malloc(4);
+		if (!startPtr || !endPtr) {
+			if (startPtr) this.module._free(startPtr);
+			if (endPtr) this.module._free(endPtr);
+			throw new Error('Failed to allocate range buffers');
+		}
+		const cstr = new CString(this.module, name);
+		let ok = false;
+		try {
+			ok = rangeFn.call(this.module, this.ptr, this._scopeId(scope), cstr.ptr, index, startPtr, endPtr);
+		} finally {
+			cstr.dispose();
+		}
+		const start = this.module.HEAPU32[startPtr >>> 2] >>> 0;
+		const end = this.module.HEAPU32[endPtr >>> 2] >>> 0;
+		this.module._free(startPtr);
+		this.module._free(endPtr);
+		if (!ok) {
+			throw new Error(`Failed to read multi-category entry range for "${name}"`);
+		}
+		return { start, end };
+	}
+
+	_setMultiCategoryEntryByLabels(scope, name, index, categories, weights) {
+		this._assertCanAllocate(`set ${scope} multi-category entry`);
+		this._ensureActive();
+		const meta = this._ensureAttributeMetadata(scope, name);
+		if (!meta || meta.type !== AttributeType.MultiCategory) {
+			throw new Error(`Attribute "${name}" on ${scope} is not a multi-category attribute`);
+		}
+		if (!Array.isArray(categories)) {
+			throw new Error('Multi-category labels must be provided as an array of strings');
+		}
+		if (weights && weights.length !== categories.length) {
+			throw new Error('Multi-category weights must match the number of categories');
+		}
+		const labels = new CStringArray(this.module, categories);
+		const weightInfo = weights ? this._copyFloat32ToWasm(weights) : { ptr: 0, count: 0, dispose: () => {} };
+		const fn = this.module._CXNetworkSetMultiCategoryEntryByLabels;
+		if (typeof fn !== 'function') {
+			labels.dispose();
+			weightInfo.dispose();
+			throw new Error('Multi-category updates are unavailable in this WASM build');
+		}
+		const cstr = new CString(this.module, name);
+		let ok = false;
+		try {
+			ok = fn.call(this.module, this.ptr, this._scopeId(scope), cstr.ptr, index, labels.ptr, labels.count, weightInfo.ptr);
+		} finally {
+			cstr.dispose();
+			labels.dispose();
+			weightInfo.dispose();
+		}
+		if (!ok) {
+			throw new Error(`Failed to update ${scope} multi-category entry "${name}"`);
+		}
+		this._recordAttributeChange(scope, name, { op: 'set', index });
+	}
+
+	_setMultiCategoryEntryByIds(scope, name, index, ids, weights) {
+		this._assertCanAllocate(`set ${scope} multi-category entry`);
+		this._ensureActive();
+		const meta = this._ensureAttributeMetadata(scope, name);
+		if (!meta || meta.type !== AttributeType.MultiCategory) {
+			throw new Error(`Attribute "${name}" on ${scope} is not a multi-category attribute`);
+		}
+		const idInfo = this._copyIndicesToWasm(ids);
+		if (weights && weights.length !== idInfo.count) {
+			idInfo.dispose();
+			throw new Error('Multi-category weights must match the number of ids');
+		}
+		const weightInfo = weights ? this._copyFloat32ToWasm(weights) : { ptr: 0, count: 0, dispose: () => {} };
+		const fn = this.module._CXNetworkSetMultiCategoryEntry;
+		if (typeof fn !== 'function') {
+			idInfo.dispose();
+			weightInfo.dispose();
+			throw new Error('Multi-category updates are unavailable in this WASM build');
+		}
+		const cstr = new CString(this.module, name);
+		let ok = false;
+		try {
+			ok = fn.call(this.module, this.ptr, this._scopeId(scope), cstr.ptr, index, idInfo.ptr, idInfo.count, weightInfo.ptr);
+		} finally {
+			cstr.dispose();
+			idInfo.dispose();
+			weightInfo.dispose();
+		}
+		if (!ok) {
+			throw new Error(`Failed to update ${scope} multi-category entry "${name}"`);
+		}
+		this._recordAttributeChange(scope, name, { op: 'set', index });
+	}
+
+	_clearMultiCategoryEntry(scope, name, index) {
+		this._assertCanAllocate(`clear ${scope} multi-category entry`);
+		this._ensureActive();
+		const meta = this._ensureAttributeMetadata(scope, name);
+		if (!meta || meta.type !== AttributeType.MultiCategory) {
+			throw new Error(`Attribute "${name}" on ${scope} is not a multi-category attribute`);
+		}
+		const fn = this.module._CXNetworkClearMultiCategoryEntry;
+		if (typeof fn !== 'function') {
+			throw new Error('Multi-category updates are unavailable in this WASM build');
+		}
+		const cstr = new CString(this.module, name);
+		let ok = false;
+		try {
+			ok = fn.call(this.module, this.ptr, this._scopeId(scope), cstr.ptr, index);
+		} finally {
+			cstr.dispose();
+		}
+		if (!ok) {
+			throw new Error(`Failed to clear ${scope} multi-category entry "${name}"`);
+		}
+		this._recordAttributeChange(scope, name, { op: 'clear', index });
+	}
+
+	_setMultiCategoryBuffers(scope, name, offsets, ids, weights) {
+		this._assertCanAllocate(`set ${scope} multi-category buffers`);
+		this._ensureActive();
+		const meta = this._ensureAttributeMetadata(scope, name);
+		if (!meta || meta.type !== AttributeType.MultiCategory) {
+			throw new Error(`Attribute "${name}" on ${scope} is not a multi-category attribute`);
+		}
+		const offsetInfo = this._copyIndicesToWasm(offsets);
+		const idInfo = this._copyIndicesToWasm(ids);
+		if (weights && weights.length !== idInfo.count) {
+			offsetInfo.dispose();
+			idInfo.dispose();
+			throw new Error('Multi-category weights must match the number of ids');
+		}
+		const weightInfo = weights ? this._copyFloat32ToWasm(weights) : { ptr: 0, count: 0, dispose: () => {} };
+		const fn = this.module._CXNetworkSetMultiCategoryBuffers;
+		if (typeof fn !== 'function') {
+			offsetInfo.dispose();
+			idInfo.dispose();
+			weightInfo.dispose();
+			throw new Error('Multi-category updates are unavailable in this WASM build');
+		}
+		const cstr = new CString(this.module, name);
+		let ok = false;
+		try {
+			ok = fn.call(this.module, this.ptr, this._scopeId(scope), cstr.ptr, offsetInfo.ptr, offsetInfo.count, idInfo.ptr, idInfo.count, weightInfo.ptr);
+		} finally {
+			cstr.dispose();
+			offsetInfo.dispose();
+			idInfo.dispose();
+			weightInfo.dispose();
+		}
+		if (!ok) {
+			throw new Error(`Failed to update ${scope} multi-category buffers "${name}"`);
+		}
+		this._recordAttributeChange(scope, name, { op: 'set' });
 	}
 
 	/**
@@ -5070,6 +5597,39 @@ export class HeliosNetwork extends BaseEventTarget {
 			throw new Error('Failed to allocate WASM memory for indices');
 		}
 		this.module.HEAPU32.set(array, ptr >>> 2);
+		return {
+			ptr,
+			count,
+			dispose: () => this.module._free(ptr),
+		};
+	}
+
+	_copyFloat32ToWasm(values) {
+		this._assertCanAllocate('copy float32 data to WASM memory');
+		if (!values) {
+			return { ptr: 0, count: 0, dispose: () => {} };
+		}
+		let array = values;
+		if (!ArrayBuffer.isView(values)) {
+			array = Float32Array.from(values);
+		}
+		const count = array.length >>> 0;
+		if (count === 0) {
+			return { ptr: 0, count: 0, dispose: () => {} };
+		}
+		if (array.buffer === this.module.HEAPF32.buffer) {
+			return {
+				ptr: array.byteOffset,
+				count,
+				dispose: () => {},
+			};
+		}
+		const bytes = count * Float32Array.BYTES_PER_ELEMENT;
+		const ptr = this.module._malloc(bytes);
+		if (!ptr) {
+			throw new Error('Failed to allocate WASM memory for float data');
+		}
+		this.module.HEAPF32.set(array, ptr >>> 2);
 		return {
 			ptr,
 			count,

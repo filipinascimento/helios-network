@@ -114,6 +114,9 @@ static CXBool CXAttributeComputeLayout(
 		case CXDataAttributeCategoryType:
 			baseSize = sizeof(int32_t);
 			break;
+		case CXDataAttributeMultiCategoryType:
+			baseSize = 0;
+			break;
 		case CXDataAttributeType:
 			baseSize = sizeof(uintptr_t);
 			break;
@@ -136,6 +139,151 @@ static CXBool CXAttributeComputeLayout(
 	return CXTrue;
 }
 
+static CXMultiCategoryBuffer* CXMultiCategoryCreate(CXSize elementCapacity, CXBool hasWeights) {
+	CXMultiCategoryBuffer *buffer = calloc(1, sizeof(CXMultiCategoryBuffer));
+	if (!buffer) {
+		return NULL;
+	}
+	CXSize offsetCount = elementCapacity + 1;
+	buffer->offsets = calloc(offsetCount > 0 ? offsetCount : 1, sizeof(uint32_t));
+	if (!buffer->offsets) {
+		free(buffer);
+		return NULL;
+	}
+	buffer->entryCount = 0;
+	buffer->entryCapacity = 0;
+	buffer->hasWeights = hasWeights;
+	return buffer;
+}
+
+static void CXMultiCategoryDestroy(CXMultiCategoryBuffer *buffer) {
+	if (!buffer) {
+		return;
+	}
+	free(buffer->offsets);
+	free(buffer->ids);
+	free(buffer->weights);
+	free(buffer);
+}
+
+static CXBool CXMultiCategoryEnsureEntryCapacity(CXMultiCategoryBuffer *buffer, CXSize required) {
+	if (!buffer) {
+		return CXFalse;
+	}
+	if (required <= buffer->entryCapacity) {
+		return CXTrue;
+	}
+	CXSize newCapacity = buffer->entryCapacity > 0 ? buffer->entryCapacity : 4;
+	while (newCapacity < required) {
+		newCapacity = CXCapacityGrow(newCapacity);
+		if (newCapacity < required) {
+			newCapacity = required;
+			break;
+		}
+	}
+	uint32_t *newIds = realloc(buffer->ids, newCapacity * sizeof(uint32_t));
+	if (!newIds) {
+		return CXFalse;
+	}
+	if (newCapacity > buffer->entryCapacity) {
+		memset(newIds + buffer->entryCapacity, 0, (newCapacity - buffer->entryCapacity) * sizeof(uint32_t));
+	}
+	buffer->ids = newIds;
+	if (buffer->hasWeights) {
+		float *newWeights = realloc(buffer->weights, newCapacity * sizeof(float));
+		if (!newWeights) {
+			return CXFalse;
+		}
+		if (newCapacity > buffer->entryCapacity) {
+			memset(newWeights + buffer->entryCapacity, 0, (newCapacity - buffer->entryCapacity) * sizeof(float));
+		}
+		buffer->weights = newWeights;
+	}
+	buffer->entryCapacity = newCapacity;
+	return CXTrue;
+}
+
+static CXBool CXMultiCategoryEnsureOffsets(CXAttributeRef attribute, CXSize requiredCapacity) {
+	if (!attribute || attribute->type != CXDataAttributeMultiCategoryType || !attribute->multiCategory) {
+		return CXFalse;
+	}
+	if (requiredCapacity <= attribute->capacity) {
+		return CXTrue;
+	}
+	CXMultiCategoryBuffer *buffer = attribute->multiCategory;
+	CXSize newCapacity = attribute->capacity > 0 ? attribute->capacity : 4;
+	while (newCapacity < requiredCapacity) {
+		newCapacity = CXCapacityGrow(newCapacity);
+		if (newCapacity < requiredCapacity) {
+			newCapacity = requiredCapacity;
+			break;
+		}
+	}
+	CXSize oldOffsetsCount = attribute->capacity + 1;
+	CXSize newOffsetsCount = newCapacity + 1;
+	uint32_t *newOffsets = realloc(buffer->offsets, newOffsetsCount * sizeof(uint32_t));
+	if (!newOffsets) {
+		return CXFalse;
+	}
+	for (CXSize i = oldOffsetsCount; i < newOffsetsCount; i++) {
+		newOffsets[i] = (uint32_t)buffer->entryCount;
+	}
+	buffer->offsets = newOffsets;
+	attribute->capacity = newCapacity;
+	return CXTrue;
+}
+
+static CXBool CXMultiCategorySetEntry(
+	CXAttributeRef attribute,
+	CXIndex index,
+	const uint32_t *ids,
+	CXSize count,
+	const float *weights
+) {
+	if (!attribute || attribute->type != CXDataAttributeMultiCategoryType || !attribute->multiCategory) {
+		return CXFalse;
+	}
+	if (index >= attribute->capacity) {
+		return CXFalse;
+	}
+	CXMultiCategoryBuffer *buffer = attribute->multiCategory;
+	if (buffer->hasWeights && count > 0 && !weights) {
+		return CXFalse;
+	}
+	uint32_t *offsets = buffer->offsets;
+	size_t start = offsets[index];
+	size_t end = offsets[index + 1];
+	size_t oldCount = end - start;
+	int64_t diff = (int64_t)count - (int64_t)oldCount;
+	CXSize newTotal = (CXSize)((int64_t)buffer->entryCount + diff);
+	if (diff != 0) {
+		if (!CXMultiCategoryEnsureEntryCapacity(buffer, newTotal)) {
+			return CXFalse;
+		}
+		size_t tailCount = buffer->entryCount - end;
+		if (tailCount > 0) {
+			size_t dest = (size_t)((int64_t)end + diff);
+			memmove(buffer->ids + dest, buffer->ids + end, tailCount * sizeof(uint32_t));
+			if (buffer->hasWeights) {
+				memmove(buffer->weights + dest, buffer->weights + end, tailCount * sizeof(float));
+			}
+		}
+		for (CXSize i = index + 1; i < attribute->capacity + 1; i++) {
+			offsets[i] = (uint32_t)((int64_t)offsets[i] + diff);
+		}
+		buffer->entryCount = newTotal;
+	}
+	if (count > 0 && ids) {
+		memcpy(buffer->ids + start, ids, count * sizeof(uint32_t));
+		if (buffer->hasWeights) {
+			memcpy(buffer->weights + start, weights, count * sizeof(float));
+		}
+	} else if (count > 0 && !ids) {
+		return CXFalse;
+	}
+	return CXTrue;
+}
+
 static CXAttributeRef CXAttributeCreate(CXAttributeType type, CXSize dimension, CXSize capacity) {
 	CXSize elementSize = 0;
 	CXSize stride = 0;
@@ -154,8 +302,17 @@ static CXAttributeRef CXAttributeCreate(CXAttributeType type, CXSize dimension, 
 	attribute->stride = stride;
 	attribute->usesJavascriptShadow = usesJavascriptShadow;
 
-	if (type == CXDataAttributeCategoryType) {
+	if (type == CXDataAttributeCategoryType || type == CXDataAttributeMultiCategoryType) {
 		attribute->categoricalDictionary = CXNewStringDictionary();
+	}
+	if (type == CXDataAttributeMultiCategoryType) {
+		attribute->multiCategory = CXMultiCategoryCreate(capacity, CXFalse);
+		if (!attribute->multiCategory) {
+			CXAttributeDestroy(attribute);
+			return NULL;
+		}
+		attribute->capacity = capacity;
+		return attribute;
 	}
 
 	if (capacity > 0) {
@@ -177,6 +334,10 @@ static void CXAttributeDestroy(CXAttributeRef attribute) {
 		free(attribute->data);
 		attribute->data = NULL;
 	}
+	if (attribute->multiCategory) {
+		CXMultiCategoryDestroy(attribute->multiCategory);
+		attribute->multiCategory = NULL;
+	}
 	if (attribute->categoricalDictionary) {
 		CXStringDictionaryDestroy(attribute->categoricalDictionary);
 	}
@@ -187,6 +348,9 @@ static void CXAttributeDestroy(CXAttributeRef attribute) {
 static CXBool CXAttributeEnsureCapacity(CXAttributeRef attribute, CXSize requiredCapacity) {
 	if (!attribute) {
 		return CXFalse;
+	}
+	if (attribute->type == CXDataAttributeMultiCategoryType) {
+		return CXMultiCategoryEnsureOffsets(attribute, requiredCapacity);
 	}
 	if (requiredCapacity <= attribute->capacity) {
 		return CXTrue;
@@ -215,6 +379,13 @@ static CXBool CXAttributeEnsureCapacity(CXAttributeRef attribute, CXSize require
 
 /** Zeroes the attribute payload for a single logical index. */
 static void CXAttributeClearSlot(CXAttributeRef attribute, CXIndex index) {
+	if (attribute->type == CXDataAttributeMultiCategoryType) {
+		if (!attribute || index >= attribute->capacity) {
+			return;
+		}
+		CXMultiCategorySetEntry(attribute, index, NULL, 0, NULL);
+		return;
+	}
 	if (!attribute || !attribute->data || index >= attribute->capacity) {
 		return;
 	}
@@ -2039,7 +2210,7 @@ CXBool CXNetworkSetAttributeCategoryDictionary(
 		return CXFalse;
 	}
 	CXAttributeRef attr = CXNetworkGetAttributeForScope(network, scope, name);
-	if (!attr || attr->type != CXDataAttributeCategoryType) {
+	if (!attr || (attr->type != CXDataAttributeCategoryType && attr->type != CXDataAttributeMultiCategoryType)) {
 		return CXFalse;
 	}
 	if (!attr->categoricalDictionary) {
@@ -2089,26 +2260,97 @@ CXBool CXNetworkSetAttributeCategoryDictionary(
 	}
 
 	if (remapExisting && oldIdMap) {
-		int32_t *codes = (int32_t *)attr->data;
-		if (codes) {
-			for (CXSize idx = 0; idx < attr->capacity * attr->dimension; idx++) {
-				int32_t code = codes[idx];
-				if (code < 0) {
-					continue;
-				}
-				CXString oldLabel = (CXString)CXIntegerDictionaryEntryForKey(oldIdMap, code);
-				if (!oldLabel) {
-					codes[idx] = -1;
-					continue;
-				}
-				void *newEntry = CXStringDictionaryEntryForKey(attr->categoricalDictionary, oldLabel);
-				int32_t newId = 0;
-				if (!newEntry || !CXCategoryDictionaryDecodeId(newEntry, &newId)) {
-					codes[idx] = -1;
-				} else {
-					codes[idx] = newId;
+		if (attr->type == CXDataAttributeCategoryType) {
+			int32_t *codes = (int32_t *)attr->data;
+			if (codes) {
+				for (CXSize idx = 0; idx < attr->capacity * attr->dimension; idx++) {
+					int32_t code = codes[idx];
+					if (code < 0) {
+						continue;
+					}
+					CXString oldLabel = (CXString)CXIntegerDictionaryEntryForKey(oldIdMap, code);
+					if (!oldLabel) {
+						codes[idx] = -1;
+						continue;
+					}
+					void *newEntry = CXStringDictionaryEntryForKey(attr->categoricalDictionary, oldLabel);
+					int32_t newId = 0;
+					if (!newEntry || !CXCategoryDictionaryDecodeId(newEntry, &newId)) {
+						codes[idx] = -1;
+					} else {
+						codes[idx] = newId;
+					}
 				}
 			}
+		} else if (attr->type == CXDataAttributeMultiCategoryType && attr->multiCategory) {
+			CXMultiCategoryBuffer *buffer = attr->multiCategory;
+			CXSize elementCount = attr->capacity;
+			CXSize newCapacity = buffer->entryCount > 0 ? buffer->entryCount : 1;
+			uint32_t *newOffsets = calloc(elementCount + 1, sizeof(uint32_t));
+			uint32_t *newIds = malloc(newCapacity * sizeof(uint32_t));
+			float *newWeights = buffer->hasWeights ? malloc(newCapacity * sizeof(float)) : NULL;
+			if (!newOffsets || !newIds || (buffer->hasWeights && !newWeights)) {
+				free(newOffsets);
+				free(newIds);
+				free(newWeights);
+				for (CXSize idx = 0; idx < oldLabelCount; idx++) {
+					free(oldLabels[idx]);
+				}
+				free(oldLabels);
+				CXIntegerDictionaryDestroy(oldIdMap);
+				return CXFalse;
+			}
+			CXSize writeCount = 0;
+			for (CXSize i = 0; i < elementCount; i++) {
+				newOffsets[i] = (uint32_t)writeCount;
+				uint32_t start = buffer->offsets[i];
+				uint32_t end = buffer->offsets[i + 1];
+				for (uint32_t j = start; j < end; j++) {
+					uint32_t code = buffer->ids[j];
+					CXString oldLabel = (CXString)CXIntegerDictionaryEntryForKey(oldIdMap, (int32_t)code);
+					if (!oldLabel) {
+						continue;
+					}
+					void *newEntry = CXStringDictionaryEntryForKey(attr->categoricalDictionary, oldLabel);
+					int32_t newId = 0;
+					if (!newEntry || !CXCategoryDictionaryDecodeId(newEntry, &newId) || newId < 0) {
+						continue;
+					}
+					if (writeCount >= newCapacity) {
+						CXSize grow = CXCapacityGrow(newCapacity);
+						uint32_t *nextIds = realloc(newIds, grow * sizeof(uint32_t));
+						float *nextWeights = buffer->hasWeights ? realloc(newWeights, grow * sizeof(float)) : NULL;
+						if (!nextIds || (buffer->hasWeights && !nextWeights)) {
+							free(newOffsets);
+							free(nextIds);
+							free(nextWeights);
+							for (CXSize idx = 0; idx < oldLabelCount; idx++) {
+								free(oldLabels[idx]);
+							}
+							free(oldLabels);
+							CXIntegerDictionaryDestroy(oldIdMap);
+							return CXFalse;
+						}
+						newIds = nextIds;
+						newWeights = nextWeights;
+						newCapacity = grow;
+					}
+					newIds[writeCount] = (uint32_t)newId;
+					if (buffer->hasWeights && newWeights) {
+						newWeights[writeCount] = buffer->weights ? buffer->weights[j] : 0.0f;
+					}
+					writeCount++;
+				}
+			}
+			newOffsets[elementCount] = (uint32_t)writeCount;
+			free(buffer->offsets);
+			free(buffer->ids);
+			free(buffer->weights);
+			buffer->offsets = newOffsets;
+			buffer->ids = newIds;
+			buffer->weights = buffer->hasWeights ? newWeights : NULL;
+			buffer->entryCount = writeCount;
+			buffer->entryCapacity = newCapacity;
 		}
 		for (CXSize idx = 0; idx < oldLabelCount; idx++) {
 			free(oldLabels[idx]);
@@ -2340,6 +2582,274 @@ CXBool CXNetworkDecategorizeAttribute(CXNetworkRef network, CXAttributeScope sco
 	return CXTrue;
 }
 
+static CXAttributeRef CXNetworkGetMultiCategoryAttribute(CXNetworkRef network, CXAttributeScope scope, const CXString name) {
+	CXAttributeRef attr = CXNetworkGetAttributeForScope(network, scope, name);
+	if (!attr || attr->type != CXDataAttributeMultiCategoryType || !attr->multiCategory) {
+		return NULL;
+	}
+	return attr;
+}
+
+CXBool CXNetworkDefineMultiCategoryAttribute(CXNetworkRef network, CXAttributeScope scope, const CXString name, CXBool hasWeights) {
+	if (!network || !name) {
+		return CXFalse;
+	}
+	if (CXNetworkGetAttributeForScope(network, scope, name)) {
+		return CXFalse;
+	}
+	CXSize capacity = 1;
+	switch (scope) {
+		case CXAttributeScopeNode:
+			capacity = network->nodeCapacity;
+			break;
+		case CXAttributeScopeEdge:
+			capacity = network->edgeCapacity;
+			break;
+		case CXAttributeScopeNetwork:
+			capacity = 1;
+			break;
+		default:
+			return CXFalse;
+	}
+	CXAttributeRef attribute = CXAttributeCreate(CXDataAttributeMultiCategoryType, 1, capacity);
+	if (!attribute || !attribute->multiCategory) {
+		CXAttributeDestroy(attribute);
+		return CXFalse;
+	}
+	attribute->multiCategory->hasWeights = hasWeights ? CXTrue : CXFalse;
+	switch (scope) {
+		case CXAttributeScopeNode:
+			CXStringDictionarySetEntry(network->nodeAttributes, name, attribute);
+			break;
+		case CXAttributeScopeEdge:
+			CXStringDictionarySetEntry(network->edgeAttributes, name, attribute);
+			break;
+		case CXAttributeScopeNetwork:
+			CXStringDictionarySetEntry(network->networkAttributes, name, attribute);
+			break;
+		default:
+			CXAttributeDestroy(attribute);
+			return CXFalse;
+	}
+	return CXTrue;
+}
+
+static CXBool CXMultiCategoryAssignLabels(
+	CXAttributeRef attribute,
+	const CXString *labels,
+	CXSize count,
+	uint32_t **outIds
+) {
+	if (!attribute || attribute->type != CXDataAttributeMultiCategoryType || !outIds) {
+		return CXFalse;
+	}
+	if (count == 0) {
+		*outIds = NULL;
+		return CXTrue;
+	}
+	uint32_t *ids = malloc(sizeof(uint32_t) * count);
+	if (!ids) {
+		return CXFalse;
+	}
+	if (!attribute->categoricalDictionary) {
+		attribute->categoricalDictionary = CXNewStringDictionary();
+		if (!attribute->categoricalDictionary) {
+			free(ids);
+			return CXFalse;
+		}
+	}
+	int32_t maxId = -1;
+	CXStringDictionaryFOR(entry, attribute->categoricalDictionary) {
+		int32_t id = 0;
+		if (CXCategoryDictionaryDecodeId(entry->data, &id)) {
+			if (id > maxId) {
+				maxId = id;
+			}
+		}
+	}
+	int32_t nextId = maxId + 1;
+	for (CXSize idx = 0; idx < count; idx++) {
+		const char *label = labels ? labels[idx] : NULL;
+		if (!label) {
+			free(ids);
+			return CXFalse;
+		}
+		void *stored = CXStringDictionaryEntryForKey(attribute->categoricalDictionary, label);
+		int32_t id = 0;
+		if (stored && CXCategoryDictionaryDecodeId(stored, &id)) {
+			ids[idx] = (uint32_t)id;
+			continue;
+		}
+		id = nextId++;
+		CXStringDictionarySetEntry(attribute->categoricalDictionary, label, CXCategoryDictionaryEncodeId(id));
+		ids[idx] = (uint32_t)id;
+	}
+	*outIds = ids;
+	return CXTrue;
+}
+
+CXBool CXNetworkSetMultiCategoryEntry(
+	CXNetworkRef network,
+	CXAttributeScope scope,
+	const CXString name,
+	CXIndex index,
+	const uint32_t *ids,
+	CXSize count,
+	const float *weights
+) {
+	CXAttributeRef attr = CXNetworkGetMultiCategoryAttribute(network, scope, name);
+	if (!attr) {
+		return CXFalse;
+	}
+	if (!CXMultiCategorySetEntry(attr, index, ids, count, weights)) {
+		return CXFalse;
+	}
+	CXVersionBump(&attr->version);
+	return CXTrue;
+}
+
+CXBool CXNetworkSetMultiCategoryEntryByLabels(
+	CXNetworkRef network,
+	CXAttributeScope scope,
+	const CXString name,
+	CXIndex index,
+	const CXString *labels,
+	CXSize count,
+	const float *weights
+) {
+	CXAttributeRef attr = CXNetworkGetMultiCategoryAttribute(network, scope, name);
+	if (!attr) {
+		return CXFalse;
+	}
+	uint32_t *ids = NULL;
+	if (!CXMultiCategoryAssignLabels(attr, labels, count, &ids)) {
+		return CXFalse;
+	}
+	CXBool ok = CXMultiCategorySetEntry(attr, index, ids, count, weights);
+	free(ids);
+	if (!ok) {
+		return CXFalse;
+	}
+	CXVersionBump(&attr->version);
+	return CXTrue;
+}
+
+CXBool CXNetworkClearMultiCategoryEntry(CXNetworkRef network, CXAttributeScope scope, const CXString name, CXIndex index) {
+	CXAttributeRef attr = CXNetworkGetMultiCategoryAttribute(network, scope, name);
+	if (!attr) {
+		return CXFalse;
+	}
+	if (!CXMultiCategorySetEntry(attr, index, NULL, 0, NULL)) {
+		return CXFalse;
+	}
+	CXVersionBump(&attr->version);
+	return CXTrue;
+}
+
+CXBool CXNetworkSetMultiCategoryBuffers(
+	CXNetworkRef network,
+	CXAttributeScope scope,
+	const CXString name,
+	const uint32_t *offsets,
+	CXSize offsetCount,
+	const uint32_t *ids,
+	CXSize idCount,
+	const float *weights
+) {
+	CXAttributeRef attr = CXNetworkGetMultiCategoryAttribute(network, scope, name);
+	if (!attr || !attr->multiCategory || !offsets) {
+		return CXFalse;
+	}
+	CXSize expectedOffsets = attr->capacity + 1;
+	if (offsetCount != expectedOffsets) {
+		return CXFalse;
+	}
+	if (attr->multiCategory->hasWeights && idCount > 0 && !weights) {
+		return CXFalse;
+	}
+	if (offsetCount > 0 && offsets[0] != 0) {
+		return CXFalse;
+	}
+	if (offsetCount > 0 && offsets[offsetCount - 1] != idCount) {
+		return CXFalse;
+	}
+	for (CXSize idx = 1; idx < offsetCount; idx++) {
+		if (offsets[idx] < offsets[idx - 1] || offsets[idx] > idCount) {
+			return CXFalse;
+		}
+	}
+	if (!CXMultiCategoryEnsureEntryCapacity(attr->multiCategory, idCount)) {
+		return CXFalse;
+	}
+	memcpy(attr->multiCategory->offsets, offsets, offsetCount * sizeof(uint32_t));
+	if (idCount > 0) {
+		if (!ids) {
+			return CXFalse;
+		}
+		memcpy(attr->multiCategory->ids, ids, idCount * sizeof(uint32_t));
+	}
+	if (attr->multiCategory->hasWeights && idCount > 0) {
+		memcpy(attr->multiCategory->weights, weights, idCount * sizeof(float));
+	}
+	attr->multiCategory->entryCount = idCount;
+	CXVersionBump(&attr->version);
+	return CXTrue;
+}
+
+CXBool CXNetworkGetMultiCategoryEntryRange(
+	CXNetworkRef network,
+	CXAttributeScope scope,
+	const CXString name,
+	CXIndex index,
+	CXSize *outStart,
+	CXSize *outEnd
+) {
+	CXAttributeRef attr = CXNetworkGetMultiCategoryAttribute(network, scope, name);
+	if (!attr || !attr->multiCategory || index >= attr->capacity) {
+		return CXFalse;
+	}
+	if (outStart) {
+		*outStart = attr->multiCategory->offsets[index];
+	}
+	if (outEnd) {
+		*outEnd = attr->multiCategory->offsets[index + 1];
+	}
+	return CXTrue;
+}
+
+uint32_t* CXNetworkGetMultiCategoryOffsets(CXNetworkRef network, CXAttributeScope scope, const CXString name) {
+	CXAttributeRef attr = CXNetworkGetMultiCategoryAttribute(network, scope, name);
+	return attr && attr->multiCategory ? attr->multiCategory->offsets : NULL;
+}
+
+uint32_t* CXNetworkGetMultiCategoryIds(CXNetworkRef network, CXAttributeScope scope, const CXString name) {
+	CXAttributeRef attr = CXNetworkGetMultiCategoryAttribute(network, scope, name);
+	return attr && attr->multiCategory ? attr->multiCategory->ids : NULL;
+}
+
+float* CXNetworkGetMultiCategoryWeights(CXNetworkRef network, CXAttributeScope scope, const CXString name) {
+	CXAttributeRef attr = CXNetworkGetMultiCategoryAttribute(network, scope, name);
+	if (!attr || !attr->multiCategory || !attr->multiCategory->hasWeights) {
+		return NULL;
+	}
+	return attr->multiCategory->weights;
+}
+
+CXSize CXNetworkGetMultiCategoryOffsetCount(CXNetworkRef network, CXAttributeScope scope, const CXString name) {
+	CXAttributeRef attr = CXNetworkGetMultiCategoryAttribute(network, scope, name);
+	return attr ? attr->capacity + 1 : 0;
+}
+
+CXSize CXNetworkGetMultiCategoryEntryCount(CXNetworkRef network, CXAttributeScope scope, const CXString name) {
+	CXAttributeRef attr = CXNetworkGetMultiCategoryAttribute(network, scope, name);
+	return attr && attr->multiCategory ? attr->multiCategory->entryCount : 0;
+}
+
+CXBool CXNetworkMultiCategoryHasWeights(CXNetworkRef network, CXAttributeScope scope, const CXString name) {
+	CXAttributeRef attr = CXNetworkGetMultiCategoryAttribute(network, scope, name);
+	return attr && attr->multiCategory ? attr->multiCategory->hasWeights : CXFalse;
+}
+
 /** Returns a pointer to the raw node attribute buffer, or NULL when missing. */
 void* CXNetworkGetNodeAttributeBuffer(CXNetworkRef network, const CXString name) {
 	CXAttributeRef attr = CXNetworkGetNodeAttribute(network, name);
@@ -2488,7 +2998,11 @@ CXBool CXNetworkCompact(CXNetworkRef network, const CXString nodeOriginalIndexAt
 	// Clone attribute declarations and transfer categorical dictionaries.
 	CXStringDictionaryFOR(nodeEntry, network->nodeAttributes) {
 		CXAttributeRef attr = (CXAttributeRef)nodeEntry->data;
-		if (!CXNetworkDefineNodeAttribute(compact, nodeEntry->key, attr->type, attr->dimension)) {
+		if (attr->type == CXDataAttributeMultiCategoryType && attr->multiCategory) {
+			if (!CXNetworkDefineMultiCategoryAttribute(compact, CXAttributeScopeNode, nodeEntry->key, attr->multiCategory->hasWeights)) {
+				goto fail;
+			}
+		} else if (!CXNetworkDefineNodeAttribute(compact, nodeEntry->key, attr->type, attr->dimension)) {
 			goto fail;
 		}
 		CXAttributeRef newAttr = CXNetworkGetNodeAttribute(compact, nodeEntry->key);
@@ -2502,7 +3016,11 @@ CXBool CXNetworkCompact(CXNetworkRef network, const CXString nodeOriginalIndexAt
 
 	CXStringDictionaryFOR(edgeEntry, network->edgeAttributes) {
 		CXAttributeRef attr = (CXAttributeRef)edgeEntry->data;
-		if (!CXNetworkDefineEdgeAttribute(compact, edgeEntry->key, attr->type, attr->dimension)) {
+		if (attr->type == CXDataAttributeMultiCategoryType && attr->multiCategory) {
+			if (!CXNetworkDefineMultiCategoryAttribute(compact, CXAttributeScopeEdge, edgeEntry->key, attr->multiCategory->hasWeights)) {
+				goto fail;
+			}
+		} else if (!CXNetworkDefineEdgeAttribute(compact, edgeEntry->key, attr->type, attr->dimension)) {
 			goto fail;
 		}
 		CXAttributeRef newAttr = CXNetworkGetEdgeAttribute(compact, edgeEntry->key);
@@ -2516,7 +3034,11 @@ CXBool CXNetworkCompact(CXNetworkRef network, const CXString nodeOriginalIndexAt
 
 	CXStringDictionaryFOR(netEntry, network->networkAttributes) {
 		CXAttributeRef attr = (CXAttributeRef)netEntry->data;
-		if (!CXNetworkDefineNetworkAttribute(compact, netEntry->key, attr->type, attr->dimension)) {
+		if (attr->type == CXDataAttributeMultiCategoryType && attr->multiCategory) {
+			if (!CXNetworkDefineMultiCategoryAttribute(compact, CXAttributeScopeNetwork, netEntry->key, attr->multiCategory->hasWeights)) {
+				goto fail;
+			}
+		} else if (!CXNetworkDefineNetworkAttribute(compact, netEntry->key, attr->type, attr->dimension)) {
 			goto fail;
 		}
 		CXAttributeRef newAttr = CXNetworkGetNetworkAttribute(compact, netEntry->key);
@@ -2596,6 +3118,25 @@ CXBool CXNetworkCompact(CXNetworkRef network, const CXString nodeOriginalIndexAt
 		if (!newAttr) {
 			goto fail;
 		}
+		if (oldAttr->type == CXDataAttributeMultiCategoryType && oldAttr->multiCategory && newAttr->multiCategory) {
+			for (CXSize i = 0; i < network->nodeCapacity; i++) {
+				CXIndex mapped = nodeRemap[i];
+				if (mapped == CXIndexMAX) {
+					continue;
+				}
+				uint32_t start = oldAttr->multiCategory->offsets[i];
+				uint32_t end = oldAttr->multiCategory->offsets[i + 1];
+				CXSize count = (CXSize)(end - start);
+				const uint32_t *ids = oldAttr->multiCategory->ids ? oldAttr->multiCategory->ids + start : NULL;
+				const float *weights = oldAttr->multiCategory->hasWeights && oldAttr->multiCategory->weights
+					? oldAttr->multiCategory->weights + start
+					: NULL;
+				if (!CXMultiCategorySetEntry(newAttr, mapped, ids, count, weights)) {
+					goto fail;
+				}
+			}
+			continue;
+		}
 		uint8_t *dstData = newAttr->data ? (uint8_t *)newAttr->data : NULL;
 		uint8_t *srcData = oldAttr->data ? (uint8_t *)oldAttr->data : NULL;
 		if (!dstData || !srcData) {
@@ -2617,6 +3158,25 @@ CXBool CXNetworkCompact(CXNetworkRef network, const CXString nodeOriginalIndexAt
 		if (!newAttr) {
 			goto fail;
 		}
+		if (oldAttr->type == CXDataAttributeMultiCategoryType && oldAttr->multiCategory && newAttr->multiCategory) {
+			for (CXSize i = 0; i < network->edgeCapacity; i++) {
+				CXIndex mapped = edgeRemap[i];
+				if (mapped == CXIndexMAX) {
+					continue;
+				}
+				uint32_t start = oldAttr->multiCategory->offsets[i];
+				uint32_t end = oldAttr->multiCategory->offsets[i + 1];
+				CXSize count = (CXSize)(end - start);
+				const uint32_t *ids = oldAttr->multiCategory->ids ? oldAttr->multiCategory->ids + start : NULL;
+				const float *weights = oldAttr->multiCategory->hasWeights && oldAttr->multiCategory->weights
+					? oldAttr->multiCategory->weights + start
+					: NULL;
+				if (!CXMultiCategorySetEntry(newAttr, mapped, ids, count, weights)) {
+					goto fail;
+				}
+			}
+			continue;
+		}
 		uint8_t *dstData = newAttr->data ? (uint8_t *)newAttr->data : NULL;
 		uint8_t *srcData = oldAttr->data ? (uint8_t *)oldAttr->data : NULL;
 		if (!dstData || !srcData) {
@@ -2635,7 +3195,23 @@ CXBool CXNetworkCompact(CXNetworkRef network, const CXString nodeOriginalIndexAt
 	CXStringDictionaryFOR(netEntry2, network->networkAttributes) {
 		CXAttributeRef oldAttr = (CXAttributeRef)netEntry2->data;
 		CXAttributeRef newAttr = CXNetworkGetNetworkAttribute(compact, netEntry2->key);
-		if (!newAttr || !oldAttr->data || !newAttr->data) {
+		if (!newAttr) {
+			continue;
+		}
+		if (oldAttr->type == CXDataAttributeMultiCategoryType && oldAttr->multiCategory && newAttr->multiCategory) {
+			uint32_t start = oldAttr->multiCategory->offsets[0];
+			uint32_t end = oldAttr->multiCategory->offsets[1];
+			CXSize count = (CXSize)(end - start);
+			const uint32_t *ids = oldAttr->multiCategory->ids ? oldAttr->multiCategory->ids + start : NULL;
+			const float *weights = oldAttr->multiCategory->hasWeights && oldAttr->multiCategory->weights
+				? oldAttr->multiCategory->weights + start
+				: NULL;
+			if (!CXMultiCategorySetEntry(newAttr, 0, ids, count, weights)) {
+				goto fail;
+			}
+			continue;
+		}
+		if (!oldAttr->data || !newAttr->data) {
 			continue;
 		}
 		memcpy(newAttr->data, oldAttr->data, oldAttr->stride);
