@@ -65,3 +65,4 @@ Generated / do-not-hand-edit:
 - When making substantial changes (new features, bug fixes), prefer adding or updating a test that covers the change.
 - When making substantial changes, add an entry to `CHANGES.md`.
 - Run relevant tests after any change; for substantial changes run the full suite and exercise all test targets (at minimum `npm test` plus browser coverage via `npm run test:browser`).
+- Always run tests for changes; do not add fallbacks or workarounds without explicit approval.
