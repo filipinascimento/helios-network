@@ -9,6 +9,7 @@
 ## 2026-01-26
 
 - Leiden community outputs are categorical by default (`categoricalCommunities=true`), with an opt-out to keep integer storage.
+- Added `getPackageVersion()` on `HeliosNetwork` (static + instance) to report the helios-network package version.
 
 ## 2026-01-25
 

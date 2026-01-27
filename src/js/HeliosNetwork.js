@@ -1,5 +1,6 @@
 import createHeliosModule from './moduleFactory.js';
 import { WasmSteppableSession } from './sessions/WasmSteppableSession.js';
+import { PACKAGE_VERSION } from './version.js';
 
 /**
  * Enumeration of attribute types supported by the WASM network core.
@@ -1946,6 +1947,24 @@ export class HeliosNetwork extends BaseEventTarget {
 		}
 		moduleInstance = module;
 		return HeliosNetwork._createWithModule(module, directed, initialNodes, initialEdges);
+	}
+
+	/**
+	 * Returns the package version string for the helios-network module.
+	 *
+	 * @returns {string}
+	 */
+	static getPackageVersion() {
+		return PACKAGE_VERSION;
+	}
+
+	/**
+	 * Returns the package version string for the helios-network module.
+	 *
+	 * @returns {string}
+	 */
+	getPackageVersion() {
+		return HeliosNetwork.getPackageVersion();
 	}
 
 	/**
