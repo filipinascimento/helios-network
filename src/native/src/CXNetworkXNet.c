@@ -491,8 +491,11 @@ static CXBool XNetAllocateAttributeValues(XNetAttributeBlock *block) {
 }
 
 static void* XNetCategoryDictionaryEncodeId(int32_t id) {
+	if (id == -1) {
+		return (void *)(uintptr_t)1u;
+	}
 	uint32_t raw = (uint32_t)id;
-	return (void *)(uintptr_t)(raw + 1u);
+	return (void *)(uintptr_t)(raw + 2u);
 }
 
 static CXBool XNetCategoryDictionaryDecodeId(const void *data, int32_t *outId) {
@@ -503,7 +506,11 @@ static CXBool XNetCategoryDictionaryDecodeId(const void *data, int32_t *outId) {
 	if (raw == 0) {
 		return CXFalse;
 	}
-	*outId = (int32_t)(uint32_t)(raw - 1u);
+	if (raw == 1u) {
+		*outId = -1;
+		return CXTrue;
+	}
+	*outId = (int32_t)(uint32_t)(raw - 2u);
 	return CXTrue;
 }
 

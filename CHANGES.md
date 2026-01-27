@@ -4,6 +4,7 @@
 
 - Added native + JS accessors for categorical attribute dictionaries (`get*AttributeCategoryDictionary` / `set*AttributeCategoryDictionary`).
 - Added tests covering category dictionary retrieval after categorization.
+- Fixed missing-category dictionary encoding so `-1` entries no longer decode as null.
 
 ## 2026-01-26
 

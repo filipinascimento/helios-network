@@ -195,6 +195,64 @@ describe('HeliosNetwork (Node runtime)', () => {
 		expect(dict.entries.every((entry) => typeof entry.id === 'number' && typeof entry.label === 'string')).toBe(true);
 	});
 
+	test('includes missing label in category dictionary', () => {
+		const nodes = network.addNodes(3);
+		network.defineNodeAttribute('missingGroup', AttributeType.String, 1);
+		network.setNodeStringAttribute('missingGroup', nodes[0], 'alpha');
+		network.setNodeStringAttribute('missingGroup', nodes[1], '');
+		network.setNodeStringAttribute('missingGroup', nodes[2], '__NA__');
+
+		network.categorizeNodeAttribute('missingGroup', { sortOrder: 'frequency' });
+		const dict = network.getNodeAttributeCategoryDictionary('missingGroup');
+		const missingEntry = dict.entries.find((entry) => entry.label === '__NA__');
+		expect(missingEntry).toBeDefined();
+		expect(missingEntry.id).toBe(-1);
+	});
+
+	test('categorizes fully assigned categories (main.js style)', async () => {
+		const net = await HeliosNetwork.create({ directed: false, initialNodes: 0, initialEdges: 0 });
+		try {
+			const nodeCount = 200;
+			const nodes = net.addNodes(nodeCount);
+			net.defineNodeAttribute('category', AttributeType.String, 1);
+			const categoryCount = 8;
+			const total = Math.max(1, nodes.length);
+			for (let i = 0; i < nodes.length; i += 1) {
+				const bucket = Math.min(categoryCount - 1, Math.floor((i / total) * categoryCount));
+				const label = `category${bucket + 1}`;
+				net.setNodeStringAttribute('category', nodes[i], label);
+			}
+			net.categorizeNodeAttribute('category', { sortOrder: 'frequency' });
+
+			const dict = net.getNodeAttributeCategoryDictionary('category');
+			const labels = dict.entries.map((entry) => entry.label).sort();
+			expect(labels).toEqual([
+				'category1',
+				'category2',
+				'category3',
+				'category4',
+				'category5',
+				'category6',
+				'category7',
+				'category8',
+			]);
+			expect(dict.entries.some((entry) => entry.label === '__NA__' || entry.id === -1)).toBe(false);
+
+			const codes = net.getNodeAttributeBuffer('category').view;
+			const counts = new Map();
+			for (let i = 0; i < nodes.length; i += 1) {
+				const code = codes[nodes[i]];
+				expect(code).toBeGreaterThanOrEqual(0);
+				counts.set(code, (counts.get(code) ?? 0) + 1);
+			}
+			for (const entry of dict.entries) {
+				expect(counts.get(entry.id) ?? 0).toBeGreaterThan(0);
+			}
+		} finally {
+			net.dispose();
+		}
+	});
+
 	test('creates node and edge selectors', () => {
 		const nodeSelector = network.createNodeSelector();
 		const edgeSelector = network.createEdgeSelector();

@@ -378,8 +378,11 @@ static CXBool CXExpectedStorageWidthForType(CXAttributeType type, uint32_t *outW
 }
 
 static void* CXCategoryDictionaryEncodeId(int32_t id) {
+	if (id == -1) {
+		return (void *)(uintptr_t)1u;
+	}
 	uint32_t raw = (uint32_t)id;
-	return (void *)(uintptr_t)(raw + 1u);
+	return (void *)(uintptr_t)(raw + 2u);
 }
 
 static CXBool CXCategoryDictionaryDecodeId(const void *data, int32_t *outId) {
@@ -390,7 +393,11 @@ static CXBool CXCategoryDictionaryDecodeId(const void *data, int32_t *outId) {
 	if (raw == 0) {
 		return CXFalse;
 	}
-	*outId = (int32_t)(uint32_t)(raw - 1u);
+	if (raw == 1u) {
+		*outId = -1;
+		return CXTrue;
+	}
+	*outId = (int32_t)(uint32_t)(raw - 2u);
 	return CXTrue;
 }
 

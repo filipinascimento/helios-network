@@ -405,8 +405,11 @@ static void CXNetworkBumpAttributeDictionaryVersions(CXStringDictionaryRef dicti
 }
 
 static void* CXCategoryDictionaryEncodeId(int32_t id) {
+	if (id == -1) {
+		return (void *)(uintptr_t)1u;
+	}
 	uint32_t raw = (uint32_t)id;
-	return (void *)(uintptr_t)(raw + 1u);
+	return (void *)(uintptr_t)(raw + 2u);
 }
 
 static CXBool CXCategoryDictionaryDecodeId(const void *data, int32_t *outId) {
@@ -417,7 +420,11 @@ static CXBool CXCategoryDictionaryDecodeId(const void *data, int32_t *outId) {
 	if (raw == 0) {
 		return CXFalse;
 	}
-	*outId = (int32_t)(uint32_t)(raw - 1u);
+	if (raw == 1u) {
+		*outId = -1;
+		return CXTrue;
+	}
+	*outId = (int32_t)(uint32_t)(raw - 2u);
 	return CXTrue;
 }
 
@@ -2413,7 +2420,28 @@ CXBool CXNetworkCategorizeAttribute(CXNetworkRef network, CXAttributeScope scope
 		return CXFalse;
 	}
 	const char *missing = missingLabel ? missingLabel : kCXCategoryMissingLabel;
-	CXSize elementCount = attr->capacity * attr->dimension;
+	CXSize capacity = attr->capacity;
+	const CXBool *activity = NULL;
+	switch (scope) {
+		case CXAttributeScopeNode:
+			activity = network->nodeActive;
+			capacity = network->nodeCapacity;
+			break;
+		case CXAttributeScopeEdge:
+			activity = network->edgeActive;
+			capacity = network->edgeCapacity;
+			break;
+		case CXAttributeScopeNetwork:
+			activity = NULL;
+			capacity = 1;
+			break;
+		default:
+			break;
+	}
+	if (capacity > attr->capacity) {
+		capacity = attr->capacity;
+	}
+	CXSize elementCount = capacity * attr->dimension;
 	CXString *values = (CXString *)attr->data;
 	if (elementCount > 0 && !values) {
 		return CXFalse;
@@ -2429,6 +2457,9 @@ CXBool CXNetworkCategorizeAttribute(CXNetworkRef network, CXAttributeScope scope
 	CXBool hasMissing = CXFalse;
 
 	for (CXSize idx = 0; idx < elementCount; idx++) {
+		if (activity && !activity[idx]) {
+			continue;
+		}
 		CXString value = values ? values[idx] : NULL;
 		if (!value || value[0] == '\0' || (missing && strcmp(value, missing) == 0)) {
 			hasMissing = CXTrue;
@@ -2500,6 +2531,10 @@ CXBool CXNetworkCategorizeAttribute(CXNetworkRef network, CXAttributeScope scope
 	}
 
 	for (CXSize idx = 0; idx < elementCount; idx++) {
+		if (activity && !activity[idx]) {
+			codes[idx] = -1;
+			continue;
+		}
 		CXString value = values ? values[idx] : NULL;
 		if (!value || value[0] == '\0' || (missing && strcmp(value, missing) == 0)) {
 			codes[idx] = -1;
