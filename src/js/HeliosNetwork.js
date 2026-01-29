@@ -3880,7 +3880,32 @@ export class HeliosNetwork extends BaseEventTarget {
 		if (!attributePtr) {
 			throw new Error(`Attribute pointer for "${name}" is unavailable`);
 		}
-		const copy = this._copyFloat32ToWasm(target);
+		const { name: targetName, meta: targetMeta } = this._ensureInterpolationTargetAttribute(name, meta?.dimension || 1);
+		const targetPointers = this._attributePointers('node', targetName, targetMeta);
+		let array = target;
+		if (!ArrayBuffer.isView(array)) {
+			array = Float32Array.from(array ?? []);
+		}
+		const count = array.length >>> 0;
+		if (count === 0) {
+			return false;
+		}
+		const dimension = Number.isFinite(targetMeta.dimension) && targetMeta.dimension > 0 ? targetMeta.dimension : 1;
+		const maxCount = Math.max(0, this.nodeCapacity * dimension);
+		const copyCount = Math.min(count, maxCount);
+		if (copyCount === 0) {
+			return false;
+		}
+		const heap = this.module.HEAPF32;
+		const targetPtr = targetPointers.pointer >>> 0;
+		if (!targetPtr) {
+			throw new Error(`Interpolation target buffer for "${targetName}" is unavailable`);
+		}
+		const sourceSlice = copyCount === count ? array : array.subarray(0, copyCount);
+		if (array.buffer !== heap.buffer || array.byteOffset !== targetPtr || sourceSlice.length !== array.length) {
+			heap.set(sourceSlice, targetPtr >>> 2);
+		}
+		const copy = { ptr: targetPtr, count: copyCount };
 		const elapsedMs = Number.isFinite(options.elapsedMs) ? Math.max(0, options.elapsedMs) : 16;
 		const layoutElapsedMs = Number.isFinite(options.layoutElapsedMs)
 			? Math.max(0, options.layoutElapsedMs)
@@ -3889,21 +3914,16 @@ export class HeliosNetwork extends BaseEventTarget {
 		const minDisplacementRatio = Number.isFinite(options.minDisplacementRatio)
 			? Math.max(0, options.minDisplacementRatio)
 			: 0.0005;
-		let shouldContinue = false;
-		try {
-			shouldContinue = Boolean(interpolateFn.call(
-				this.module,
-				attributePtr,
-				copy.ptr,
-				copy.count,
-				elapsedMs,
-				layoutElapsedMs,
-				smoothing,
-				minDisplacementRatio,
-			));
-		} finally {
-			copy.dispose();
-		}
+		const shouldContinue = Boolean(interpolateFn.call(
+			this.module,
+			attributePtr,
+			copy.ptr,
+			copy.count,
+			elapsedMs,
+			layoutElapsedMs,
+			smoothing,
+			minDisplacementRatio,
+		));
 		this._recordAttributeChangeSilently('node', name, {
 			op: 'interpolate',
 			emitEvent: options.emitEvent === true,
@@ -6080,6 +6100,22 @@ export class HeliosNetwork extends BaseEventTarget {
 			count,
 			dispose: () => this.module._free(ptr),
 		};
+	}
+
+	_ensureInterpolationTargetAttribute(name, dimension) {
+		const targetName = `__helios_target_${name}`;
+		let targetMeta = this._ensureAttributeMetadata('node', targetName);
+		if (!targetMeta) {
+			this._defineAttribute('node', targetName, AttributeType.Float, dimension, this.module._CXNetworkDefineNodeAttribute);
+			targetMeta = this._ensureAttributeMetadata('node', targetName);
+		}
+		if (!targetMeta) {
+			throw new Error(`Failed to define interpolation target attribute "${targetName}"`);
+		}
+		if (targetMeta.type !== AttributeType.Float || targetMeta.dimension !== dimension) {
+			throw new Error(`Interpolation target attribute "${targetName}" has incompatible type or dimension`);
+		}
+		return { name: targetName, meta: targetMeta };
 	}
 
 	_canAliasDenseAttributeBuffer(scope) {

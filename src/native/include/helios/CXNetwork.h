@@ -94,7 +94,7 @@ typedef struct CXMultiCategoryBuffer {
  * Describes a single attribute buffer stored in linear memory. Attributes can
  * be associated with nodes, edges, or the network as a whole.
  */
-typedef struct {
+typedef struct CXAttribute {
 	CXAttributeType type;
 	CXSize dimension;
 	CXSize elementSize;

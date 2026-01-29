@@ -12,8 +12,8 @@
   },
   "license": "MIT",
   "scripts": {
-    "build": "npm run build:es && npm run build:umd && npm run build:prep && npm run build:inline",
-    "build:debug": "DEBUG_SYMBOLS=1 vite build && npm run build:es && npm run build:umd && npm run build:prep && npm run build:inline",
+    "build": "npm run build:wasm && npm run build:es && npm run build:umd && npm run build:prep && npm run build:inline",
+    "build:debug": "npm run build:wasm && DEBUG_SYMBOLS=1 vite build && npm run build:es && npm run build:umd && npm run build:prep && npm run build:inline",
     "build:prep": "node scripts/generate-inline-wasm.mjs",
     "build:es": "ROLLUP_SKIP_NATIVE=true FORMAT=es vite build",
     "build:umd": "ROLLUP_SKIP_NATIVE=true FORMAT=umd vite build --emptyOutDir false",
