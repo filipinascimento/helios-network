@@ -81,6 +81,7 @@ _CXNetworkGetMultiCategoryEntryCount
 _CXNetworkMultiCategoryHasWeights
 _CXAttributeStride
 _CXAttributeData
+_CXAttributeInterpolateFloatBuffer
 _CXDenseAttributeBufferVersion
 _CXDenseAttributeBufferSourceVersion
 _CXAttributeVersion

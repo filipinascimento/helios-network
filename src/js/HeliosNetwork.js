@@ -3856,6 +3856,62 @@ export class HeliosNetwork extends BaseEventTarget {
 	}
 
 	/**
+	 * Interpolates a float node attribute toward a target buffer using layout-timed smoothing.
+	 *
+	 * @param {string} name - Node attribute name.
+	 * @param {Float32Array|number[]} target - Target values (length = nodeCapacity * dimension).
+	 * @param {{elapsedMs?:number,layoutElapsedMs?:number,smoothing?:number,minDisplacementRatio?:number,emitEvent?:boolean}} [options]
+	 * @returns {boolean} True when further interpolation steps are recommended.
+	 */
+	interpolateNodeAttribute(name, target, options = {}) {
+		this._ensureActive();
+		const interpolateFn = this.module._CXAttributeInterpolateFloatBuffer;
+		if (typeof interpolateFn !== 'function') {
+			throw new Error('CXAttributeInterpolateFloatBuffer is unavailable in this WASM build');
+		}
+		const meta = this._ensureAttributeMetadata('node', name);
+		if (!meta) {
+			throw new Error(`Unknown node attribute "${name}"`);
+		}
+		if (meta.type !== AttributeType.Float) {
+			throw new Error(`Node attribute "${name}" must be a float attribute to interpolate`);
+		}
+		const { attributePtr } = this._attributePointers('node', name, meta);
+		if (!attributePtr) {
+			throw new Error(`Attribute pointer for "${name}" is unavailable`);
+		}
+		const copy = this._copyFloat32ToWasm(target);
+		const elapsedMs = Number.isFinite(options.elapsedMs) ? Math.max(0, options.elapsedMs) : 16;
+		const layoutElapsedMs = Number.isFinite(options.layoutElapsedMs)
+			? Math.max(0, options.layoutElapsedMs)
+			: elapsedMs;
+		const smoothing = Number.isFinite(options.smoothing) ? options.smoothing : 6;
+		const minDisplacementRatio = Number.isFinite(options.minDisplacementRatio)
+			? Math.max(0, options.minDisplacementRatio)
+			: 0.0005;
+		let shouldContinue = false;
+		try {
+			shouldContinue = Boolean(interpolateFn.call(
+				this.module,
+				attributePtr,
+				copy.ptr,
+				copy.count,
+				elapsedMs,
+				layoutElapsedMs,
+				smoothing,
+				minDisplacementRatio,
+			));
+		} finally {
+			copy.dispose();
+		}
+		this._recordAttributeChangeSilently('node', name, {
+			op: 'interpolate',
+			emitEvent: options.emitEvent === true,
+		});
+		return shouldContinue;
+	}
+
+	/**
 	 * Legacy node-to-edge dense packing has been removed.
 	 */
 	updateDenseNodeToEdgeAttributeBuffer() {
@@ -5099,6 +5155,33 @@ export class HeliosNetwork extends BaseEventTarget {
 			op: change?.op ?? 'bump',
 			index: typeof change?.index === 'number' ? change.index : null,
 		});
+		return version;
+	}
+
+	_recordAttributeChangeSilently(scope, name, change = null) {
+		const versionFn = this.module._CXAttributeVersion;
+		let version = 0;
+		if (typeof versionFn === 'function') {
+			version = this._getAttributeVersion(scope, name);
+		} else {
+			version = this._nextLocalVersion(`attr:${scope}:${name}`);
+		}
+		this._localVersions.set(`attr:${scope}:${name}`, version);
+		if (scope === 'node') {
+			this._markPassthroughEdgesDirtyForNode(name);
+			this._markColorEncodedDirtyForSource('node', name);
+		} else if (scope === 'edge') {
+			this._markColorEncodedDirtyForSource('edge', name);
+		}
+		if (change?.emitEvent) {
+			this._emitAttributeEvent(HELIOS_NETWORK_EVENTS.attributeChanged, {
+				scope,
+				name,
+				version,
+				op: change?.op ?? 'bump',
+				index: typeof change?.index === 'number' ? change.index : null,
+			});
+		}
 		return version;
 	}
 

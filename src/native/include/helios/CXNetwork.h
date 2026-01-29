@@ -449,6 +449,21 @@ CX_EXTERN CXSize CXAttributeStride(CXAttributeRef attribute);
 CX_EXTERN void* CXAttributeData(CXAttributeRef attribute);
 
 /**
+ * Interpolates a float attribute buffer toward target values and bumps the
+ * attribute version. Returns CXTrue when further interpolation steps are
+ * recommended based on minDisplacementRatio.
+ */
+CX_EXTERN CXBool CXAttributeInterpolateFloatBuffer(
+	CXAttributeRef attribute,
+	const float *target,
+	CXSize targetCount,
+	float elapsedMs,
+	float layoutElapsedMs,
+	float smoothing,
+	float minDisplacementRatio
+);
+
+/**
  * Compacts the network so that node and edge indices become contiguous starting
  * at zero and capacities shrink to match the number of active elements. When
  * `nodeOriginalIndexAttr` or `edgeOriginalIndexAttr` are provided, the function

@@ -1,4 +1,5 @@
 #include "CXNetwork.h"
+#include <math.h>
 
 // Internal helpers -----------------------------------------------------------
 
@@ -2951,6 +2952,83 @@ CXSize CXAttributeStride(CXAttributeRef attribute) {
 
 void* CXAttributeData(CXAttributeRef attribute) {
 	return attribute ? attribute->data : NULL;
+}
+
+/**
+ * Interpolates a float attribute buffer toward target values and updates its version.
+ * Returns CXTrue when further interpolation steps are recommended.
+ */
+CXBool CXAttributeInterpolateFloatBuffer(
+	CXAttributeRef attribute,
+	const float *target,
+	CXSize targetCount,
+	float elapsedMs,
+	float layoutElapsedMs,
+	float smoothing,
+	float minDisplacementRatio
+) {
+	if (!attribute || attribute->type != CXFloatAttributeType || !attribute->data || !target) {
+		return CXFalse;
+	}
+	if (!isfinite(elapsedMs) || elapsedMs < 0.0f) {
+		elapsedMs = 0.0f;
+	}
+	if (!isfinite(layoutElapsedMs) || layoutElapsedMs <= 0.0f) {
+		layoutElapsedMs = 16.0f;
+	}
+	if (!isfinite(smoothing) || smoothing <= 0.0f) {
+		smoothing = 6.0f;
+	}
+	if (!isfinite(minDisplacementRatio) || minDisplacementRatio < 0.0f) {
+		minDisplacementRatio = 0.0f;
+	}
+	const float minLayoutMs = 10.0f;
+	const float maxLayoutMs = 2500.0f;
+	const float maxStepMs = 20.0f;
+	if (layoutElapsedMs < minLayoutMs) {
+		layoutElapsedMs = minLayoutMs;
+	} else if (layoutElapsedMs > maxLayoutMs) {
+		layoutElapsedMs = maxLayoutMs;
+	}
+	if (elapsedMs > maxStepMs) {
+		elapsedMs = maxStepMs;
+	}
+	const float dt = elapsedMs / layoutElapsedMs;
+	float w = 1.0f - expf(-smoothing * dt);
+	if (!isfinite(w) || w < 0.0f) {
+		w = 0.0f;
+	} else if (w > 1.0f) {
+		w = 1.0f;
+	}
+	const CXSize dimension = attribute->dimension > 0 ? attribute->dimension : 1;
+	const CXSize capacity = attribute->capacity;
+	const CXSize totalCount = capacity * dimension;
+	const CXSize count = targetCount < totalCount ? targetCount : totalCount;
+	float *dst = (float *)attribute->data;
+	float maxDisplacement = 0.0f;
+	float maxBoundary = 0.0f;
+	for (CXSize i = 0; i < count; i++) {
+		const float current = dst[i];
+		const float goal = target[i];
+		const float displacement = goal - current;
+		dst[i] = current + w * displacement;
+		const float absDisp = fabsf(displacement);
+		if (absDisp > maxDisplacement) {
+			maxDisplacement = absDisp;
+		}
+		const float absGoal = fabsf(goal);
+		if (absGoal > maxBoundary) {
+			maxBoundary = absGoal;
+		}
+	}
+	CXVersionBump(&attribute->version);
+	if (minDisplacementRatio <= 0.0f) {
+		return CXTrue;
+	}
+	if (maxBoundary <= 0.0f) {
+		return CXFalse;
+	}
+	return (maxDisplacement / maxBoundary) >= minDisplacementRatio;
 }
 
 uint64_t CXDenseAttributeBufferVersion(const CXDenseAttributeBuffer *buffer) {
