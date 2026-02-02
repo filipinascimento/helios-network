@@ -1,5 +1,14 @@
 # CHANGES
 
+## 2026-02-01
+
+- Added Python bindings (meson-python) with a `Network` class, attribute access, serialization helpers, and networkx/igraph conversion utilities.
+- Added Python node/edge selectors with iterator access (`network.nodes`, `network.edges`), plus edge-pair iteration helpers.
+- Added network-scope attribute access (`network["attr"]`, `network.attributes["attr"]`) and vector attribute batch assignment helpers.
+- Added Python helpers for categorical attributes (categorize/decategorize and category dictionary get/set).
+- Added attribute auto-definition on assignment and collection-level `define_attribute` helpers.
+- Added Python tests and examples covering basic graph edits, attributes, and XNET round-trips.
+
 ## 2026-01-28
 
 - Added native + JS accessors for categorical attribute dictionaries (`get*AttributeCategoryDictionary` / `set*AttributeCategoryDictionary`).

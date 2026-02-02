@@ -41,6 +41,8 @@ const cmakePath = path.join(rootDir, 'CMakeLists.txt');
 const vcpkgManifestPath = path.join(rootDir, 'packaging', 'vcpkg', 'helios-network', 'vcpkg.json');
 const conanRecipePath = path.join(rootDir, 'packaging', 'conan', 'conanfile.py');
 const cxNetworkHeaderPath = path.join(rootDir, 'src', 'native', 'include', 'helios', 'CXNetwork.h');
+const pythonPyprojectPath = path.join(rootDir, 'python', 'pyproject.toml');
+const pythonMesonPath = path.join(rootDir, 'python', 'meson.build');
 
 const packageJson = readJson(packageJsonPath);
 const newVersion = requestedVersion || packageJson.version;
@@ -72,6 +74,14 @@ updateTextFile(mesonPath, (contents) => {
 	return replaced === contents && !contents.includes(`'${newVersion}'`) ? null : replaced;
 });
 console.log(`Updated meson.build to ${newVersion}`);
+
+if (fs.existsSync(pythonMesonPath)) {
+	updateTextFile(pythonMesonPath, (contents) => {
+		const replaced = contents.replace(/version\s*:\s*'[^']*'/, `version : '${newVersion}'`);
+		return replaced === contents && !contents.includes(`'${newVersion}'`) ? null : replaced;
+	});
+	console.log(`Updated python/meson.build to ${newVersion}`);
+}
 
 updateTextFile(cmakePath, (contents) => {
 	const pattern = /(project\s*\(\s*HeliosNetwork[\s\S]*?VERSION\s+)(\d+\.\d+\.\d+)/;
@@ -125,6 +135,17 @@ if (fs.existsSync(conanRecipePath)) {
 		return contents.replace(pattern, (_, start, _old, end) => `${start}${newVersion}${end}`);
 	});
 	console.log(`Updated Conan recipe to ${newVersion}`);
+}
+
+if (fs.existsSync(pythonPyprojectPath)) {
+	updateTextFile(pythonPyprojectPath, (contents) => {
+		const pattern = /(\[project\][\s\S]*?version\s*=\s*\")([^\"]+)(\")/;
+		if (!pattern.test(contents)) {
+			return null;
+		}
+		return contents.replace(pattern, (_, start, _old, end) => `${start}${newVersion}${end}`);
+	});
+	console.log(`Updated python/pyproject.toml to ${newVersion}`);
 }
 
 console.log(`Version synchronisation complete: ${newVersion}`);
