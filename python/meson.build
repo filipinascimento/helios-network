@@ -1,4 +1,4 @@
-project('helios-network-python', 'c', version: '0.5.6', default_options: ['c_std=c17'])
+project('helios-network-python', 'c', version : '0.6.0', default_options: ['c_std=c17'])
 
 extra_options = [
   '-D_POSIX_C_SOURCE=200809',
