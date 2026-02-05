@@ -162,6 +162,8 @@ Tests currently cover:
 
 Additional docs:
 - `docs/events.md` for the HeliosNetwork events system
+- `docs/query-language.md` for the query expression grammar and examples
+- `docs/protocol-batches.md` for text/binary batch formats and relative ids
 
 Run the Playwright browser suite (this command starts the Vite dev server automatically):
 

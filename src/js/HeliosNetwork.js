@@ -6523,6 +6523,17 @@ export class HeliosNetwork extends BaseEventTarget {
 		return addr ? this.module.UTF8ToString(addr) : null;
 	}
 
+	_getQueryError() {
+		const messagePtr = typeof this.module._CXNetworkQueryLastErrorMessage === 'function'
+			? this.module._CXNetworkQueryLastErrorMessage()
+			: 0;
+		const offset = typeof this.module._CXNetworkQueryLastErrorOffset === 'function'
+			? this.module._CXNetworkQueryLastErrorOffset()
+			: 0;
+		const message = messagePtr ? this.module.UTF8ToString(messagePtr) : 'Unknown query error';
+		return { message, offset };
+	}
+
 	/**
 	 * Creates a node selector optionally seeded with indices.
 	 *
@@ -6570,6 +6581,470 @@ export class HeliosNetwork extends BaseEventTarget {
 			selector.fillAll(this);
 		}
 		return selector._asProxy();
+	}
+
+	/**
+	 * Applies a text batch of stream commands to this network.
+	 *
+	 * Supported commands (MVP):
+	 * - ADD_NODES n=#
+	 * - ADD_EDGES pairs=[(a,b),...]
+	 * - SET_ATTR_VALUES scope=node|edge name=attr ids=[...] values=[...]
+	 *
+	 * Relative ids:
+	 * - suffix `! relative [varName]` remaps ids against a prior result set.
+	 * - result sets are captured as `varName = ADD_NODES ...` or `varName = ADD_EDGES ...`.
+	 *
+	 * @param {string} text - Batch payload.
+	 * @param {{stopOnError?: boolean}=} [options]
+	 * @returns {{results:Array, variables:Object}} Execution results and captured variables.
+	 */
+	applyTextBatch(text, options = {}) {
+		this._ensureActive();
+		if (typeof text !== 'string') {
+			throw new Error('Batch text must be a string');
+		}
+		const stopOnError = options.stopOnError !== false;
+		const results = [];
+		const variables = {};
+		let lastAddedNodes = null;
+		let lastAddedEdges = null;
+
+		const lines = text.split(/\r?\n/);
+		for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+			let line = lines[lineIndex].trim();
+			if (!line || line.startsWith('#')) {
+				continue;
+			}
+
+			const result = { line: lineIndex + 1, ok: false, op: null };
+			try {
+				let relativeName = null;
+				let relative = false;
+				const relativeIdx = line.indexOf('! relative');
+				if (relativeIdx >= 0) {
+					const suffix = line.slice(relativeIdx + '! relative'.length).trim();
+					relative = true;
+					if (suffix) {
+						relativeName = suffix.split(/\s+/)[0];
+					}
+					line = line.slice(0, relativeIdx).trim();
+				}
+
+				let varName = null;
+				const assignMatch = line.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+)$/);
+				if (assignMatch) {
+					varName = assignMatch[1];
+					line = assignMatch[2];
+				}
+
+				const tokens = splitCommandTokens(line);
+				if (!tokens.length) {
+					throw new Error('Empty command');
+				}
+				const op = tokens[0];
+				result.op = op;
+				const args = parseKeyValueArgs(tokens.slice(1).join(' '));
+
+				if (op === 'ADD_NODES') {
+					const count = Number(args.n ?? args.count);
+					if (!Number.isFinite(count) || count < 0) {
+						throw new Error('ADD_NODES requires n=<count>');
+					}
+					const ids = this.addNodes(count);
+					lastAddedNodes = ids;
+					variables.added_node_ids = ids;
+					if (varName) {
+						variables[varName] = ids;
+					}
+					result.ok = true;
+					result.result = ids;
+				} else if (op === 'ADD_EDGES') {
+					const pairs = parsePairs(args.pairs);
+					if (!pairs.length) {
+						throw new Error('ADD_EDGES requires pairs=[(a,b),...]');
+					}
+					const resolvedPairs = relative
+						? resolvePairsRelative(pairs, resolveRelativeSet(relativeName, lastAddedNodes, variables, 'node'))
+						: pairs;
+					const edges = this.addEdges(resolvedPairs.map(([from, to]) => ({ from, to })));
+					lastAddedEdges = edges;
+					variables.added_edge_ids = edges;
+					if (varName) {
+						variables[varName] = edges;
+					}
+					result.ok = true;
+					result.result = edges;
+				} else if (op === 'SET_ATTR_VALUES') {
+					const scope = args.scope;
+					const name = args.name;
+					const ids = parseNumberList(args.ids);
+					const parsedValues = parseValueList(args.values);
+					const values = parsedValues.values;
+					if (!scope || !name || !ids.length || !values.length) {
+						throw new Error('SET_ATTR_VALUES requires scope, name, ids, and values');
+					}
+					const resolvedIds = relative
+						? resolveIdsRelative(ids, resolveRelativeSet(relativeName, scope === 'edge' ? lastAddedEdges : lastAddedNodes, variables, scope))
+						: ids;
+					if (values.length !== 1 && values.length !== resolvedIds.length) {
+						throw new Error('SET_ATTR_VALUES values length must be 1 or match ids length');
+					}
+					const attrValues = values.length === 1 ? resolvedIds.map(() => values[0]) : values;
+					const metaMap = this._attributeMap(scope);
+					let meta = metaMap.get(name);
+					if (!meta) {
+						meta = this._ensureAttributeMetadata(scope, name);
+					}
+					if (!meta) {
+						throw new Error(`Attribute "${name}" on ${scope} is not defined`);
+					}
+					if (meta.dimension && meta.dimension > 1) {
+						throw new Error('Vector attributes are not supported in text batches');
+					}
+					if (meta.type === AttributeType.String) {
+						if (parsedValues.type !== 'string') {
+							throw new Error('String attributes require string values');
+						}
+						for (let i = 0; i < resolvedIds.length; i += 1) {
+							if (scope === 'edge') {
+								this.setEdgeStringAttribute(name, resolvedIds[i], attrValues[i]);
+							} else {
+								this.setNodeStringAttribute(name, resolvedIds[i], attrValues[i]);
+							}
+						}
+					} else if (meta.type === AttributeType.Category && parsedValues.type === 'string') {
+						const dict = scope === 'edge'
+							? this.getEdgeAttributeCategoryDictionary(name)
+							: this.getNodeAttributeCategoryDictionary(name);
+						for (let i = 0; i < resolvedIds.length; i += 1) {
+							const label = attrValues[i];
+							const id = dict[label];
+							if (id == null) {
+								throw new Error(`Category label "${label}" not found`);
+							}
+							const buffer = scope === 'edge'
+								? this.getEdgeAttributeBuffer(name)
+								: this.getNodeAttributeBuffer(name);
+							buffer.view[resolvedIds[i]] = id;
+						}
+					} else {
+						const buffer = scope === 'edge'
+							? this.getEdgeAttributeBuffer(name)
+							: this.getNodeAttributeBuffer(name);
+						if (buffer.type === AttributeType.Data || buffer.type === AttributeType.Javascript || buffer.type === AttributeType.MultiCategory) {
+							throw new Error('Unsupported attribute type for text batches');
+						}
+						if (parsedValues.type !== 'number') {
+							throw new Error('Numeric attributes require numeric values');
+						}
+						for (let i = 0; i < resolvedIds.length; i += 1) {
+							buffer.view[resolvedIds[i]] = attrValues[i];
+						}
+					}
+					result.ok = true;
+				} else {
+					throw new Error(`Unsupported command: ${op}`);
+				}
+			} catch (err) {
+				result.error = err instanceof Error ? err.message : String(err);
+				results.push(result);
+				if (stopOnError) {
+					return { results, variables };
+				}
+				continue;
+			}
+			results.push(result);
+		}
+		return { results, variables };
+	}
+
+	/**
+	 * Applies a binary batch of stream commands to this network.
+	 *
+	 * Binary format (MVP):
+	 * Header:
+	 * - u8[4] magic = HNPB
+	 * - u8 version = 1
+	 * - u8 flags
+	 * - u16 reserved
+	 * - u32 recordCount
+	 *
+	 * Record:
+	 * - u8 op (1=ADD_NODES, 2=ADD_EDGES, 3=SET_ATTR_VALUES)
+	 * - u8 flags (bit0=relative)
+	 * - u16 reserved
+	 * - u32 resultSlot (0 = unused)
+	 * - u32 payloadLen
+	 * - payload bytes
+	 *
+	 * Payloads:
+	 * - ADD_NODES: u32 count
+	 * - ADD_EDGES: u32 pairCount, u32 baseSlot, u32[pairCount*2] pairs
+	 * - SET_ATTR_VALUES: u8 scope(0=node,1=edge), u8 valueType(0=f64), u16 reserved,
+	 *   u32 idCount, u32 valueCount, u32 baseSlot, u32 nameLen, u8[nameLen] name,
+	 *   u32[idCount] ids, f64[valueCount] values
+	 *
+	 * @param {ArrayBuffer|Uint8Array} data - Binary batch.
+	 * @param {{stopOnError?: boolean}=} [options]
+	 * @returns {{results:Array, slots:Map<number, Uint32Array>}} Execution results and result slots.
+	 */
+	applyBinaryBatch(data, options = {}) {
+		this._ensureActive();
+		const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
+		const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+		let offset = 0;
+		const readU8 = () => view.getUint8(offset++);
+		const readU16 = () => {
+			const v = view.getUint16(offset, true);
+			offset += 2;
+			return v;
+		};
+		const readU32 = () => {
+			const v = view.getUint32(offset, true);
+			offset += 4;
+			return v;
+		};
+		const readF64 = () => {
+			const v = view.getFloat64(offset, true);
+			offset += 8;
+			return v;
+		};
+		const magic = String.fromCharCode(readU8(), readU8(), readU8(), readU8());
+		if (magic !== 'HNPB') {
+			throw new Error('Invalid batch magic');
+		}
+		const version = readU8();
+		if (version !== 1) {
+			throw new Error(`Unsupported batch version ${version}`);
+		}
+		readU8(); // flags
+		readU16(); // reserved
+		const recordCount = readU32();
+		const stopOnError = options.stopOnError !== false;
+		const slots = new Map();
+		const results = [];
+
+		for (let recordIndex = 0; recordIndex < recordCount; recordIndex += 1) {
+			const result = { record: recordIndex, ok: false };
+			try {
+				const op = readU8();
+				const flags = readU8();
+				readU16();
+				const resultSlot = readU32();
+				const payloadLen = readU32();
+				const payloadStart = offset;
+				const relative = (flags & 0x1) !== 0;
+
+				if (op === 1) {
+					const count = readU32();
+					const ids = this.addNodes(count);
+					if (resultSlot) {
+						slots.set(resultSlot, ids);
+					}
+					result.ok = true;
+					result.result = ids;
+				} else if (op === 2) {
+					const pairCount = readU32();
+					const baseSlot = readU32();
+					const base = relative ? slots.get(baseSlot) : null;
+					if (relative && !base) {
+						throw new Error('Missing base slot for relative edge pairs');
+					}
+					const pairs = [];
+					for (let i = 0; i < pairCount; i += 1) {
+						const a = readU32();
+						const b = readU32();
+						const from = relative ? base[a] : a;
+						const to = relative ? base[b] : b;
+						pairs.push({ from, to });
+					}
+					const edges = this.addEdges(pairs);
+					if (resultSlot) {
+						slots.set(resultSlot, edges);
+					}
+					result.ok = true;
+					result.result = edges;
+				} else if (op === 3) {
+					const scopeId = readU8();
+					const valueType = readU8();
+					readU16();
+					const idCount = readU32();
+					const valueCount = readU32();
+					const baseSlot = readU32();
+					const nameLen = readU32();
+					const nameBytes = bytes.subarray(offset, offset + nameLen);
+					offset += nameLen;
+					const name = new TextDecoder().decode(nameBytes);
+					const ids = [];
+					for (let i = 0; i < idCount; i += 1) {
+						ids.push(readU32());
+					}
+					const values = [];
+					if (valueType === 0) {
+						for (let i = 0; i < valueCount; i += 1) {
+							values.push(readF64());
+						}
+					} else if (valueType === 1) {
+						const decoder = new TextDecoder();
+						for (let i = 0; i < valueCount; i += 1) {
+							const len = readU32();
+							const chunk = bytes.subarray(offset, offset + len);
+							offset += len;
+							values.push(decoder.decode(chunk));
+						}
+					} else {
+						throw new Error('Unsupported value type');
+					}
+					const base = relative ? slots.get(baseSlot) : null;
+					if (relative && !base) {
+						throw new Error('Missing base slot for relative ids');
+					}
+					const resolvedIds = relative ? ids.map((id) => base[id]) : ids;
+					const scope = scopeId === 1 ? 'edge' : 'node';
+					const metaMap = this._attributeMap(scope);
+					let meta = metaMap.get(name);
+					if (!meta) {
+						meta = this._ensureAttributeMetadata(scope, name);
+					}
+					if (!meta) {
+						throw new Error(`Attribute \"${name}\" on ${scope} is not defined`);
+					}
+					if (meta.dimension && meta.dimension > 1) {
+						throw new Error('Vector attributes are not supported in binary batches');
+					}
+					const attrValues = values.length === 1 ? resolvedIds.map(() => values[0]) : values;
+					if (meta.type === AttributeType.String) {
+						if (valueType !== 1) {
+							throw new Error('String attributes require string values');
+						}
+						for (let i = 0; i < resolvedIds.length; i += 1) {
+							if (scope === 'edge') {
+								this.setEdgeStringAttribute(name, resolvedIds[i], attrValues[i]);
+							} else {
+								this.setNodeStringAttribute(name, resolvedIds[i], attrValues[i]);
+							}
+						}
+					} else if (meta.type === AttributeType.Category && valueType === 1) {
+						const dict = scope === 'edge'
+							? this.getEdgeAttributeCategoryDictionary(name)
+							: this.getNodeAttributeCategoryDictionary(name);
+						const buffer = scope === 'edge'
+							? this.getEdgeAttributeBuffer(name)
+							: this.getNodeAttributeBuffer(name);
+						for (let i = 0; i < resolvedIds.length; i += 1) {
+							const label = attrValues[i];
+							const id = dict[label];
+							if (id == null) {
+								throw new Error(`Category label \"${label}\" not found`);
+							}
+							buffer.view[resolvedIds[i]] = id;
+						}
+					} else {
+						if (valueType !== 0) {
+							throw new Error('Numeric attributes require numeric values');
+						}
+						const buffer = scope === 'edge'
+							? this.getEdgeAttributeBuffer(name)
+							: this.getNodeAttributeBuffer(name);
+						if (buffer.type === AttributeType.Data || buffer.type === AttributeType.Javascript || buffer.type === AttributeType.MultiCategory) {
+							throw new Error('Unsupported attribute type for binary batches');
+						}
+						for (let i = 0; i < resolvedIds.length; i += 1) {
+							buffer.view[resolvedIds[i]] = attrValues[i];
+						}
+					}
+					result.ok = true;
+				} else {
+					throw new Error(`Unsupported op ${op}`);
+				}
+
+				offset = payloadStart + payloadLen;
+			} catch (err) {
+				result.error = err instanceof Error ? err.message : String(err);
+				results.push(result);
+				if (stopOnError) {
+					return { results, slots };
+				}
+				continue;
+			}
+			results.push(result);
+		}
+		return { results, slots };
+	}
+
+	/**
+	 * Selects nodes matching a query expression.
+	 *
+	 * @param {string} whereExpr - Query expression.
+	 * @param {{asSelector?: boolean}=} [options] - Selector return control.
+	 * @returns {Uint32Array|NodeSelector} Matching node indices or selector proxy.
+	 */
+	selectNodes(whereExpr, options = {}) {
+		this._ensureActive();
+		if (typeof whereExpr !== 'string') {
+			throw new Error('Query expression must be a string');
+		}
+		if (typeof this.module._CXNetworkSelectNodesByQuery !== 'function') {
+			throw new Error('Query selection is unavailable in this WASM build');
+		}
+		const { asSelector = false } = options;
+		const selector = NodeSelector.create(this.module, this);
+		const cstr = new CString(this.module, whereExpr);
+		let ok = false;
+		try {
+			ok = this.module._CXNetworkSelectNodesByQuery(this.ptr, cstr.ptr, selector.ptr);
+		} finally {
+			cstr.dispose();
+		}
+		if (!ok) {
+			const { message, offset } = this._getQueryError();
+			selector.dispose();
+			throw new Error(`Query failed at ${offset}: ${message}`);
+		}
+		if (asSelector) {
+			return selector._asProxy();
+		}
+		const array = selector.toTypedArray();
+		selector.dispose();
+		return array;
+	}
+
+	/**
+	 * Selects edges matching a query expression.
+	 *
+	 * @param {string} whereExpr - Query expression.
+	 * @param {{asSelector?: boolean}=} [options] - Selector return control.
+	 * @returns {Uint32Array|EdgeSelector} Matching edge indices or selector proxy.
+	 */
+	selectEdges(whereExpr, options = {}) {
+		this._ensureActive();
+		if (typeof whereExpr !== 'string') {
+			throw new Error('Query expression must be a string');
+		}
+		if (typeof this.module._CXNetworkSelectEdgesByQuery !== 'function') {
+			throw new Error('Query selection is unavailable in this WASM build');
+		}
+		const { asSelector = false } = options;
+		const selector = EdgeSelector.create(this.module, this);
+		const cstr = new CString(this.module, whereExpr);
+		let ok = false;
+		try {
+			ok = this.module._CXNetworkSelectEdgesByQuery(this.ptr, cstr.ptr, selector.ptr);
+		} finally {
+			cstr.dispose();
+		}
+		if (!ok) {
+			const { message, offset } = this._getQueryError();
+			selector.dispose();
+			throw new Error(`Query failed at ${offset}: ${message}`);
+		}
+		if (asSelector) {
+			return selector._asProxy();
+		}
+		const array = selector.toTypedArray();
+		selector.dispose();
+		return array;
 	}
 
 	/**
@@ -7428,6 +7903,158 @@ export class HeliosNetwork extends BaseEventTarget {
 }
 
 HeliosNetwork.EVENTS = HELIOS_NETWORK_EVENTS;
+
+function splitCommandTokens(line) {
+	const tokens = [];
+	let current = '';
+	let depth = 0;
+	let inQuote = false;
+	for (let i = 0; i < line.length; i += 1) {
+		const ch = line[i];
+		if (ch === '"') {
+			inQuote = !inQuote;
+			current += ch;
+			continue;
+		}
+		if (!inQuote) {
+			if (ch === '[' || ch === '(') {
+				depth += 1;
+			} else if (ch === ']' || ch === ')') {
+				depth = Math.max(0, depth - 1);
+			} else if (/\s/.test(ch) && depth === 0) {
+				if (current) {
+					tokens.push(current);
+					current = '';
+				}
+				continue;
+			}
+		}
+		current += ch;
+	}
+	if (current) {
+		tokens.push(current);
+	}
+	return tokens;
+}
+
+function parseKeyValueArgs(text) {
+	const args = {};
+	if (!text) {
+		return args;
+	}
+	const tokens = splitCommandTokens(text.trim());
+	for (const token of tokens) {
+		const idx = token.indexOf('=');
+		if (idx <= 0) {
+			continue;
+		}
+		const key = token.slice(0, idx);
+		let value = token.slice(idx + 1);
+		if (value.startsWith('"') && value.endsWith('"')) {
+			value = value.slice(1, -1);
+		}
+		args[key] = value;
+	}
+	return args;
+}
+
+function parseNumberList(value) {
+	if (!value) {
+		return [];
+	}
+	let text = value.trim();
+	if (text.startsWith('[') && text.endsWith(']')) {
+		text = text.slice(1, -1);
+	}
+	const matches = text.match(/-?\d+(?:\.\d+)?/g);
+	if (!matches) {
+		return [];
+	}
+	return matches.map(Number);
+}
+
+function parseValueList(value) {
+	if (!value) {
+		return { values: [], type: 'none' };
+	}
+	let text = value.trim();
+	if (text.startsWith('[') && text.endsWith(']')) {
+		text = text.slice(1, -1);
+	}
+	const values = [];
+	const regex = /"([^"\\]*(?:\\.[^"\\]*)*)"|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/g;
+	let match = null;
+	let type = null;
+	while ((match = regex.exec(text))) {
+		if (match[1] != null) {
+			if (type && type !== 'string') {
+				throw new Error('Value list cannot mix strings and numbers');
+			}
+			type = 'string';
+			values.push(match[1].replace(/\\n/g, '\n').replace(/\\t/g, '\t').replace(/\\"/g, '"').replace(/\\\\/g, '\\'));
+		} else if (match[2] != null) {
+			if (type && type !== 'number') {
+				throw new Error('Value list cannot mix strings and numbers');
+			}
+			type = 'number';
+			values.push(Number(match[2]));
+		}
+	}
+	return { values, type: type || 'none' };
+}
+
+function parsePairs(value) {
+	if (!value) {
+		return [];
+	}
+	const pairs = [];
+	let text = value.trim();
+	if (text.startsWith('[') && text.endsWith(']')) {
+		text = text.slice(1, -1);
+	}
+	const regex = /\(([^)]+)\)/g;
+	let match = null;
+	while ((match = regex.exec(text))) {
+		const parts = match[1].split(',').map((part) => part.trim()).filter(Boolean);
+		if (parts.length !== 2) {
+			continue;
+		}
+		const a = Number(parts[0]);
+		const b = Number(parts[1]);
+		if (!Number.isFinite(a) || !Number.isFinite(b)) {
+			continue;
+		}
+		pairs.push([a, b]);
+	}
+	return pairs;
+}
+
+function resolveRelativeSet(name, fallback, variables, scope) {
+	const key = scope === 'edge' ? 'added_edge_ids' : 'added_node_ids';
+	const set = name ? variables[name] : (fallback || variables[key]);
+	if (!set || (typeof set.length !== 'number')) {
+		throw new Error('Relative ids require a captured result set');
+	}
+	return set;
+}
+
+function resolveIdsRelative(ids, set) {
+	return ids.map((idx) => {
+		if (idx < 0 || idx >= set.length) {
+			throw new Error('Relative id is out of range');
+		}
+		return set[idx];
+	});
+}
+
+function resolvePairsRelative(pairs, set) {
+	return pairs.map(([a, b]) => {
+		if (a < 0 || a >= set.length || b < 0 || b >= set.length) {
+			throw new Error('Relative edge endpoint is out of range');
+		}
+		return [set[a], set[b]];
+	});
+}
 
 export { AttributeType, CategorySortOrder, DenseColorEncodingFormat, NodeSelector, EdgeSelector, getModule as getHeliosModule };
 export default HeliosNetwork;

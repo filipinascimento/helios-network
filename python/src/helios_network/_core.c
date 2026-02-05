@@ -981,6 +981,86 @@ static PyObject *Network_get_attribute_value(PyHeliosNetwork *self, PyObject *ar
     return tuple;
 }
 
+static PyObject *Network_select_nodes(PyHeliosNetwork *self, PyObject *args) {
+    const char *query = NULL;
+    if (!PyArg_ParseTuple(args, "s", &query)) {
+        return NULL;
+    }
+    if (!self->network) {
+        PyErr_SetString(PyExc_RuntimeError, "Network is not initialized");
+        return NULL;
+    }
+    CXNodeSelectorRef selector = CXNodeSelectorCreate(0);
+    if (!selector) {
+        PyErr_SetString(PyExc_RuntimeError, "Failed to allocate selector");
+        return NULL;
+    }
+    CXBool ok = CXNetworkSelectNodesByQuery(self->network, query, selector);
+    if (!ok) {
+        const char *message = CXNetworkQueryLastErrorMessage();
+        CXSize offset = CXNetworkQueryLastErrorOffset();
+        CXNodeSelectorDestroy(selector);
+        if (!message || message[0] == '\0') {
+            PyErr_Format(PyExc_ValueError, "Query failed at %zu", (size_t)offset);
+        } else {
+            PyErr_Format(PyExc_ValueError, "Query failed at %zu: %s", (size_t)offset, message);
+        }
+        return NULL;
+    }
+    CXSize count = CXNodeSelectorCount(selector);
+    CXIndex *data = CXNodeSelectorData(selector);
+    PyObject *list = PyList_New((Py_ssize_t)count);
+    if (!list) {
+        CXNodeSelectorDestroy(selector);
+        return NULL;
+    }
+    for (CXSize i = 0; i < count; i++) {
+        PyList_SET_ITEM(list, (Py_ssize_t)i, PyLong_FromUnsignedLong((unsigned long)data[i]));
+    }
+    CXNodeSelectorDestroy(selector);
+    return list;
+}
+
+static PyObject *Network_select_edges(PyHeliosNetwork *self, PyObject *args) {
+    const char *query = NULL;
+    if (!PyArg_ParseTuple(args, "s", &query)) {
+        return NULL;
+    }
+    if (!self->network) {
+        PyErr_SetString(PyExc_RuntimeError, "Network is not initialized");
+        return NULL;
+    }
+    CXEdgeSelectorRef selector = CXEdgeSelectorCreate(0);
+    if (!selector) {
+        PyErr_SetString(PyExc_RuntimeError, "Failed to allocate selector");
+        return NULL;
+    }
+    CXBool ok = CXNetworkSelectEdgesByQuery(self->network, query, selector);
+    if (!ok) {
+        const char *message = CXNetworkQueryLastErrorMessage();
+        CXSize offset = CXNetworkQueryLastErrorOffset();
+        CXEdgeSelectorDestroy(selector);
+        if (!message || message[0] == '\0') {
+            PyErr_Format(PyExc_ValueError, "Query failed at %zu", (size_t)offset);
+        } else {
+            PyErr_Format(PyExc_ValueError, "Query failed at %zu: %s", (size_t)offset, message);
+        }
+        return NULL;
+    }
+    CXSize count = CXEdgeSelectorCount(selector);
+    CXIndex *data = CXEdgeSelectorData(selector);
+    PyObject *list = PyList_New((Py_ssize_t)count);
+    if (!list) {
+        CXEdgeSelectorDestroy(selector);
+        return NULL;
+    }
+    for (CXSize i = 0; i < count; i++) {
+        PyList_SET_ITEM(list, (Py_ssize_t)i, PyLong_FromUnsignedLong((unsigned long)data[i]));
+    }
+    CXEdgeSelectorDestroy(selector);
+    return list;
+}
+
 static PyObject *Network_save_xnet(PyHeliosNetwork *self, PyObject *args) {
     const char *path = NULL;
     if (!PyArg_ParseTuple(args, "s", &path)) {
@@ -1303,6 +1383,8 @@ static PyMethodDef Network_methods[] = {
     {"attribute_buffer", (PyCFunction)Network_attribute_buffer, METH_VARARGS, "Get raw attribute buffer as memoryview."},
     {"set_attribute_value", (PyCFunction)Network_set_attribute_value, METH_VARARGS, "Set attribute value."},
     {"get_attribute_value", (PyCFunction)Network_get_attribute_value, METH_VARARGS, "Get attribute value."},
+    {"select_nodes", (PyCFunction)Network_select_nodes, METH_VARARGS, "Select nodes by query expression."},
+    {"select_edges", (PyCFunction)Network_select_edges, METH_VARARGS, "Select edges by query expression."},
     {"save_xnet", (PyCFunction)Network_save_xnet, METH_VARARGS, "Save network as .xnet."},
     {"save_bxnet", (PyCFunction)Network_save_bxnet, METH_VARARGS, "Save network as .bxnet."},
     {"save_zxnet", (PyCFunction)Network_save_zxnet, METH_VARARGS, "Save network as .zxnet."},

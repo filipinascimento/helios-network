@@ -30,6 +30,7 @@ cvnetwork_src = files(
   '../src/native/src/CXNeighborStorage.c',
   '../src/native/src/CXLeiden.c',
   '../src/native/src/CXNetwork.c',
+  '../src/native/src/CXNetworkQuery.c',
   '../src/native/src/CXNetworkBXNet.c',
   '../src/native/src/CXNetworkXNet.c',
   '../src/native/src/CXSortTest.c',

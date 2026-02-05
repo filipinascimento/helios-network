@@ -218,6 +218,16 @@ typedef struct {
 typedef CXSelector* CXNodeSelectorRef;
 typedef CXSelector* CXEdgeSelectorRef;
 
+/**
+ * Evaluates a query string against the network, populating the provided selector.
+ * Returns CXFalse on parse or evaluation errors. Use CXNetworkQueryLastError*
+ * to retrieve details about the last failure.
+ */
+CX_EXTERN CXBool CXNetworkSelectNodesByQuery(CXNetworkRef network, const CXString query, CXNodeSelectorRef selector);
+CX_EXTERN CXBool CXNetworkSelectEdgesByQuery(CXNetworkRef network, const CXString query, CXEdgeSelectorRef selector);
+CX_EXTERN const CXString CXNetworkQueryLastErrorMessage(void);
+CX_EXTERN CXSize CXNetworkQueryLastErrorOffset(void);
+
 // Metadata
 /** Returns the semantic version string for the compiled library (e.g. "1.2.3"). */
 CX_EXTERN const char* CXNetworkVersionString(void);

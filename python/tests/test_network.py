@@ -79,6 +79,76 @@ def test_edge_selectors_and_pairs():
     ]
 
 
+def test_query_select_nodes_and_edges():
+    network = Network(directed=False)
+    nodes = network.add_nodes(3)
+
+    network.define_attribute(AttributeScope.Node, "score", AttributeType.Float, 1)
+    network.nodes["score"] = [0.5, 2.0, 3.5]
+    selector = network.select_nodes("score > 1.0")
+    assert selector.ids == [nodes[1], nodes[2]]
+
+    network.define_attribute(AttributeScope.Node, "flag", AttributeType.Integer, 1)
+    network.nodes["flag"] = [1, 0, 1]
+    edges = network.add_edges([(nodes[0], nodes[1]), (nodes[1], nodes[2])])
+    edge_selector = network.select_edges("$src.flag == 1")
+    assert edge_selector.ids == [edges[0]]
+
+    network.define_attribute(AttributeScope.Node, "label", AttributeType.String, 1)
+    network.nodes["label"] = ["alpha", "beta", "gamma"]
+    in_selector = network.select_nodes('label IN ("alpha", "gamma")')
+    assert in_selector.ids == [nodes[0], nodes[2]]
+
+    regex_selector = network.select_nodes('label =~ "^g"')
+    assert regex_selector.ids == [nodes[2]]
+
+    network.define_attribute(AttributeScope.Node, "vec2", AttributeType.Float, 2)
+    network.set_attribute_value(AttributeScope.Node, "vec2", nodes[0], (0.2, 0.4))
+    network.set_attribute_value(AttributeScope.Node, "vec2", nodes[1], (1.5, 0.1))
+    network.set_attribute_value(AttributeScope.Node, "vec2", nodes[2], (0.3, 2.2))
+    vec_selector = network.select_nodes("vec2 > 2.0")
+    assert vec_selector.ids == [nodes[2]]
+
+    vec_max = network.select_nodes("vec2.max > 2.0")
+    assert vec_max.ids == [nodes[2]]
+
+    vec_index = network.select_nodes("vec2[0] > 1.0")
+    assert vec_index.ids == [nodes[1]]
+
+    network.define_attribute(AttributeScope.Node, "vec2b", AttributeType.Float, 2)
+    network.set_attribute_value(AttributeScope.Node, "vec2b", nodes[0], (0.1, 0.2))
+    network.set_attribute_value(AttributeScope.Node, "vec2b", nodes[1], (1.0, 1.0))
+    network.set_attribute_value(AttributeScope.Node, "vec2b", nodes[2], (0.1, 0.1))
+    vec_dot = network.select_nodes("vec2.dot(vec2b) > 1.0")
+    assert vec_dot.ids == [nodes[1]]
+
+    vec_any = network.select_nodes("vec2.any > 2.0")
+    assert vec_any.ids == [nodes[2]]
+
+    vec_all = network.select_nodes("vec2.all > 0.11")
+    assert vec_all.ids == [nodes[0], nodes[2]]
+
+    vec_dot_const = network.select_nodes("vec2.dot([1, 1]) > 2.0")
+    assert vec_dot_const.ids == [nodes[2]]
+
+
+def test_apply_text_batch_relative_ids():
+    network = Network(directed=False)
+    network.define_attribute(AttributeScope.Node, "weight", AttributeType.Float, 1)
+    network.define_attribute(AttributeScope.Node, "label", AttributeType.String, 1)
+
+    batch = """
+newIDs = ADD_NODES n=4
+ADD_EDGES pairs=[(0,1),(1,2),(2,3)] ! relative newIDs
+SET_ATTR_VALUES scope=node name=weight ids=[0,2] values=[0.5,2.0] ! relative newIDs
+SET_ATTR_VALUES scope=node name=label ids=[1,3] values=["a","b"] ! relative newIDs
+"""
+    result = network.apply_text_batch(batch)
+    assert all(entry.get("ok") for entry in result["results"])
+    assert len(result["variables"]["newIDs"]) == 4
+    assert network.edge_count() == 3
+
+
 def test_network_scope_attributes():
     network = Network(directed=False)
     network.define_attribute(AttributeScope.Network, "title", AttributeType.String, 1)

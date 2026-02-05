@@ -16,6 +16,7 @@ cvnetwork_src = files(
   'src/native/src/CXNeighborStorage.c',
   'src/native/src/CXLeiden.c',
   'src/native/src/CXNetwork.c',
+  'src/native/src/CXNetworkQuery.c',
   'src/native/src/CXNetworkBXNet.c',
   'src/native/src/CXNetworkXNet.c',
   'src/native/src/CXSortTest.c',
@@ -32,7 +33,11 @@ cvnetwork_src = files(
   'src/native/libraries/htslib/hts_shim.c',
 )
 
-include_dirs = include_directories('src/native/include/helios', 'src/native/libraries/htslib')
+include_dirs = include_directories(
+  'src/native/include/helios',
+  'src/native/third_party',
+  'src/native/libraries/htslib',
+)
 
 if host_machine.system() == 'emscripten'
   zlib_dep = declare_dependency()

@@ -112,6 +112,168 @@ class Network:
         """
         return self.edges.pairs()
 
+    def select_nodes(self, where_expr: str) -> "NodeSelector":
+        """
+        Select nodes matching a query expression.
+
+        Parameters:
+        -----------
+        where_expr: str
+            Query expression string.
+
+        Returns:
+        --------
+        NodeSelector
+            Selector with matching node ids.
+        """
+        if not isinstance(where_expr, str):
+            raise TypeError("Query expression must be a string")
+        ids = self._core.select_nodes(where_expr)
+        return NodeSelector(self, ids)
+
+    def select_edges(self, where_expr: str) -> "EdgeSelector":
+        """
+        Select edges matching a query expression.
+
+        Parameters:
+        -----------
+        where_expr: str
+            Query expression string.
+
+        Returns:
+        --------
+        EdgeSelector
+            Selector with matching edge ids.
+        """
+        if not isinstance(where_expr, str):
+            raise TypeError("Query expression must be a string")
+        ids = self._core.select_edges(where_expr)
+        return EdgeSelector(self, ids)
+
+    def apply_text_batch(self, text: str, stop_on_error: bool = True):
+        """
+        Apply a text batch of stream commands to this network.
+
+        Supported commands (MVP):
+        - ADD_NODES n=#
+        - ADD_EDGES pairs=[(a,b),...]
+        - SET_ATTR_VALUES scope=node|edge name=attr ids=[...] values=[...]
+
+        Relative ids:
+        - suffix `! relative [varName]` remaps ids against a prior result set.
+        - result sets are captured as `varName = ADD_NODES ...` or `varName = ADD_EDGES ...`.
+        """
+        if not isinstance(text, str):
+            raise TypeError("Batch text must be a string")
+        results = []
+        variables = {}
+        last_added_nodes = None
+        last_added_edges = None
+
+        for line_index, raw_line in enumerate(text.splitlines(), start=1):
+            line = raw_line.strip()
+            if not line or line.startswith("#"):
+                continue
+            result = {"line": line_index, "ok": False, "op": None}
+            try:
+                relative = False
+                relative_name = None
+                if "! relative" in line:
+                    prefix, suffix = line.split("! relative", 1)
+                    relative = True
+                    relative_name = suffix.strip().split()[0] if suffix.strip() else None
+                    line = prefix.strip()
+
+                var_name = None
+                if "=" in line:
+                    left, right = line.split("=", 1)
+                    if left.strip().replace("_", "").isalnum():
+                        var_name = left.strip()
+                        line = right.strip()
+
+                tokens = _split_command_tokens(line)
+                if not tokens:
+                    raise ValueError("Empty command")
+                op = tokens[0]
+                result["op"] = op
+                args = _parse_key_value_args(" ".join(tokens[1:]))
+
+                if op == "ADD_NODES":
+                    count = int(args.get("n") or args.get("count") or 0)
+                    if count < 0:
+                        raise ValueError("ADD_NODES requires n=<count>")
+                    ids = self.add_nodes(count)
+                    last_added_nodes = ids
+                    variables["added_node_ids"] = ids
+                    if var_name:
+                        variables[var_name] = ids
+                    result["ok"] = True
+                    result["result"] = ids
+                elif op == "ADD_EDGES":
+                    pairs = _parse_pairs(args.get("pairs", ""))
+                    if not pairs:
+                        raise ValueError("ADD_EDGES requires pairs=[(a,b),...]")
+                    if relative:
+                        relative_set = _resolve_relative_set(relative_name, last_added_nodes, variables, "node")
+                        pairs = _resolve_pairs_relative(pairs, relative_set)
+                    edges = self.add_edges(pairs)
+                    last_added_edges = edges
+                    variables["added_edge_ids"] = edges
+                    if var_name:
+                        variables[var_name] = edges
+                    result["ok"] = True
+                    result["result"] = edges
+                elif op == "SET_ATTR_VALUES":
+                    scope = args.get("scope")
+                    name = args.get("name")
+                    ids = _parse_number_list(args.get("ids", ""))
+                    values, value_kind = _parse_value_list(args.get("values", ""))
+                    if not scope or not name or not ids or not values:
+                        raise ValueError("SET_ATTR_VALUES requires scope, name, ids, and values")
+                    if relative:
+                        relative_set = _resolve_relative_set(
+                            relative_name,
+                            last_added_edges if scope == "edge" else last_added_nodes,
+                            variables,
+                            scope,
+                        )
+                        ids = _resolve_ids_relative(ids, relative_set)
+                    if len(values) not in (1, len(ids)):
+                        raise ValueError("SET_ATTR_VALUES values length must be 1 or match ids length")
+                    if len(values) == 1:
+                        values = [values[0] for _ in ids]
+
+                    scope_id = _core.SCOPE_EDGE if scope == "edge" else _core.SCOPE_NODE
+                    info = self._core.attribute_info(scope_id, name)
+                    if info.get("dimension", 1) and info["dimension"] > 1:
+                        raise ValueError("Vector attributes are not supported in text batches")
+                    attr_type = info.get("type")
+                    if value_kind == "string" and attr_type == _core.ATTR_STRING:
+                        for idx, value in zip(ids, values):
+                            self._core.set_attribute_value(scope_id, name, int(idx), value)
+                    elif value_kind == "string" and attr_type == _core.ATTR_CATEGORY:
+                        mapping = self._core.get_category_dictionary(scope_id, name)
+                        for idx, label in zip(ids, values):
+                            if label not in mapping:
+                                raise ValueError(f"Category label '{label}' not found")
+                            self._core.set_attribute_value(scope_id, name, int(idx), int(mapping[label]))
+                    elif value_kind == "number":
+                        for idx, value in zip(ids, values):
+                            self._core.set_attribute_value(scope_id, name, int(idx), value)
+                    else:
+                        raise ValueError("Values are incompatible with attribute type")
+                    result["ok"] = True
+                else:
+                    raise ValueError(f"Unsupported command: {op}")
+            except Exception as exc:
+                result["error"] = str(exc)
+                results.append(result)
+                if stop_on_error:
+                    return {"results": results, "variables": variables}
+                continue
+            results.append(result)
+        return {"results": results, "variables": variables}
+
 
 class NodeView:
     """
@@ -926,6 +1088,168 @@ def _dtype_to_attr_type(name: str):
     if "float" in name:
         return _core.ATTR_DOUBLE
     return _core.ATTR_DOUBLE
+
+
+def _split_command_tokens(line: str) -> List[str]:
+    tokens = []
+    current = []
+    depth = 0
+    in_quote = False
+    for ch in line:
+        if ch == '"':
+            in_quote = not in_quote
+            current.append(ch)
+            continue
+        if not in_quote:
+            if ch in "[(":
+                depth += 1
+            elif ch in "])":
+                depth = max(0, depth - 1)
+            elif ch.isspace() and depth == 0:
+                if current:
+                    tokens.append("".join(current))
+                    current = []
+                continue
+        current.append(ch)
+    if current:
+        tokens.append("".join(current))
+    return tokens
+
+
+def _parse_key_value_args(text: str) -> dict:
+    args = {}
+    if not text:
+        return args
+    for token in _split_command_tokens(text.strip()):
+        if "=" not in token:
+            continue
+        key, value = token.split("=", 1)
+        value = value.strip()
+        if value.startswith('"') and value.endswith('"'):
+            value = value[1:-1]
+        args[key.strip()] = value
+    return args
+
+
+def _parse_number_list(text: str) -> List[float]:
+    if not text:
+        return []
+    value = text.strip()
+    if value.startswith("[") and value.endswith("]"):
+        value = value[1:-1]
+    parts = []
+    number = ""
+    for ch in value:
+        if ch.isdigit() or ch in ".-+eE":
+            number += ch
+        else:
+            if number:
+                try:
+                    parts.append(float(number))
+                except ValueError:
+                    pass
+                number = ""
+    if number:
+        try:
+            parts.append(float(number))
+        except ValueError:
+            pass
+    return parts
+
+
+def _parse_value_list(text: str):
+    if not text:
+        return [], "none"
+    value = text.strip()
+    if value.startswith("[") and value.endswith("]"):
+        value = value[1:-1]
+    parts = []
+    value_type = None
+    buffer = ""
+    in_quote = False
+    for ch in value:
+        if ch == '"':
+            in_quote = not in_quote
+            if not in_quote and buffer:
+                parts.append(buffer)
+                value_type = "string" if value_type in (None, "string") else _raise_value_mix()
+                buffer = ""
+            continue
+        if in_quote:
+            buffer += ch
+            continue
+        if ch in ", ":
+            if buffer:
+                parts.append(_coerce_number(buffer))
+                value_type = "number" if value_type in (None, "number") else _raise_value_mix()
+                buffer = ""
+            continue
+        buffer += ch
+    if buffer:
+        parts.append(_coerce_number(buffer))
+        value_type = "number" if value_type in (None, "number") else _raise_value_mix()
+    return parts, value_type or "none"
+
+
+def _coerce_number(text: str):
+    try:
+        return float(text)
+    except ValueError:
+        raise ValueError("Value list cannot mix strings and numbers") from None
+
+
+def _raise_value_mix():
+    raise ValueError("Value list cannot mix strings and numbers")
+
+def _parse_pairs(text: str) -> List[tuple]:
+    if not text:
+        return []
+    value = text.strip()
+    if value.startswith("[") and value.endswith("]"):
+        value = value[1:-1]
+    pairs = []
+    for chunk in value.split(")"):
+        if "(" not in chunk:
+            continue
+        inside = chunk.split("(", 1)[1]
+        parts = [p.strip() for p in inside.split(",") if p.strip()]
+        if len(parts) != 2:
+            continue
+        try:
+            pairs.append((int(float(parts[0])), int(float(parts[1]))))
+        except ValueError:
+            continue
+    return pairs
+
+
+def _resolve_relative_set(name: str | None, fallback, variables: dict, scope: str):
+    key = "added_edge_ids" if scope == "edge" else "added_node_ids"
+    if name:
+        result = variables.get(name)
+    else:
+        result = fallback or variables.get(key)
+    if not result:
+        raise ValueError("Relative ids require a captured result set")
+    return result
+
+
+def _resolve_ids_relative(ids: List[float], ref_ids: Sequence[int]) -> List[int]:
+    resolved = []
+    for idx in ids:
+        pos = int(idx)
+        if pos < 0 or pos >= len(ref_ids):
+            raise ValueError("Relative id is out of range")
+        resolved.append(int(ref_ids[pos]))
+    return resolved
+
+
+def _resolve_pairs_relative(pairs: List[tuple], ref_ids: Sequence[int]) -> List[tuple]:
+    resolved = []
+    for a, b in pairs:
+        if a < 0 or a >= len(ref_ids) or b < 0 or b >= len(ref_ids):
+            raise ValueError("Relative edge endpoint is out of range")
+        resolved.append((int(ref_ids[a]), int(ref_ids[b])))
+    return resolved
 
 
 def _filter_active_nodes(network: Network, ids: Sequence[int]) -> List[int]:
