@@ -170,3 +170,4 @@ compiled
 test-results/
 playwright-report/
 .emscripten_cache
+/for-reference/
