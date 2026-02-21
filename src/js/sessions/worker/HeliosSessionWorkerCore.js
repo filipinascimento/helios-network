@@ -70,8 +70,10 @@ async function handleCreateLeiden(module, payload) {
 		seed = 0,
 		maxLevels = 32,
 		maxPasses = 8,
+		passes,
 		outNodeCommunityAttribute = 'community',
 	} = payload;
+	const resolvedPasses = passes ?? maxPasses;
 
 	const pairs = new Uint32Array(edgePairsBuffer);
 	const edgeCount = (pairs.length / 2) >>> 0;
@@ -132,7 +134,7 @@ async function handleCreateLeiden(module, payload) {
 			Number(resolution),
 			seed >>> 0,
 			maxLevels >>> 0,
-			maxPasses >>> 0
+			resolvedPasses >>> 0
 		);
 		if (weightNamePtr) {
 			weightNamePtr.free();
@@ -348,4 +350,3 @@ export function installHeliosSessionWorker({ post, onMessage }) {
 		}
 	});
 }
-

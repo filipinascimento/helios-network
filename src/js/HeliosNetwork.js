@@ -1636,7 +1636,7 @@ class EdgeSelector extends Selector {
 						resolution: sessionOptions.resolution ?? 1,
 						seed: sessionOptions.seed ?? 0,
 						maxLevels: sessionOptions.maxLevels ?? 32,
-						maxPasses: sessionOptions.maxPasses ?? 8,
+						maxPasses: sessionOptions.passes ?? sessionOptions.maxPasses ?? 8,
 						outNodeCommunityAttribute: sessionOptions.outNodeCommunityAttribute ?? 'community',
 						categoricalCommunities: sessionOptions.categoricalCommunities !== false,
 					};
@@ -7351,6 +7351,7 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * @param {number} [options.seed=0] - RNG seed (0 uses a default seed).
 	 * @param {number} [options.maxLevels=32] - Maximum aggregation levels.
 	 * @param {number} [options.maxPasses=8] - Max local-moving passes per phase.
+	 * @param {number} [options.passes] - Alias for `maxPasses` (`passes` takes precedence when both are set).
 	 * @returns {{communityCount:number, modularity:number}} Result summary.
 	 */
 	leidenModularity(options = {}) {
@@ -7363,8 +7364,10 @@ export class HeliosNetwork extends BaseEventTarget {
 			categoricalCommunities = true,
 			seed = 0,
 			maxLevels = 32,
-			maxPasses = 8,
+			maxPasses,
+			passes,
 		} = options;
+		const resolvedPasses = passes ?? maxPasses ?? 8;
 
 		if (typeof this.module._CXNetworkLeidenModularity !== 'function') {
 			throw new Error('CXNetworkLeidenModularity is not available in this WASM build. Rebuild the module to enable leidenModularity().');
@@ -7397,7 +7400,7 @@ export class HeliosNetwork extends BaseEventTarget {
 				resolution,
 				seed >>> 0,
 				maxLevels >>> 0,
-				maxPasses >>> 0,
+				resolvedPasses >>> 0,
 				outName.ptr,
 				modularityPtr
 			);
@@ -7450,6 +7453,7 @@ export class HeliosNetwork extends BaseEventTarget {
 		 * @param {number} [options.seed=0] - RNG seed (0 uses a default seed).
 		 * @param {number} [options.maxLevels=32] - Maximum aggregation levels.
 		 * @param {number} [options.maxPasses=8] - Max local-moving passes per phase.
+		 * @param {number} [options.passes] - Alias for `maxPasses` (`passes` takes precedence when both are set).
 		 * @param {string} [options.outNodeCommunityAttribute='community'] - Default output name for finalize().
 		 * @param {boolean} [options.categoricalCommunities=true] - Store communities as categorical codes instead of integers.
 		 * @returns {LeidenSession} Session handle.
@@ -7462,10 +7466,12 @@ export class HeliosNetwork extends BaseEventTarget {
 			edgeWeightAttribute = null,
 				seed = 0,
 				maxLevels = 32,
-				maxPasses = 8,
+				maxPasses,
+				passes,
 				outNodeCommunityAttribute = 'community',
 				categoricalCommunities = true,
 			} = options;
+		const resolvedPasses = passes ?? maxPasses ?? 8;
 
 		if (typeof this.module._CXLeidenSessionCreate !== 'function') {
 			throw new Error('CXLeidenSessionCreate is not available in this WASM build. Rebuild the module to enable createLeidenSession().');
@@ -7483,7 +7489,7 @@ export class HeliosNetwork extends BaseEventTarget {
 				resolution,
 				seed >>> 0,
 				maxLevels >>> 0,
-				maxPasses >>> 0
+				resolvedPasses >>> 0
 			);
 		} finally {
 			if (weightName) {
@@ -7501,7 +7507,8 @@ export class HeliosNetwork extends BaseEventTarget {
 				resolution,
 				seed,
 				maxLevels,
-				maxPasses,
+				maxPasses: resolvedPasses,
+				passes: resolvedPasses,
 			});
 		}
 

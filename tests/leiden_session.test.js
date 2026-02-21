@@ -121,3 +121,49 @@ test('steppable sessions cancel when tracked versions change', async () => {
 		network.dispose();
 	}
 }, 30000);
+
+test('Leiden accepts passes alias and prioritizes it over maxPasses', async () => {
+	const network = await HeliosNetwork.create({ directed: false, initialNodes: 8, initialEdges: 16 });
+	try {
+		network.addEdges([
+			{ from: 0, to: 1 },
+			{ from: 1, to: 2 },
+			{ from: 2, to: 3 },
+			{ from: 3, to: 0 },
+			{ from: 4, to: 5 },
+			{ from: 5, to: 6 },
+			{ from: 6, to: 7 },
+			{ from: 7, to: 4 },
+			{ from: 0, to: 4 },
+			{ from: 1, to: 5 },
+		]);
+
+		const session = network.createLeidenSession({
+			seed: 7,
+			maxLevels: 4,
+			maxPasses: 9,
+			passes: 2,
+			outNodeCommunityAttribute: 'community_alias_session',
+		});
+
+		try {
+			session.step({ budget: 1 });
+			const progress = session.getProgress();
+			expect(progress.maxPasses).toBe(2);
+		} finally {
+			session.dispose();
+		}
+
+		const { communityCount, modularity } = network.leidenModularity({
+			seed: 7,
+			maxLevels: 4,
+			maxPasses: 9,
+			passes: 2,
+			outNodeCommunityAttribute: 'community_alias_modularity',
+		});
+		expect(communityCount).toBeGreaterThan(0);
+		expect(Number.isFinite(modularity)).toBe(true);
+	} finally {
+		network.dispose();
+	}
+}, 30000);
