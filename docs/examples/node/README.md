@@ -11,6 +11,8 @@ Executable scripts that showcase Helios Network features from Node 18+. Run them
 - `iteration/` – Works with selectors, degrees, and traversal helpers.
 - `modifying-graphs/` – Performs removals and optional compaction to recycle capacity.
 - `saving-loading/` – Serializes to `.bxnet`/`.zxnet` and loads the artefacts back.
+- `toroidal-dimension-basic/` – One-shot local/global dimension measurements on 1D–4D toroidal regular networks.
+- `toroidal-dimension-session/` – Steppable dimension sessions with progress and node-attribute outputs.
 
 From the project root execute any script via:
 

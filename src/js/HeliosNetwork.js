@@ -35,6 +35,33 @@ const CategorySortOrder = Object.freeze({
 	Natural: 3,
 });
 
+const DimensionDifferenceMethod = Object.freeze({
+	Forward: 0,
+	Backward: 1,
+	Central: 2,
+	LeastSquares: 3,
+});
+
+const DIMENSION_FORWARD_MAX_ORDER = 6;
+const DIMENSION_BACKWARD_MAX_ORDER = 6;
+const DIMENSION_CENTRAL_MAX_ORDER = 4;
+
+const DIMENSION_CENTRAL_COEFFICIENTS = Object.freeze([
+	Object.freeze([0.5, 0, 0, 0]),
+	Object.freeze([2 / 3, -1 / 12, 0, 0]),
+	Object.freeze([3 / 4, -3 / 20, 1 / 60, 0]),
+	Object.freeze([4 / 5, -1 / 5, 4 / 105, -1 / 280]),
+]);
+
+const DIMENSION_FORWARD_COEFFICIENTS = Object.freeze([
+	Object.freeze([-1, 1, 0, 0, 0, 0, 0]),
+	Object.freeze([-3 / 2, 2, -1 / 2, 0, 0, 0, 0]),
+	Object.freeze([-11 / 6, 3, -3 / 2, 1 / 3, 0, 0, 0]),
+	Object.freeze([-25 / 12, 4, -3, 4 / 3, -1 / 4, 0, 0]),
+	Object.freeze([-137 / 60, 5, -5, 10 / 3, -5 / 4, 1 / 5, 0]),
+	Object.freeze([-49 / 20, 6, -15 / 2, 20 / 3, -15 / 4, 6 / 5, -1 / 6]),
+]);
+
 /**
  * Options for categorizing string attributes.
  * @typedef {object} CategorizeOptions
@@ -1578,6 +1605,505 @@ class EdgeSelector extends Selector {
 		}
 		return asSelector ? NodeSelector.fromIndices(this.network, indices) : indices;
 	}
+	}
+
+	class DimensionSession {
+		constructor(network, options = {}) {
+			this.network = network;
+			this.options = options ?? {};
+			this._disposed = false;
+			this._finalized = false;
+			this._finalResult = null;
+			this._phase = 0;
+			this._canceledReason = null;
+
+			const maxLevelInput = this.options.maxLevel ?? 8;
+			this._maxLevel = Math.max(0, (maxLevelInput | 0));
+			this._levels = this._maxLevel + 1;
+			this._method = network._normalizeDimensionMethod(this.options.method ?? 'leastsquares');
+			const orderInput = this.options.order ?? 2;
+			this._order = network._normalizeDimensionOrder(this._method, orderInput);
+			this._extraPadding = network._dimensionExtraPadding(this._method, this._order);
+			this._capacityMaxLevel = this._maxLevel + this._extraPadding;
+			this._capacityLevels = this._capacityMaxLevel + 1;
+
+			this._selectedNodes = DimensionSession._collectSelectedNodes(network, this.options.nodes ?? null);
+			this._progressTotal = this._selectedNodes.length;
+			this._progressCurrent = 0;
+			if (!this._progressTotal) {
+				throw new Error('No active nodes selected for dimension session');
+			}
+
+			this._sumCapacity = new Float64Array(this._capacityLevels);
+			this._sumNodeDimension = new Float64Array(this._levels);
+			this._sumNodeDimensionSq = new Float64Array(this._levels);
+
+			this._nodeMaxDimension = new Float32Array(this._progressTotal);
+			this._captureNodeProfiles = this.options.captureNodeDimensionProfiles === true
+				|| Boolean(this.options.outNodeDimensionLevelsAttribute);
+			this._nodeDimensionLevels = this._captureNodeProfiles
+				? new Float32Array(this._progressTotal * this._levels)
+				: null;
+
+			this._topologyBaseline = network.getTopologyVersions();
+		}
+
+		static _collectSelectedNodes(network, nodes) {
+			if (!nodes) {
+				return network.nodeIndices;
+			}
+
+			const source = ArrayBuffer.isView(nodes) ? nodes : Array.from(nodes);
+			const out = [];
+			for (let i = 0; i < source.length; i += 1) {
+				const raw = Number(source[i]);
+				if (!Number.isFinite(raw) || raw < 0) {
+					continue;
+				}
+				const node = raw >>> 0;
+				if (network.hasNodeIndex(node)) {
+					out.push(node);
+				}
+			}
+			return Uint32Array.from(out);
+		}
+
+		static _estimateDimensionFromSeries(series, capacityMaxLevel, radius, method, order) {
+			if (!series || radius > capacityMaxLevel || !(series[radius] > 0)) {
+				return 0;
+			}
+
+			if (method === DimensionDifferenceMethod.LeastSquares) {
+				let sumXY = 0;
+				let sumX = 0;
+				let sumY = 0;
+				let sumXX = 0;
+				let count = 0;
+				if (radius > order) {
+					for (let offset = -order; offset <= order; offset += 1) {
+						const h = radius + offset;
+						if (h <= 0 || h > capacityMaxLevel) {
+							continue;
+						}
+						const v = series[h];
+						if (!(v > 0)) {
+							continue;
+						}
+						const x = Math.log(h);
+						const y = Math.log(v);
+						sumXY += y * x;
+						sumX += x;
+						sumY += y;
+						sumXX += x * x;
+						count += 1;
+					}
+				}
+				const denom = count * sumXX - sumX * sumX;
+				if (!(denom !== 0 && Number.isFinite(denom))) {
+					return 0;
+				}
+				const slope = (count * sumXY - sumX * sumY) / denom;
+				return Number.isFinite(slope) ? slope : 0;
+			}
+
+			if (method === DimensionDifferenceMethod.Forward) {
+				if (radius + order > capacityMaxLevel) {
+					return 0;
+				}
+				const coefficients = DIMENSION_FORWARD_COEFFICIENTS[order - 1];
+				let derivative = 0;
+				for (let offset = 0; offset <= order; offset += 1) {
+					const r = radius + offset;
+					if (r <= 0) {
+						continue;
+					}
+					derivative += coefficients[offset] * series[r];
+				}
+				const value = (derivative * radius) / series[radius];
+				return Number.isFinite(value) ? value : 0;
+			}
+
+			if (method === DimensionDifferenceMethod.Backward) {
+				const coefficients = DIMENSION_FORWARD_COEFFICIENTS[order - 1];
+				let derivative = 0;
+				for (let offset = 0; offset <= order; offset += 1) {
+					if (offset > radius) {
+						continue;
+					}
+					const r = radius - offset;
+					if (r <= 0) {
+						continue;
+					}
+					derivative += (-coefficients[offset]) * series[r];
+				}
+				const value = (derivative * radius) / series[radius];
+				return Number.isFinite(value) ? value : 0;
+			}
+
+			if (radius + order > capacityMaxLevel) {
+				return 0;
+			}
+			const coefficients = DIMENSION_CENTRAL_COEFFICIENTS[order - 1];
+			let derivative = 0;
+			for (let offset = 1; offset <= order; offset += 1) {
+				if (offset <= radius) {
+					const rb = radius - offset;
+					if (rb > 0) {
+						derivative += (-coefficients[offset - 1]) * series[rb];
+					}
+				}
+				const rf = radius + offset;
+				if (rf > 0 && rf <= capacityMaxLevel) {
+					derivative += coefficients[offset - 1] * series[rf];
+				}
+			}
+			const value = (derivative * radius) / series[radius];
+			return Number.isFinite(value) ? value : 0;
+		}
+
+		static _normalizeLevelsEncoding(value) {
+			if (typeof value !== 'string') {
+				return 'vector';
+			}
+			const normalized = value.trim().toLowerCase();
+			if (normalized === 'string' || normalized === 'json' || normalized === 'csv') {
+				return 'string';
+			}
+			if (normalized === 'vector' || normalized === 'array' || normalized === 'numeric') {
+				return 'vector';
+			}
+			return 'vector';
+		}
+
+		_ensureActive() {
+			if (this._canceledReason) {
+				throw new Error(`Session canceled: ${this._canceledReason}`);
+			}
+			if (this._disposed) {
+				throw new Error('Session has been disposed');
+			}
+			this.network._ensureActive();
+		}
+
+		_checkCancellation() {
+			const baseline = this._topologyBaseline;
+			if (!baseline) {
+				return;
+			}
+			const current = this.network.getTopologyVersions();
+			if (current.node !== baseline.node || current.edge !== baseline.edge) {
+				this.cancel('network topology changed');
+				throw new Error('Session canceled: network topology changed');
+			}
+		}
+
+		_progressObject() {
+			return {
+				phase: this._phase,
+				progressCurrent: this._progressCurrent,
+				progressTotal: this._progressTotal,
+				processedNodes: this._progressCurrent,
+				nodeCount: this._progressTotal,
+				maxLevel: this._maxLevel,
+				method: this._method,
+				order: this._order,
+			};
+		}
+
+		_runChunk(budget) {
+			const remaining = this._progressTotal - this._progressCurrent;
+			const count = Math.min(Math.max(1, budget >>> 0), remaining);
+			for (let i = 0; i < count; i += 1) {
+				const idx = this._progressCurrent;
+				const node = this._selectedNodes[idx];
+				const local = this.network.measureNodeDimension(node, {
+					maxLevel: this._capacityMaxLevel,
+					method: this._method,
+					order: this._order,
+				});
+				const { capacity, dimension } = local;
+				for (let r = 0; r <= this._capacityMaxLevel; r += 1) {
+					const c = Number(capacity[r] ?? 0);
+					this._sumCapacity[r] += c;
+				}
+				let localMax = Number.NEGATIVE_INFINITY;
+				const profileBase = this._nodeDimensionLevels ? (idx * this._levels) : 0;
+				for (let r = 0; r <= this._maxLevel; r += 1) {
+					const d = Number(dimension[r] ?? 0);
+					this._sumNodeDimension[r] += d;
+					this._sumNodeDimensionSq[r] += d * d;
+					if (d > localMax) {
+						localMax = d;
+					}
+					if (this._nodeDimensionLevels) {
+						this._nodeDimensionLevels[profileBase + r] = d;
+					}
+				}
+				this._nodeMaxDimension[idx] = Number.isFinite(localMax) ? localMax : 0;
+				this._progressCurrent += 1;
+			}
+			if (this._progressCurrent >= this._progressTotal) {
+				this._phase = 5;
+			} else if (this._phase === 0) {
+				this._phase = 1;
+			}
+		}
+
+		cancel(reason = 'canceled') {
+			if (this._canceledReason) {
+				return;
+			}
+			this._canceledReason = String(reason || 'canceled');
+			this._phase = 6;
+			this.dispose();
+		}
+
+		dispose() {
+			this._disposed = true;
+		}
+
+		getProgress() {
+			this._ensureActive();
+			this._checkCancellation();
+			return this._progressObject();
+		}
+
+		step(options = {}) {
+			this._ensureActive();
+			this._checkCancellation();
+			if (this._phase === 5) {
+				return this._progressObject();
+			}
+
+			const hasTimeout = Object.prototype.hasOwnProperty.call(options, 'timeoutMs');
+			const budget = options.budget == null ? 8 : (options.budget >>> 0);
+			const timeoutMs = hasTimeout ? options.timeoutMs : 4;
+			const chunkBudget = options.chunkBudget == null ? 8 : (options.chunkBudget >>> 0);
+			const now = typeof globalThis !== 'undefined' && globalThis.performance && typeof globalThis.performance.now === 'function'
+				? globalThis.performance.now.bind(globalThis.performance)
+				: Date.now;
+
+			try {
+				if (timeoutMs == null) {
+					this._runChunk(Math.max(1, budget));
+					return this._progressObject();
+				}
+				const deadline = now() + Math.max(0, Number(timeoutMs) || 0);
+				const perChunk = Math.max(1, chunkBudget);
+				do {
+					this._runChunk(perChunk);
+					if (this._phase === 5) {
+						break;
+					}
+				} while (now() < deadline);
+				return this._progressObject();
+			} catch (error) {
+				this._phase = 6;
+				throw error;
+			}
+		}
+
+		async run(options = {}) {
+			this._ensureActive();
+			const {
+				stepOptions = {},
+				yieldMs = 0,
+				yield: yieldFn = null,
+				onProgress = null,
+				signal = null,
+				maxIterations = Infinity,
+			} = options;
+			const defer = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+			let last = this.getProgress();
+			for (let iteration = 0; iteration < maxIterations; iteration += 1) {
+				if (signal?.aborted) {
+					this.cancel('aborted');
+					throw new Error('Session canceled: aborted');
+				}
+				if (this._phase === 5) {
+					return last;
+				}
+				last = this.step(stepOptions);
+				if (typeof onProgress === 'function') {
+					onProgress(last);
+				}
+				if (this._phase === 5) {
+					return last;
+				}
+				if (typeof yieldFn === 'function') {
+					await yieldFn(last);
+				} else {
+					await defer(Math.max(0, Number(yieldMs) || 0));
+				}
+			}
+			return last;
+		}
+
+		isComplete() {
+			return this._phase === 5;
+		}
+
+		isFailed() {
+			return this._phase === 6;
+		}
+
+		isFinalized() {
+			return this._finalized;
+		}
+
+		_ensureNodeFloatAttribute(name, dimension) {
+			if (!this.network.hasNodeAttribute(name)) {
+				this.network.defineNodeAttribute(name, AttributeType.Float, dimension);
+				return;
+			}
+			const info = this.network.getNodeAttributeInfo(name);
+			if (!info || info.type !== AttributeType.Float || info.dimension !== dimension) {
+				throw new Error(`Node attribute "${name}" must be Float (dimension ${dimension})`);
+			}
+		}
+
+		_ensureNodeStringAttribute(name) {
+			if (!this.network.hasNodeAttribute(name)) {
+				this.network.defineNodeAttribute(name, AttributeType.String, 1);
+				return;
+			}
+			const info = this.network.getNodeAttributeInfo(name);
+			if (!info || info.type !== AttributeType.String || info.dimension !== 1) {
+				throw new Error(`Node attribute "${name}" must be String (dimension 1)`);
+			}
+		}
+
+		_writeNodeMaxDimensionAttribute(name) {
+			this._ensureNodeFloatAttribute(name, 1);
+			const { view, bumpVersion } = this.network.getNodeAttributeBuffer(name);
+			for (let i = 0; i < this._selectedNodes.length; i += 1) {
+				view[this._selectedNodes[i]] = this._nodeMaxDimension[i];
+			}
+			bumpVersion();
+		}
+
+		_writeNodeDimensionLevelsVectorAttribute(name) {
+			if (!this._nodeDimensionLevels) {
+				throw new Error('Session did not capture per-level dimensions. Set captureNodeDimensionProfiles: true when creating the session.');
+			}
+			this._ensureNodeFloatAttribute(name, this._levels);
+			const { view, bumpVersion } = this.network.getNodeAttributeBuffer(name);
+			for (let i = 0; i < this._selectedNodes.length; i += 1) {
+				const nodeBase = this._selectedNodes[i] * this._levels;
+				const localBase = i * this._levels;
+				for (let r = 0; r < this._levels; r += 1) {
+					view[nodeBase + r] = this._nodeDimensionLevels[localBase + r];
+				}
+			}
+			bumpVersion();
+		}
+
+		_writeNodeDimensionLevelsStringAttribute(name, precision) {
+			if (!this._nodeDimensionLevels) {
+				throw new Error('Session did not capture per-level dimensions. Set captureNodeDimensionProfiles: true when creating the session.');
+			}
+			this._ensureNodeStringAttribute(name);
+			for (let i = 0; i < this._selectedNodes.length; i += 1) {
+				const localBase = i * this._levels;
+				const values = new Array(this._levels);
+				for (let r = 0; r < this._levels; r += 1) {
+					const v = this._nodeDimensionLevels[localBase + r];
+					values[r] = Number.isFinite(v) ? Number(v.toFixed(precision)) : 0;
+				}
+				this.network.setNodeStringAttribute(name, this._selectedNodes[i], JSON.stringify(values));
+			}
+		}
+
+		_computeFinalResult() {
+			const selectedCount = this._progressTotal;
+			const averageCapacity = new Float32Array(this._levels);
+			const globalDimension = new Float32Array(this._levels);
+			const averageNodeDimension = new Float32Array(this._levels);
+			const nodeDimensionStddev = new Float32Array(this._levels);
+			const averageCapacitySeries = new Float64Array(this._capacityLevels);
+
+			for (let r = 0; r <= this._capacityMaxLevel; r += 1) {
+				const avgCapacity = this._sumCapacity[r] / selectedCount;
+				averageCapacitySeries[r] = avgCapacity;
+				if (r <= this._maxLevel) {
+					averageCapacity[r] = avgCapacity;
+				}
+			}
+
+			for (let r = 0; r <= this._maxLevel; r += 1) {
+				const avgNode = this._sumNodeDimension[r] / selectedCount;
+				const avgSqNode = this._sumNodeDimensionSq[r] / selectedCount;
+				const variance = Math.max(0, avgSqNode - avgNode * avgNode);
+
+				averageNodeDimension[r] = avgNode;
+				nodeDimensionStddev[r] = Math.sqrt(variance);
+			}
+
+			globalDimension[0] = 0;
+			for (let r = 1; r <= this._maxLevel; r += 1) {
+				globalDimension[r] = DimensionSession._estimateDimensionFromSeries(
+					averageCapacitySeries,
+					this._capacityMaxLevel,
+					r,
+					this._method,
+					this._order
+				);
+			}
+
+			return {
+				selectedCount,
+				averageCapacity,
+				globalDimension,
+				averageNodeDimension,
+				nodeDimensionStddev,
+				maxLevel: this._maxLevel,
+				method: this._method,
+				order: this._order,
+			};
+		}
+
+		finalize(options = {}) {
+			this._ensureActive();
+			this._checkCancellation();
+			if (this._phase !== 5) {
+				throw new Error('Dimension session is not ready to finalize (run step() until done)');
+			}
+			if (this._finalized) {
+				return this._finalResult;
+			}
+
+			const outNodeMaxDimensionAttribute = options.outNodeMaxDimensionAttribute
+				?? this.options.outNodeMaxDimensionAttribute
+				?? null;
+			const outNodeDimensionLevelsAttribute = options.outNodeDimensionLevelsAttribute
+				?? this.options.outNodeDimensionLevelsAttribute
+				?? null;
+			const dimensionLevelsEncoding = DimensionSession._normalizeLevelsEncoding(
+				options.dimensionLevelsEncoding
+				?? this.options.dimensionLevelsEncoding
+				?? 'vector'
+			);
+			const precisionRaw = options.dimensionLevelsStringPrecision
+				?? this.options.dimensionLevelsStringPrecision
+				?? 6;
+			const precision = Math.max(0, Math.min(12, precisionRaw | 0));
+
+			if (outNodeMaxDimensionAttribute) {
+				this._writeNodeMaxDimensionAttribute(String(outNodeMaxDimensionAttribute));
+			}
+			if (outNodeDimensionLevelsAttribute) {
+				if (dimensionLevelsEncoding === 'string') {
+					this._writeNodeDimensionLevelsStringAttribute(String(outNodeDimensionLevelsAttribute), precision);
+				} else {
+					this._writeNodeDimensionLevelsVectorAttribute(String(outNodeDimensionLevelsAttribute));
+				}
+			}
+
+			this._finalResult = this._computeFinalResult();
+			this._finalized = true;
+			return this._finalResult;
+		}
 	}
 
 	class LeidenSession {
@@ -5672,6 +6198,55 @@ export class HeliosNetwork extends BaseEventTarget {
 		return DenseColorEncodingFormat.Uint8x4;
 	}
 
+	_normalizeDimensionMethod(value) {
+		if (typeof value === 'number' && Number.isFinite(value)) {
+			const n = value | 0;
+			if (n >= DimensionDifferenceMethod.Forward && n <= DimensionDifferenceMethod.LeastSquares) {
+				return n;
+			}
+		}
+		if (typeof value === 'string') {
+			const normalized = value.trim().toLowerCase();
+			if (normalized === 'forward' || normalized === 'fw') return DimensionDifferenceMethod.Forward;
+			if (normalized === 'backward' || normalized === 'bk') return DimensionDifferenceMethod.Backward;
+			if (normalized === 'central' || normalized === 'centered' || normalized === 'ce') return DimensionDifferenceMethod.Central;
+			if (normalized === 'leastsquares' || normalized === 'least_squares' || normalized === 'ls') return DimensionDifferenceMethod.LeastSquares;
+		}
+		return DimensionDifferenceMethod.LeastSquares;
+	}
+
+	_dimensionMaxOrder(method) {
+		switch (method) {
+			case DimensionDifferenceMethod.Forward:
+				return DIMENSION_FORWARD_MAX_ORDER;
+			case DimensionDifferenceMethod.Backward:
+				return DIMENSION_BACKWARD_MAX_ORDER;
+			case DimensionDifferenceMethod.Central:
+				return DIMENSION_CENTRAL_MAX_ORDER;
+			case DimensionDifferenceMethod.LeastSquares:
+			default:
+				return Number.POSITIVE_INFINITY;
+		}
+	}
+
+	_dimensionExtraPadding(method, order) {
+		if (method === DimensionDifferenceMethod.Forward
+			|| method === DimensionDifferenceMethod.Central
+			|| method === DimensionDifferenceMethod.LeastSquares) {
+			return order;
+		}
+		return 0;
+	}
+
+	_normalizeDimensionOrder(method, value) {
+		const order = Math.max(1, ((value ?? 1) | 0));
+		const maxOrder = this._dimensionMaxOrder(method);
+		if (order > maxOrder) {
+			throw new Error(`order must be <= ${maxOrder} for method ${method}`);
+		}
+		return order;
+	}
+
 	_normalizeCategorySortOrder(value) {
 		if (typeof value === 'number' && Number.isFinite(value)) {
 			return value;
@@ -7338,6 +7913,161 @@ export class HeliosNetwork extends BaseEventTarget {
 	}
 
 	/**
+	 * Measures local multiscale capacity and dimension around a single node.
+	 *
+	 * @param {number} node - Node index.
+	 * @param {object} [options]
+	 * @param {number} [options.maxLevel=8] - Maximum geodesic radius r.
+	 * @param {(number|string)} [options.method='leastsquares'] - Derivative estimator: forward/backward/central/leastsquares.
+	 * @param {number} [options.order=2] - Estimator order/window.
+	 * @returns {{capacity: Uint32Array, dimension: Float32Array, maxLevel: number, method: number, order: number}}
+	 */
+	measureNodeDimension(node, options = {}) {
+		this._ensureActive();
+		this._assertCanAllocate('node dimension measurement');
+		if (typeof this.module._CXNetworkMeasureNodeDimension !== 'function') {
+			throw new Error('CXNetworkMeasureNodeDimension is not available in this WASM build. Rebuild the module to enable measureNodeDimension().');
+		}
+		if (!Number.isFinite(node) || node < 0) {
+			throw new Error('node must be a non-negative integer');
+		}
+
+		const maxLevelInput = options.maxLevel ?? 8;
+		const maxLevel = Math.max(0, (maxLevelInput | 0));
+		const method = this._normalizeDimensionMethod(options.method ?? 'leastsquares');
+		const orderInput = options.order ?? 2;
+		const order = this._normalizeDimensionOrder(method, orderInput);
+		const levels = maxLevel + 1;
+
+		const capacityPtr = this.module._malloc(levels * Uint32Array.BYTES_PER_ELEMENT);
+		const dimensionPtr = this.module._malloc(levels * Float32Array.BYTES_PER_ELEMENT);
+		if (!capacityPtr || !dimensionPtr) {
+			if (capacityPtr) this.module._free(capacityPtr);
+			if (dimensionPtr) this.module._free(dimensionPtr);
+			throw new Error('Failed to allocate WASM buffers for node dimension measurement');
+		}
+
+		let ok = 0;
+		try {
+			ok = this.module._CXNetworkMeasureNodeDimension(
+				this.ptr,
+				node >>> 0,
+				maxLevel >>> 0,
+				method >>> 0,
+				order >>> 0,
+				capacityPtr,
+				dimensionPtr
+			);
+			if (!ok) {
+				throw new Error(`Failed to measure dimension for node ${node}`);
+			}
+			const capacity = new Uint32Array(this.module.HEAPU32.buffer, capacityPtr, levels).slice();
+			const dimension = new Float32Array(this.module.HEAPF32.buffer, dimensionPtr, levels).slice();
+			return { capacity, dimension, maxLevel, method, order };
+		} finally {
+			this.module._free(capacityPtr);
+			this.module._free(dimensionPtr);
+		}
+	}
+
+	/**
+	 * Measures global multiscale dimension statistics across a node set.
+	 *
+	 * @param {object} [options]
+	 * @param {number} [options.maxLevel=8] - Maximum geodesic radius r.
+	 * @param {(number|string)} [options.method='leastsquares'] - Derivative estimator: forward/backward/central/leastsquares.
+	 * @param {number} [options.order=2] - Estimator order/window.
+	 * @param {Array<number>|TypedArray|null} [options.nodes=null] - Optional subset of node indices.
+	 * @returns {{selectedCount:number, averageCapacity:Float32Array, globalDimension:Float32Array, averageNodeDimension:Float32Array, nodeDimensionStddev:Float32Array, maxLevel:number, method:number, order:number}}
+	 */
+	measureDimension(options = {}) {
+		this._ensureActive();
+		this._assertCanAllocate('global dimension measurement');
+		if (typeof this.module._CXNetworkMeasureDimension !== 'function') {
+			throw new Error('CXNetworkMeasureDimension is not available in this WASM build. Rebuild the module to enable measureDimension().');
+		}
+
+		const maxLevelInput = options.maxLevel ?? 8;
+		const maxLevel = Math.max(0, (maxLevelInput | 0));
+		const method = this._normalizeDimensionMethod(options.method ?? 'leastsquares');
+		const orderInput = options.order ?? 2;
+		const order = this._normalizeDimensionOrder(method, orderInput);
+		const levels = maxLevel + 1;
+
+		const averageCapacityPtr = this.module._malloc(levels * Float32Array.BYTES_PER_ELEMENT);
+		const globalDimensionPtr = this.module._malloc(levels * Float32Array.BYTES_PER_ELEMENT);
+		const averageNodeDimensionPtr = this.module._malloc(levels * Float32Array.BYTES_PER_ELEMENT);
+		const nodeDimensionStddevPtr = this.module._malloc(levels * Float32Array.BYTES_PER_ELEMENT);
+		if (!averageCapacityPtr || !globalDimensionPtr || !averageNodeDimensionPtr || !nodeDimensionStddevPtr) {
+			if (averageCapacityPtr) this.module._free(averageCapacityPtr);
+			if (globalDimensionPtr) this.module._free(globalDimensionPtr);
+			if (averageNodeDimensionPtr) this.module._free(averageNodeDimensionPtr);
+			if (nodeDimensionStddevPtr) this.module._free(nodeDimensionStddevPtr);
+			throw new Error('Failed to allocate WASM buffers for dimension measurement');
+		}
+
+		const nodesCopy = this._copyIndicesToWasm(options.nodes ?? null);
+		try {
+			const selectedCount = this.module._CXNetworkMeasureDimension(
+				this.ptr,
+				nodesCopy.ptr,
+				nodesCopy.count,
+				maxLevel >>> 0,
+				method >>> 0,
+				order >>> 0,
+				averageCapacityPtr,
+				globalDimensionPtr,
+				averageNodeDimensionPtr,
+				nodeDimensionStddevPtr
+			) >>> 0;
+			const averageCapacity = new Float32Array(this.module.HEAPF32.buffer, averageCapacityPtr, levels).slice();
+			const globalDimension = new Float32Array(this.module.HEAPF32.buffer, globalDimensionPtr, levels).slice();
+			const averageNodeDimension = new Float32Array(this.module.HEAPF32.buffer, averageNodeDimensionPtr, levels).slice();
+			const nodeDimensionStddev = new Float32Array(this.module.HEAPF32.buffer, nodeDimensionStddevPtr, levels).slice();
+			return {
+				selectedCount,
+				averageCapacity,
+				globalDimension,
+				averageNodeDimension,
+				nodeDimensionStddev,
+				maxLevel,
+				method,
+				order,
+			};
+		} finally {
+			nodesCopy.dispose();
+			this.module._free(averageCapacityPtr);
+			this.module._free(globalDimensionPtr);
+			this.module._free(averageNodeDimensionPtr);
+			this.module._free(nodeDimensionStddevPtr);
+		}
+	}
+
+	/**
+	 * Creates a steppable dimension session for incremental local/global measurements.
+	 *
+	 * Run `session.step({budget})` until `phase` is `5` (done), then call
+	 * `session.finalize()` to retrieve global curves and optionally write node attributes.
+	 *
+	 * @param {object} [options]
+	 * @param {number} [options.maxLevel=8] - Maximum geodesic radius r.
+	 * @param {(number|string)} [options.method='leastsquares'] - Derivative estimator.
+	 * @param {number} [options.order=2] - Estimator order/window.
+	 * @param {Array<number>|TypedArray|null} [options.nodes=null] - Optional subset of nodes.
+	 * @param {boolean} [options.captureNodeDimensionProfiles=false] - Store per-level node dimensions for finalize() writes.
+	 * @param {string|null} [options.outNodeMaxDimensionAttribute=null] - Default attribute name for max node dimension.
+	 * @param {string|null} [options.outNodeDimensionLevelsAttribute=null] - Default attribute name for per-level node dimensions.
+	 * @param {string} [options.dimensionLevelsEncoding='vector'] - 'vector' (Float dim=maxLevel+1) or 'string' (JSON array string).
+	 * @param {number} [options.dimensionLevelsStringPrecision=6] - Decimal precision for string encoding.
+	 * @returns {DimensionSession} Session handle.
+	 */
+	createDimensionSession(options = {}) {
+		this._ensureActive();
+		this._assertCanAllocate('dimension session creation');
+		return new DimensionSession(this, options);
+	}
+
+	/**
 	 * Runs Leiden community detection optimizing (weighted) modularity.
 	 *
 	 * This method allocates inside WASM and may trigger memory growth, so it must
@@ -7910,6 +8640,7 @@ export class HeliosNetwork extends BaseEventTarget {
 }
 
 HeliosNetwork.EVENTS = HELIOS_NETWORK_EVENTS;
+HeliosNetwork.DimensionDifferenceMethod = DimensionDifferenceMethod;
 
 function splitCommandTokens(line) {
 	const tokens = [];
@@ -8063,5 +8794,5 @@ function resolvePairsRelative(pairs, set) {
 	});
 }
 
-export { AttributeType, CategorySortOrder, DenseColorEncodingFormat, NodeSelector, EdgeSelector, getModule as getHeliosModule };
+export { AttributeType, CategorySortOrder, DenseColorEncodingFormat, DimensionDifferenceMethod, NodeSelector, EdgeSelector, getModule as getHeliosModule };
 export default HeliosNetwork;

@@ -107,6 +107,49 @@ static int parse_sort_order(PyObject *obj, CXCategorySortOrder *out) {
     return -1;
 }
 
+static int parse_dimension_method(PyObject *obj, CXDimensionDifferenceMethod *out) {
+    if (obj == NULL || obj == Py_None) {
+        *out = CXDimensionLeastSquaresDifferenceMethod;
+        return 0;
+    }
+    if (PyLong_Check(obj)) {
+        long value = PyLong_AsLong(obj);
+        if (value == -1 && PyErr_Occurred()) {
+            return -1;
+        }
+        if (value < CXDimensionForwardDifferenceMethod || value > CXDimensionLeastSquaresDifferenceMethod) {
+            PyErr_SetString(PyExc_ValueError, "Invalid dimension method");
+            return -1;
+        }
+        *out = (CXDimensionDifferenceMethod)value;
+        return 0;
+    }
+    if (PyUnicode_Check(obj)) {
+        const char *value = PyUnicode_AsUTF8(obj);
+        if (!value) {
+            return -1;
+        }
+        if (strcmp(value, "forward") == 0 || strcmp(value, "fw") == 0) {
+            *out = CXDimensionForwardDifferenceMethod;
+            return 0;
+        }
+        if (strcmp(value, "backward") == 0 || strcmp(value, "bk") == 0) {
+            *out = CXDimensionBackwardDifferenceMethod;
+            return 0;
+        }
+        if (strcmp(value, "central") == 0 || strcmp(value, "centered") == 0 || strcmp(value, "ce") == 0) {
+            *out = CXDimensionCentralDifferenceMethod;
+            return 0;
+        }
+        if (strcmp(value, "leastsquares") == 0 || strcmp(value, "least_squares") == 0 || strcmp(value, "ls") == 0) {
+            *out = CXDimensionLeastSquaresDifferenceMethod;
+            return 0;
+        }
+    }
+    PyErr_SetString(PyExc_ValueError, "Dimension method must be int or one of: forward, backward, central, leastsquares");
+    return -1;
+}
+
 static CXAttributeRef get_attribute_for_scope(CXNetworkRef network, CXAttributeScope scope, const char *name) {
     switch (scope) {
         case CXAttributeScopeNode:
@@ -1362,6 +1405,279 @@ static PyObject *Network_set_category_dictionary(PyHeliosNetwork *self, PyObject
     Py_RETURN_TRUE;
 }
 
+static PyObject *Network_measure_node_dimension(PyHeliosNetwork *self, PyObject *args, PyObject *kwargs) {
+    static const char *kwlist[] = {"node", "max_level", "method", "order", NULL};
+    Py_ssize_t node = -1;
+    Py_ssize_t max_level = 8;
+    PyObject *method_obj = NULL;
+    Py_ssize_t order = 2;
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "n|nOn", (char **)kwlist, &node, &max_level, &method_obj, &order)) {
+        return NULL;
+    }
+    if (!self->network) {
+        PyErr_SetString(PyExc_RuntimeError, "Network is not initialized");
+        return NULL;
+    }
+    if (node < 0) {
+        PyErr_SetString(PyExc_ValueError, "node must be non-negative");
+        return NULL;
+    }
+    if (max_level < 0) {
+        PyErr_SetString(PyExc_ValueError, "max_level must be non-negative");
+        return NULL;
+    }
+    if (order < 1) {
+        PyErr_SetString(PyExc_ValueError, "order must be >= 1");
+        return NULL;
+    }
+
+    CXDimensionDifferenceMethod method = CXDimensionLeastSquaresDifferenceMethod;
+    if (parse_dimension_method(method_obj, &method) != 0) {
+        return NULL;
+    }
+
+    CXSize levels = (CXSize)max_level + 1;
+    uint32_t *capacity = (uint32_t *)calloc(levels, sizeof(uint32_t));
+    float *dimension = (float *)calloc(levels, sizeof(float));
+    if (!capacity || !dimension) {
+        free(capacity);
+        free(dimension);
+        PyErr_NoMemory();
+        return NULL;
+    }
+
+    CXBool ok = CXNetworkMeasureNodeDimension(
+        self->network,
+        (CXIndex)node,
+        (CXSize)max_level,
+        method,
+        (CXSize)order,
+        capacity,
+        dimension
+    );
+    if (!ok) {
+        free(capacity);
+        free(dimension);
+        PyErr_SetString(PyExc_RuntimeError, "Failed to measure node dimension");
+        return NULL;
+    }
+
+    PyObject *capacity_list = PyList_New((Py_ssize_t)levels);
+    PyObject *dimension_list = PyList_New((Py_ssize_t)levels);
+    if (!capacity_list || !dimension_list) {
+        free(capacity);
+        free(dimension);
+        Py_XDECREF(capacity_list);
+        Py_XDECREF(dimension_list);
+        PyErr_NoMemory();
+        return NULL;
+    }
+    for (CXSize i = 0; i < levels; i++) {
+        PyList_SET_ITEM(capacity_list, (Py_ssize_t)i, PyLong_FromUnsignedLong((unsigned long)capacity[i]));
+        PyList_SET_ITEM(dimension_list, (Py_ssize_t)i, PyFloat_FromDouble((double)dimension[i]));
+    }
+
+    free(capacity);
+    free(dimension);
+
+    PyObject *result = PyDict_New();
+    if (!result) {
+        Py_DECREF(capacity_list);
+        Py_DECREF(dimension_list);
+        return NULL;
+    }
+    PyObject *max_level_obj = PyLong_FromSsize_t(max_level);
+    PyObject *method_obj_out = PyLong_FromLong((long)method);
+    PyObject *order_obj = PyLong_FromSsize_t(order);
+    if (!max_level_obj || !method_obj_out || !order_obj) {
+        Py_XDECREF(max_level_obj);
+        Py_XDECREF(method_obj_out);
+        Py_XDECREF(order_obj);
+        Py_DECREF(result);
+        Py_DECREF(capacity_list);
+        Py_DECREF(dimension_list);
+        PyErr_NoMemory();
+        return NULL;
+    }
+    PyDict_SetItemString(result, "capacity", capacity_list);
+    PyDict_SetItemString(result, "dimension", dimension_list);
+    PyDict_SetItemString(result, "max_level", max_level_obj);
+    PyDict_SetItemString(result, "method", method_obj_out);
+    PyDict_SetItemString(result, "order", order_obj);
+    Py_DECREF(max_level_obj);
+    Py_DECREF(method_obj_out);
+    Py_DECREF(order_obj);
+    Py_DECREF(capacity_list);
+    Py_DECREF(dimension_list);
+    return result;
+}
+
+static PyObject *Network_measure_dimension(PyHeliosNetwork *self, PyObject *args, PyObject *kwargs) {
+    static const char *kwlist[] = {"max_level", "method", "order", "nodes", NULL};
+    Py_ssize_t max_level = 8;
+    PyObject *method_obj = NULL;
+    Py_ssize_t order = 2;
+    PyObject *nodes_obj = NULL;
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|nOnO", (char **)kwlist, &max_level, &method_obj, &order, &nodes_obj)) {
+        return NULL;
+    }
+    if (!self->network) {
+        PyErr_SetString(PyExc_RuntimeError, "Network is not initialized");
+        return NULL;
+    }
+    if (max_level < 0) {
+        PyErr_SetString(PyExc_ValueError, "max_level must be non-negative");
+        return NULL;
+    }
+    if (order < 1) {
+        PyErr_SetString(PyExc_ValueError, "order must be >= 1");
+        return NULL;
+    }
+
+    CXDimensionDifferenceMethod method = CXDimensionLeastSquaresDifferenceMethod;
+    if (parse_dimension_method(method_obj, &method) != 0) {
+        return NULL;
+    }
+
+    CXIndex *nodes = NULL;
+    CXSize node_count = 0;
+    PyObject *nodes_fast = NULL;
+    if (nodes_obj && nodes_obj != Py_None) {
+        nodes_fast = PySequence_Fast(nodes_obj, "nodes must be a sequence of node indices");
+        if (!nodes_fast) {
+            return NULL;
+        }
+        Py_ssize_t py_count = PySequence_Fast_GET_SIZE(nodes_fast);
+        if (py_count < 0) {
+            Py_DECREF(nodes_fast);
+            return NULL;
+        }
+        node_count = (CXSize)py_count;
+        if (node_count > 0) {
+            nodes = (CXIndex *)calloc(node_count, sizeof(CXIndex));
+            if (!nodes) {
+                Py_DECREF(nodes_fast);
+                PyErr_NoMemory();
+                return NULL;
+            }
+            for (Py_ssize_t i = 0; i < py_count; i++) {
+                PyObject *item = PySequence_Fast_GET_ITEM(nodes_fast, i);
+                unsigned long value = PyLong_AsUnsignedLong(item);
+                if (PyErr_Occurred()) {
+                    free(nodes);
+                    Py_DECREF(nodes_fast);
+                    return NULL;
+                }
+                nodes[i] = (CXIndex)value;
+            }
+        }
+    }
+
+    CXSize levels = (CXSize)max_level + 1;
+    float *average_capacity = (float *)calloc(levels, sizeof(float));
+    float *global_dimension = (float *)calloc(levels, sizeof(float));
+    float *average_node_dimension = (float *)calloc(levels, sizeof(float));
+    float *node_dimension_stddev = (float *)calloc(levels, sizeof(float));
+    if (!average_capacity || !global_dimension || !average_node_dimension || !node_dimension_stddev) {
+        free(nodes);
+        Py_XDECREF(nodes_fast);
+        free(average_capacity);
+        free(global_dimension);
+        free(average_node_dimension);
+        free(node_dimension_stddev);
+        PyErr_NoMemory();
+        return NULL;
+    }
+
+    CXSize selected_count = CXNetworkMeasureDimension(
+        self->network,
+        nodes,
+        node_count,
+        (CXSize)max_level,
+        method,
+        (CXSize)order,
+        average_capacity,
+        global_dimension,
+        average_node_dimension,
+        node_dimension_stddev
+    );
+
+    free(nodes);
+    Py_XDECREF(nodes_fast);
+
+    PyObject *average_capacity_list = PyList_New((Py_ssize_t)levels);
+    PyObject *global_dimension_list = PyList_New((Py_ssize_t)levels);
+    PyObject *average_node_dimension_list = PyList_New((Py_ssize_t)levels);
+    PyObject *node_dimension_stddev_list = PyList_New((Py_ssize_t)levels);
+    if (!average_capacity_list || !global_dimension_list || !average_node_dimension_list || !node_dimension_stddev_list) {
+        free(average_capacity);
+        free(global_dimension);
+        free(average_node_dimension);
+        free(node_dimension_stddev);
+        Py_XDECREF(average_capacity_list);
+        Py_XDECREF(global_dimension_list);
+        Py_XDECREF(average_node_dimension_list);
+        Py_XDECREF(node_dimension_stddev_list);
+        PyErr_NoMemory();
+        return NULL;
+    }
+
+    for (CXSize i = 0; i < levels; i++) {
+        PyList_SET_ITEM(average_capacity_list, (Py_ssize_t)i, PyFloat_FromDouble((double)average_capacity[i]));
+        PyList_SET_ITEM(global_dimension_list, (Py_ssize_t)i, PyFloat_FromDouble((double)global_dimension[i]));
+        PyList_SET_ITEM(average_node_dimension_list, (Py_ssize_t)i, PyFloat_FromDouble((double)average_node_dimension[i]));
+        PyList_SET_ITEM(node_dimension_stddev_list, (Py_ssize_t)i, PyFloat_FromDouble((double)node_dimension_stddev[i]));
+    }
+
+    free(average_capacity);
+    free(global_dimension);
+    free(average_node_dimension);
+    free(node_dimension_stddev);
+
+    PyObject *result = PyDict_New();
+    if (!result) {
+        Py_DECREF(average_capacity_list);
+        Py_DECREF(global_dimension_list);
+        Py_DECREF(average_node_dimension_list);
+        Py_DECREF(node_dimension_stddev_list);
+        return NULL;
+    }
+    PyObject *selected_count_obj = PyLong_FromSize_t((size_t)selected_count);
+    PyObject *max_level_obj = PyLong_FromSsize_t(max_level);
+    PyObject *method_obj_out = PyLong_FromLong((long)method);
+    PyObject *order_obj = PyLong_FromSsize_t(order);
+    if (!selected_count_obj || !max_level_obj || !method_obj_out || !order_obj) {
+        Py_XDECREF(selected_count_obj);
+        Py_XDECREF(max_level_obj);
+        Py_XDECREF(method_obj_out);
+        Py_XDECREF(order_obj);
+        Py_DECREF(result);
+        Py_DECREF(average_capacity_list);
+        Py_DECREF(global_dimension_list);
+        Py_DECREF(average_node_dimension_list);
+        Py_DECREF(node_dimension_stddev_list);
+        PyErr_NoMemory();
+        return NULL;
+    }
+    PyDict_SetItemString(result, "selected_count", selected_count_obj);
+    PyDict_SetItemString(result, "average_capacity", average_capacity_list);
+    PyDict_SetItemString(result, "global_dimension", global_dimension_list);
+    PyDict_SetItemString(result, "average_node_dimension", average_node_dimension_list);
+    PyDict_SetItemString(result, "node_dimension_stddev", node_dimension_stddev_list);
+    PyDict_SetItemString(result, "max_level", max_level_obj);
+    PyDict_SetItemString(result, "method", method_obj_out);
+    PyDict_SetItemString(result, "order", order_obj);
+    Py_DECREF(selected_count_obj);
+    Py_DECREF(max_level_obj);
+    Py_DECREF(method_obj_out);
+    Py_DECREF(order_obj);
+    Py_DECREF(average_capacity_list);
+    Py_DECREF(global_dimension_list);
+    Py_DECREF(average_node_dimension_list);
+    Py_DECREF(node_dimension_stddev_list);
+    return result;
+}
+
 static PyMethodDef Network_methods[] = {
     {"node_count", (PyCFunction)Network_node_count, METH_NOARGS, "Return number of active nodes."},
     {"edge_count", (PyCFunction)Network_edge_count, METH_NOARGS, "Return number of active edges."},
@@ -1392,6 +1708,8 @@ static PyMethodDef Network_methods[] = {
     {"decategorize_attribute", (PyCFunction)Network_decategorize_attribute, METH_VARARGS | METH_KEYWORDS, "Convert categorical attribute to strings."},
     {"get_category_dictionary", (PyCFunction)Network_get_category_dictionary, METH_VARARGS, "Get categorical dictionary as {label: id}."},
     {"set_category_dictionary", (PyCFunction)Network_set_category_dictionary, METH_VARARGS | METH_KEYWORDS, "Set categorical dictionary from mapping or pairs."},
+    {"measure_node_dimension", (PyCFunction)Network_measure_node_dimension, METH_VARARGS | METH_KEYWORDS, "Measure local multiscale dimension for one node."},
+    {"measure_dimension", (PyCFunction)Network_measure_dimension, METH_VARARGS | METH_KEYWORDS, "Measure global multiscale dimension statistics."},
     {NULL, NULL, 0, NULL}
 };
 
@@ -1518,6 +1836,11 @@ PyMODINIT_FUNC PyInit__core(void) {
     PyModule_AddIntConstant(module, "CATEGORY_SORT_FREQUENCY", CX_CATEGORY_SORT_FREQUENCY);
     PyModule_AddIntConstant(module, "CATEGORY_SORT_ALPHABETICAL", CX_CATEGORY_SORT_ALPHABETICAL);
     PyModule_AddIntConstant(module, "CATEGORY_SORT_NATURAL", CX_CATEGORY_SORT_NATURAL);
+
+    PyModule_AddIntConstant(module, "DIMENSION_METHOD_FORWARD", CXDimensionForwardDifferenceMethod);
+    PyModule_AddIntConstant(module, "DIMENSION_METHOD_BACKWARD", CXDimensionBackwardDifferenceMethod);
+    PyModule_AddIntConstant(module, "DIMENSION_METHOD_CENTRAL", CXDimensionCentralDifferenceMethod);
+    PyModule_AddIntConstant(module, "DIMENSION_METHOD_LEAST_SQUARES", CXDimensionLeastSquaresDifferenceMethod);
 
     return module;
 }

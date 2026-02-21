@@ -81,6 +81,17 @@ typedef enum {
 	CX_CATEGORY_SORT_NATURAL = 3
 } CXCategorySortOrder;
 
+/**
+ * Finite-difference strategies used when estimating multiscale dimension from
+ * concentric ball growth.
+ */
+typedef enum {
+	CXDimensionForwardDifferenceMethod = 0,
+	CXDimensionBackwardDifferenceMethod = 1,
+	CXDimensionCentralDifferenceMethod = 2,
+	CXDimensionLeastSquaresDifferenceMethod = 3
+} CXDimensionDifferenceMethod;
+
 typedef struct CXMultiCategoryBuffer {
 	uint32_t *offsets;
 	uint32_t *ids;
@@ -485,6 +496,49 @@ CX_EXTERN CXBool CXNetworkCompact(
 	CXNetworkRef network,
 	const CXString nodeOriginalIndexAttr,
 	const CXString edgeOriginalIndexAttr
+);
+
+// Multiscale dimension measurements -----------------------------------------
+/**
+ * Computes local multiscale capacity and dimension for a single node.
+ *
+ * - `maxLevel` controls the largest geodesic radius r evaluated.
+ * - `method` and `order` select the derivative estimator (FW/BK/CE/LS).
+ * - `outCapacity` and `outDimension`, when non-null, must point to buffers of
+ *   length `maxLevel + 1`.
+ *
+ * Returns CXFalse when the node is invalid/inactive or on allocation failure.
+ */
+CX_EXTERN CXBool CXNetworkMeasureNodeDimension(
+	CXNetworkRef network,
+	CXIndex node,
+	CXSize maxLevel,
+	CXDimensionDifferenceMethod method,
+	CXSize order,
+	uint32_t *outCapacity,
+	float *outDimension
+);
+
+/**
+ * Computes global multiscale dimension statistics over a node set.
+ *
+ * - If `nodes` is NULL or `nodeCount` is 0, all active nodes are used.
+ * - Invalid/inactive node ids in `nodes` are ignored.
+ * - Output buffers, when non-null, must each have length `maxLevel + 1`.
+ *
+ * Returns the number of nodes actually measured.
+ */
+CX_EXTERN CXSize CXNetworkMeasureDimension(
+	CXNetworkRef network,
+	const CXIndex *nodes,
+	CXSize nodeCount,
+	CXSize maxLevel,
+	CXDimensionDifferenceMethod method,
+	CXSize order,
+	float *outAverageCapacity,
+	float *outGlobalDimension,
+	float *outAverageNodeDimension,
+	float *outNodeDimensionStddev
 );
 
 // Community detection --------------------------------------------------------

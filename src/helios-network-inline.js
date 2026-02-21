@@ -1,5 +1,6 @@
 import HeliosNetwork, {
 	AttributeType,
+	DimensionDifferenceMethod,
 	getHeliosModule,
 	NodeSelector,
 	EdgeSelector,
@@ -30,5 +31,5 @@ setHeliosModuleFactory((options = {}) => {
 	return defaultFactory({ ...options, wasmBinary });
 });
 
-export { AttributeType, NodeSelector, EdgeSelector, getHeliosModule };
+export { AttributeType, DimensionDifferenceMethod, NodeSelector, EdgeSelector, getHeliosModule };
 export default HeliosNetwork;

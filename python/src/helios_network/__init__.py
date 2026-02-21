@@ -41,6 +41,13 @@ class CategorySortOrder(enum.IntEnum):
     Natural = _core.CATEGORY_SORT_NATURAL
 
 
+class DimensionMethod(enum.IntEnum):
+    Forward = _core.DIMENSION_METHOD_FORWARD
+    Backward = _core.DIMENSION_METHOD_BACKWARD
+    Central = _core.DIMENSION_METHOD_CENTRAL
+    LeastSquares = _core.DIMENSION_METHOD_LEAST_SQUARES
+
+
 def read_bxnet(path: str) -> Network:
     return Network(_core_network=_core.read_bxnet(path))
 
@@ -59,6 +66,7 @@ __all__ = [
     "AttributeScope",
     "DenseColorEncodingFormat",
     "CategorySortOrder",
+    "DimensionMethod",
     "read_bxnet",
     "read_zxnet",
     "read_xnet",

@@ -2,7 +2,7 @@ import os
 import tempfile
 import warnings
 
-from helios_network import AttributeScope, AttributeType, Network, read_bxnet, read_xnet, read_zxnet
+from helios_network import AttributeScope, AttributeType, DimensionMethod, Network, read_bxnet, read_xnet, read_zxnet
 
 
 def test_network_add_remove_counts():
@@ -263,3 +263,76 @@ def test_auto_define_attribute():
 
     network["title"] = "demo"
     assert network["title"] == "demo"
+
+
+def test_dimension_measurements_on_toroidal_ring():
+    network = Network(directed=False)
+    nodes = network.add_nodes(64)
+    edges = []
+    for i in range(64):
+        edges.append((nodes[i], nodes[(i + 1) % 64]))
+    network.add_edges(edges)
+
+    local = network.measure_node_dimension(node=0, max_level=6, method=DimensionMethod.LeastSquares, order=2)
+    assert local["capacity"][0] == 1
+    assert local["capacity"][1] == 3
+    assert local["capacity"][2] == 5
+
+    global_stats = network.measure_dimension(max_level=6, method=DimensionMethod.LeastSquares, order=2)
+    d4 = global_stats["global_dimension"][4]
+    assert 0.8 < d4 < 1.2
+
+
+def _create_toroidal_network(sides):
+    total_nodes = 1
+    for side in sides:
+        total_nodes *= side
+    network = Network(directed=False)
+    nodes = network.add_nodes(total_nodes)
+
+    strides = [1] * len(sides)
+    for d in range(1, len(sides)):
+        strides[d] = strides[d - 1] * sides[d - 1]
+
+    def coordinates_from_linear(index):
+        coords = [0] * len(sides)
+        value = index
+        for d, side in enumerate(sides):
+            coords[d] = value % side
+            value //= side
+        return coords
+
+    def linear_from_coordinates(coords):
+        return sum(coords[d] * strides[d] for d in range(len(coords)))
+
+    edges = []
+    for idx in range(total_nodes):
+        coords = coordinates_from_linear(idx)
+        for d in range(len(sides)):
+            neighbor = coords.copy()
+            neighbor[d] = (neighbor[d] + 1) % sides[d]
+            edges.append((nodes[idx], nodes[linear_from_coordinates(neighbor)]))
+    network.add_edges(edges)
+    return network
+
+
+def test_dimension_methods_support_fw_bk_ce_ls():
+    network = _create_toroidal_network([20, 20])
+    for method in (DimensionMethod.Forward, DimensionMethod.Backward, DimensionMethod.Central, DimensionMethod.LeastSquares):
+        stats = network.measure_dimension(max_level=6, method=method, order=2, nodes=list(range(48)))
+        assert stats["selected_count"] == 48
+        assert stats["average_capacity"][3] > 0
+        assert abs(stats["global_dimension"][3]) < 10
+        assert abs(stats["average_node_dimension"][3]) < 10
+
+
+def test_dimension_order_limits_follow_cv_bounds():
+    network = _create_toroidal_network([16, 16])
+    import pytest
+
+    with pytest.raises(RuntimeError):
+        network.measure_node_dimension(node=0, max_level=6, method=DimensionMethod.Forward, order=7)
+    with pytest.raises(RuntimeError):
+        network.measure_node_dimension(node=0, max_level=6, method=DimensionMethod.Backward, order=7)
+    with pytest.raises(RuntimeError):
+        network.measure_node_dimension(node=0, max_level=6, method=DimensionMethod.Central, order=5)

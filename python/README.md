@@ -77,6 +77,24 @@ python -m pip install networkx
 python -m pip install igraph
 ```
 
+## Examples
+
+From `python/`:
+
+```bash
+python examples/basic_usage.py
+python examples/toroidal_dimensions_table.py
+python examples/toroidal_dimensions_plot.py --skip-plot
+python examples/toroidal_dimensions_plot.py
+python examples/toroidal_dimensions_plot.py --large --skip-plot
+```
+
+`toroidal_dimensions_plot.py` uses `matplotlib` for plotting local dimension curves. Install it with:
+
+```bash
+python -m pip install matplotlib
+```
+
 ## Vector attributes
 
 Attributes with dimension > 1 accept vector assignments:

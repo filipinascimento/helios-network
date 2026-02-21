@@ -1,5 +1,15 @@
 # CHANGES
 
+## 2026-02-21
+
+- Added multiscale dimension measurements to the native core with FW/BK/CE/LS estimators (`order` support), including local node curves and global aggregate curves.
+- Added `CXNetworkMeasureNodeDimension` and `CXNetworkMeasureDimension` to the C API and WASM exports.
+- Added JS APIs `measureNodeDimension()` / `measureDimension()` plus `DimensionDifferenceMethod`.
+- Added JS `createDimensionSession()` for incremental, progress-aware dimension measurement with optional node outputs for max dimension and full per-level dimension curves (vector or JSON string encoding).
+- Added Python bindings `measure_node_dimension()` / `measure_dimension()` and `DimensionMethod`.
+- Added toroidal regular-network regression tests covering expected capacities and dimensional behavior.
+- Added Node and Python toroidal dimension examples for 1D/2D/3D/4D regular networks, including a steppable JS session example and a Python plotting script that outputs local-dimension curves plus max-dimension tables.
+
 ## 2026-02-01
 
 - Added Python bindings (meson-python) with a `Network` class, attribute access, serialization helpers, and networkx/igraph conversion utilities.
