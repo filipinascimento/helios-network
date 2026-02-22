@@ -104,6 +104,7 @@ celerybeat.pid
 # Environments
 .env
 .venv
+.venv-py313
 env/
 venv/
 ENV/
@@ -161,6 +162,7 @@ node_modules
 compiled
 /docs/api
 /package-lock.json
+.mplconfig
 
 # Meson build directory
 /builddir
