@@ -92,6 +92,31 @@ typedef enum {
 	CXDimensionLeastSquaresDifferenceMethod = 3
 } CXDimensionDifferenceMethod;
 
+typedef enum {
+	CXNeighborDirectionOut = 0,
+	CXNeighborDirectionIn = 1,
+	CXNeighborDirectionBoth = 2
+} CXNeighborDirection;
+
+typedef enum {
+	CXStrengthMeasureSum = 0,
+	CXStrengthMeasureAverage = 1,
+	CXStrengthMeasureMaximum = 2,
+	CXStrengthMeasureMinimum = 3
+} CXStrengthMeasure;
+
+typedef enum {
+	CXClusteringCoefficientUnweighted = 0,
+	CXClusteringCoefficientOnnela = 1,
+	CXClusteringCoefficientNewman = 2
+} CXClusteringCoefficientVariant;
+
+typedef enum {
+	CXMeasurementExecutionAuto = 0,
+	CXMeasurementExecutionSingleThread = 1,
+	CXMeasurementExecutionParallel = 2
+} CXMeasurementExecutionMode;
+
 typedef struct CXMultiCategoryBuffer {
 	uint32_t *offsets;
 	uint32_t *ids;
@@ -373,6 +398,56 @@ CX_EXTERN CXEdge* CXNetworkEdgesBuffer(CXNetworkRef network);
 CX_EXTERN CXNeighborContainer* CXNetworkOutNeighbors(CXNetworkRef network, CXIndex node);
 /** Returns the inbound neighbor container for the given node. */
 CX_EXTERN CXNeighborContainer* CXNetworkInNeighbors(CXNetworkRef network, CXIndex node);
+/**
+ * Collects unique one-hop neighbors for one or more source nodes.
+ *
+ * - `sourceNodes` can contain any node ids; inactive/out-of-range entries are ignored.
+ * - `direction` controls traversal for directed graphs (`out`, `in`, `both`).
+ * - `includeSourceNodes` controls whether source nodes can appear in `outNodeSelector`.
+ * - `outEdgeSelector` is optional; pass NULL to skip edge collection.
+ */
+CX_EXTERN CXBool CXNetworkCollectNeighbors(
+	CXNetworkRef network,
+	const CXIndex *sourceNodes,
+	CXSize sourceCount,
+	CXNeighborDirection direction,
+	CXBool includeSourceNodes,
+	CXNodeSelectorRef outNodeSelector,
+	CXEdgeSelectorRef outEdgeSelector
+);
+/**
+ * Collects neighbors at exactly the given concentric level (shortest-path hop distance).
+ *
+ * - `level == 0` refers to the source set itself.
+ * - `includeSourceNodes` only affects whether level-0 source nodes are included.
+ * - `outEdgeSelector` is optional; pass NULL to skip edge collection.
+ */
+CX_EXTERN CXBool CXNetworkCollectNeighborsAtLevel(
+	CXNetworkRef network,
+	const CXIndex *sourceNodes,
+	CXSize sourceCount,
+	CXNeighborDirection direction,
+	CXSize level,
+	CXBool includeSourceNodes,
+	CXNodeSelectorRef outNodeSelector,
+	CXEdgeSelectorRef outEdgeSelector
+);
+/**
+ * Collects neighbors up to (and including) the given concentric level.
+ *
+ * - `maxLevel == 0` returns only the source set when `includeSourceNodes` is true.
+ * - `outEdgeSelector` is optional; pass NULL to skip edge collection.
+ */
+CX_EXTERN CXBool CXNetworkCollectNeighborsUpToLevel(
+	CXNetworkRef network,
+	const CXIndex *sourceNodes,
+	CXSize sourceCount,
+	CXNeighborDirection direction,
+	CXSize maxLevel,
+	CXBool includeSourceNodes,
+	CXNodeSelectorRef outNodeSelector,
+	CXEdgeSelectorRef outEdgeSelector
+);
 
 // Attribute management
 /** Declares a node attribute backing buffer. Dimension defaults to 1. */
@@ -496,6 +571,94 @@ CX_EXTERN CXBool CXNetworkCompact(
 	CXNetworkRef network,
 	const CXString nodeOriginalIndexAttr,
 	const CXString edgeOriginalIndexAttr
+);
+
+// Multiscale dimension measurements -----------------------------------------
+/**
+ * Measures node degree for every node index (inactive nodes receive 0).
+ *
+ * Output buffer length must be at least `CXNetworkNodeCapacity(network)`.
+ */
+CX_EXTERN CXBool CXNetworkMeasureDegree(
+	CXNetworkRef network,
+	CXNeighborDirection direction,
+	float *outNodeDegree
+);
+
+/**
+ * Measures node strength from an edge weight attribute (or unit weights when
+ * `edgeWeightAttribute` is NULL/empty).
+ *
+ * Output buffer length must be at least `CXNetworkNodeCapacity(network)`.
+ */
+CX_EXTERN CXBool CXNetworkMeasureStrength(
+	CXNetworkRef network,
+	const CXString edgeWeightAttribute,
+	CXNeighborDirection direction,
+	CXStrengthMeasure measure,
+	float *outNodeStrength
+);
+
+/**
+ * Measures local clustering coefficients for all node indices.
+ *
+ * - `variant` selects the unweighted or weighted formulation.
+ * - Weighted variants read `edgeWeightAttribute` (unit weights when omitted).
+ *
+ * Output buffer length must be at least `CXNetworkNodeCapacity(network)`.
+ */
+CX_EXTERN CXBool CXNetworkMeasureLocalClusteringCoefficient(
+	CXNetworkRef network,
+	const CXString edgeWeightAttribute,
+	CXNeighborDirection direction,
+	CXClusteringCoefficientVariant variant,
+	float *outNodeCoefficient
+);
+
+/**
+ * Runs power-iteration eigenvector centrality.
+ *
+ * - `initialNodeCentrality`, when non-null, must have one value per node
+ *   capacity index and is used as the initial vector.
+ * - `outNodeCentrality` must have one value per node capacity index.
+ * - `executionMode` allows callers to force single-thread or parallel mode.
+ */
+CX_EXTERN CXBool CXNetworkMeasureEigenvectorCentrality(
+	CXNetworkRef network,
+	const CXString edgeWeightAttribute,
+	CXNeighborDirection direction,
+	CXMeasurementExecutionMode executionMode,
+	CXSize maxIterations,
+	double tolerance,
+	const float *initialNodeCentrality,
+	float *outNodeCentrality,
+	double *outEigenvalue,
+	double *outDelta,
+	CXSize *outIterations,
+	CXBool *outConverged
+);
+
+/**
+ * Runs Brandes betweenness centrality (weighted when an edge weight attribute
+ * is provided, unweighted otherwise).
+ *
+ * - `sourceNodes` can restrict the set of source nodes used by the algorithm.
+ *   When NULL/empty, all active nodes are used.
+ * - Set `accumulate` to CXTrue to add into `inOutNodeBetweenness` instead of
+ *   clearing it first (useful for chunked stepping).
+ * - Output buffer length must be at least `CXNetworkNodeCapacity(network)`.
+ *
+ * Returns the number of source nodes actually processed.
+ */
+CX_EXTERN CXSize CXNetworkMeasureBetweennessCentrality(
+	CXNetworkRef network,
+	const CXString edgeWeightAttribute,
+	CXMeasurementExecutionMode executionMode,
+	const CXIndex *sourceNodes,
+	CXSize sourceCount,
+	CXBool normalize,
+	CXBool accumulate,
+	float *inOutNodeBetweenness
 );
 
 // Multiscale dimension measurements -----------------------------------------

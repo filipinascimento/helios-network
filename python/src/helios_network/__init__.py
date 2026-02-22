@@ -48,6 +48,31 @@ class DimensionMethod(enum.IntEnum):
     LeastSquares = _core.DIMENSION_METHOD_LEAST_SQUARES
 
 
+class NeighborDirection(enum.IntEnum):
+    Out = _core.NEIGHBOR_DIRECTION_OUT
+    In_ = _core.NEIGHBOR_DIRECTION_IN
+    Both = _core.NEIGHBOR_DIRECTION_BOTH
+
+
+class StrengthMeasure(enum.IntEnum):
+    Sum = _core.STRENGTH_MEASURE_SUM
+    Average = _core.STRENGTH_MEASURE_AVERAGE
+    Maximum = _core.STRENGTH_MEASURE_MAXIMUM
+    Minimum = _core.STRENGTH_MEASURE_MINIMUM
+
+
+class ClusteringVariant(enum.IntEnum):
+    Unweighted = _core.CLUSTERING_VARIANT_UNWEIGHTED
+    Onnela = _core.CLUSTERING_VARIANT_ONNELA
+    Newman = _core.CLUSTERING_VARIANT_NEWMAN
+
+
+class MeasurementExecutionMode(enum.IntEnum):
+    Auto = _core.MEASUREMENT_EXECUTION_AUTO
+    SingleThread = _core.MEASUREMENT_EXECUTION_SINGLE_THREAD
+    Parallel = _core.MEASUREMENT_EXECUTION_PARALLEL
+
+
 def read_bxnet(path: str) -> Network:
     return Network(_core_network=_core.read_bxnet(path))
 
@@ -67,6 +92,10 @@ __all__ = [
     "DenseColorEncodingFormat",
     "CategorySortOrder",
     "DimensionMethod",
+    "NeighborDirection",
+    "StrengthMeasure",
+    "ClusteringVariant",
+    "MeasurementExecutionMode",
     "read_bxnet",
     "read_zxnet",
     "read_xnet",

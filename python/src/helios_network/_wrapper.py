@@ -112,6 +112,69 @@ class Network:
         """
         return self.edges.pairs()
 
+    def out_neighbors(self, node: int):
+        """
+        Return outgoing neighbors for a node.
+
+        Returns:
+        --------
+        dict
+            {"nodes": [...], "edges": [...]}.
+        """
+        return self._core.out_neighbors(int(node))
+
+    def in_neighbors(self, node: int):
+        """
+        Return incoming neighbors for a node.
+
+        Returns:
+        --------
+        dict
+            {"nodes": [...], "edges": [...]}.
+        """
+        return self._core.in_neighbors(int(node))
+
+    def neighbors(self, source_nodes, direction="both", include_source_nodes: bool = True):
+        """
+        Return unique one-hop neighbors for source node(s).
+
+        Parameters:
+        -----------
+        source_nodes: int | Sequence[int]
+            One node id or a sequence of node ids.
+        direction: str | int
+            Neighbor direction ('out', 'in', 'both') or enum value.
+        include_source_nodes: bool
+            If True, source nodes may appear in the returned node list.
+        """
+        return self._core.neighbors(
+            source_nodes,
+            direction=direction,
+            include_source_nodes=bool(include_source_nodes),
+        )
+
+    def neighbors_at_level(self, source_nodes, level: int, direction="both", include_source_nodes: bool = False):
+        """
+        Return neighbors at exactly `level` hops from source node(s).
+        """
+        return self._core.neighbors_at_level(
+            source_nodes,
+            level=int(level),
+            direction=direction,
+            include_source_nodes=bool(include_source_nodes),
+        )
+
+    def neighbors_up_to_level(self, source_nodes, max_level: int, direction="both", include_source_nodes: bool = False):
+        """
+        Return neighbors up to (and including) `max_level` hops from source node(s).
+        """
+        return self._core.neighbors_up_to_level(
+            source_nodes,
+            max_level=int(max_level),
+            direction=direction,
+            include_source_nodes=bool(include_source_nodes),
+        )
+
     def select_nodes(self, where_expr: str) -> "NodeSelector":
         """
         Select nodes matching a query expression.
@@ -506,6 +569,41 @@ class NodeSelector:
         values = _prepare_values(self._network, _core.SCOPE_NODE, name, value, len(self._ids), "node selector")
         for node_id, item in zip(self._ids, values):
             self._network._core.set_attribute_value(_core.SCOPE_NODE, name, node_id, item)
+
+    def neighbors(self, direction="both", include_source_nodes: bool = True):
+        """
+        Return one-hop neighbors for the selected nodes.
+
+        Parameters:
+        -----------
+        direction: str | int
+            Neighbor direction ('out', 'in', 'both') or enum value.
+        include_source_nodes: bool
+            If True, selected source nodes may appear in the result.
+        """
+        return self._network.neighbors(self._ids, direction=direction, include_source_nodes=include_source_nodes)
+
+    def neighbors_at_level(self, level: int, direction="both", include_source_nodes: bool = False):
+        """
+        Return neighbors at an exact hop distance from the selected nodes.
+        """
+        return self._network.neighbors_at_level(
+            self._ids,
+            level=level,
+            direction=direction,
+            include_source_nodes=include_source_nodes,
+        )
+
+    def neighbors_up_to_level(self, max_level: int, direction="both", include_source_nodes: bool = False):
+        """
+        Return neighbors up to (and including) a hop distance from the selected nodes.
+        """
+        return self._network.neighbors_up_to_level(
+            self._ids,
+            max_level=max_level,
+            direction=direction,
+            include_source_nodes=include_source_nodes,
+        )
 
     @property
     def ids(self) -> List[int]:

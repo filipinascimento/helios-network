@@ -1,6 +1,10 @@
 import HeliosNetwork, {
 	AttributeType,
 	DimensionDifferenceMethod,
+	NeighborDirection,
+	StrengthMeasure,
+	ClusteringCoefficientVariant,
+	MeasurementExecutionMode,
 	getHeliosModule,
 	NodeSelector,
 	EdgeSelector,
@@ -31,5 +35,15 @@ setHeliosModuleFactory((options = {}) => {
 	return defaultFactory({ ...options, wasmBinary });
 });
 
-export { AttributeType, DimensionDifferenceMethod, NodeSelector, EdgeSelector, getHeliosModule };
+export {
+	AttributeType,
+	DimensionDifferenceMethod,
+	NeighborDirection,
+	StrengthMeasure,
+	ClusteringCoefficientVariant,
+	MeasurementExecutionMode,
+	NodeSelector,
+	EdgeSelector,
+	getHeliosModule,
+};
 export default HeliosNetwork;

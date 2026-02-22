@@ -52,6 +52,8 @@ endif
 
 NATIVE_CFLAGS := -std=c17 -O3 -Wall -Wextra -pedantic -DNDEBUG -fPIC \
 	-Isrc/native/include -Isrc/native/include/helios -Isrc/native/libraries/htslib
+TEST_CFLAGS := -std=c17 -Wall -Wextra -pedantic \
+	-Isrc/native/include -Isrc/native/include/helios -Isrc/native/libraries/htslib
 LIBS := -lz
 
 PYTHON ?= python3
@@ -108,9 +110,11 @@ clean_compile:
 native-clean:
 	rm -rf $(NATIVE_BUILD_DIR)
 
-native-test: tests/native/test_sort.c
-	$(CC) -std=c17 -Isrc/native/include -Isrc/native/include/helios $< -o /tmp/helios_test_sort
+native-test: tests/native/test_sort.c tests/native/test_measurements.c native-static
+	$(CC) $(TEST_CFLAGS) tests/native/test_sort.c -o /tmp/helios_test_sort
 	/tmp/helios_test_sort
+	$(CC) $(TEST_CFLAGS) tests/native/test_measurements.c $(NATIVE_BUILD_DIR)/libhelios.a $(LIBS) -lm -o /tmp/helios_test_measurements
+	/tmp/helios_test_measurements
 
 test-native: native-test
 

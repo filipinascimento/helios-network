@@ -2,6 +2,12 @@
 
 ## 2026-02-21
 
+- Added neighbor traversal APIs across native C, JS, and Python:
+  - One-hop neighbor collection for one or multiple source nodes.
+  - Concentric traversal helpers for exact level (`at level`) and cumulative level (`up to level`) queries.
+  - Python wrapper convenience methods for `Network` and `NodeSelector`.
+- Added regression tests for the new neighbor/concentric traversal APIs in native, JS, and Python suites.
+
 - Added multiscale dimension measurements to the native core with FW/BK/CE/LS estimators (`order` support), including local node curves and global aggregate curves.
 - Added `CXNetworkMeasureNodeDimension` and `CXNetworkMeasureDimension` to the C API and WASM exports.
 - Added JS APIs `measureNodeDimension()` / `measureDimension()` plus `DimensionDifferenceMethod`.
@@ -29,6 +35,15 @@
 
 - Leiden community outputs are categorical by default (`categoricalCommunities=true`), with an opt-out to keep integer storage.
 - Added `getPackageVersion()` on `HeliosNetwork` (static + instance) to report the helios-network package version.
+
+## 2026-02-21
+
+- Added new graph measurements in the C core, JS API, and Python bindings: degree, strength (sum/average/max/min), local clustering coefficient (unweighted, Onnela, Newman), eigenvector centrality, and betweenness centrality (weighted and unweighted).
+- Added execution-mode controls so callers can request single-thread or parallel execution per measurement; JS wrappers default centrality runs to single-thread mode, while Python/native can use parallel mode.
+- Added chunk/decomposition support for heavy centrality metrics:
+  - Betweenness can be accumulated over source-node batches.
+  - Eigenvector centrality accepts an initial vector for iterative stepping.
+- Added regression tests with canonical graphs (triangle, star, path, directed toy graphs, weighted shortest-path toy graphs) across native C, JS, and Python test suites to validate expected metric values.
 
 ## 2026-01-25
 

@@ -6,7 +6,7 @@ Selectors provide iterable views over node/edge ids, plus helpers for attributes
 
 - `network.createNodeSelector(indices?)` / `network.createEdgeSelector(indices?)` create selectors seeded from an array/typed array; omit `indices` to fill with all active ids at creation time.
 - Attribute projection: `selector.attribute(name)` or property access via the proxy (`selector.someAttribute`).
-- Topology helpers (nodes): `selector.neighbors({ includeEdges, asSelector })`, `selector.degree({ mode })`, `selector.incidentEdges({ mode, asSelector })`.
+- Topology helpers (nodes): `selector.neighbors({ includeEdges, asSelector })`, `selector.neighborsAtLevel(level, {...})`, `selector.neighborsUpToLevel(maxLevel, {...})`, `selector.degree({ mode })`, `selector.incidentEdges({ mode, asSelector })`.
 - Topology helpers (edges): `selector.sources({ asSelector, unique })`, `selector.targets(...)`, `selector.nodes({ asSelector, unique })`.
 - Clean up with `selector.dispose()` when done (for non-proxy selectors created via `create*Selector`).
 

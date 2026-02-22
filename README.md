@@ -211,19 +211,89 @@ meta.set(0, { description: 'Halo subgraph' });
 
 // Neighbour iteration
 const { nodes, edges: incidentEdges } = net.getOutNeighbors(newNodes[0]);
+const oneHop = net.getNeighborsForNodes([newNodes[0], newNodes[1]], { direction: 'out' });
+const twoHops = net.getNeighborsAtLevel(newNodes[0], 2, { direction: 'out', includeEdges: false });
+const upToTwo = net.getNeighborsUpToLevel(newNodes[0], 2, { direction: 'out', includeEdges: false });
 
 // Selectors are iterable proxies that surface attributes & topology helpers
 const selector = net.createNodeSelector([newNodes[0], newNodes[1]]);
 console.log([...selector]);                 // -> node indices
 console.log(selector.weight);               // -> [1.25, ...] via attribute proxy
 const { nodes: neigh } = selector.neighbors({ includeEdges: false });
+const { nodes: ring2 } = selector.neighborsAtLevel(2, { mode: 'out', includeEdges: false });
 console.log(Array.from(neigh));             // -> neighbour node ids
+console.log(Array.from(ring2));             // -> nodes exactly 2 hops away
 const edgeSelector = net.createEdgeSelector(edges);
 console.log(edgeSelector.label);            // -> ['a→b', null, ...]
 selector.dispose();
 edgeSelector.dispose();
 
 net.dispose();
+```
+
+### Neighbor API quick map (JS, Python, C)
+
+No migration is required. Existing one-node helpers still work; the new APIs add multi-source and concentric traversal.
+
+JavaScript:
+
+```js
+// Existing one-hop helpers (single source)
+net.getOutNeighbors(nodeId); // { nodes, edges }
+net.getInNeighbors(nodeId);  // { nodes, edges }
+
+// New one-hop helpers (single or multi source)
+net.getNeighbors(nodeId, { direction: 'both', includeEdges: true, includeSourceNodes: true });
+net.getNeighborsForNodes([a, b, c], { direction: 'out', includeEdges: false });
+
+// New concentric helpers
+net.getNeighborsAtLevel([a, b], 2, { direction: 'out', includeEdges: false });
+net.getNeighborsUpToLevel([a, b], 3, { direction: 'both', includeEdges: true });
+
+// Selector equivalents
+const sel = net.createNodeSelector([a, b]);
+sel.neighbors({ mode: 'both' });
+sel.neighborsAtLevel(2, { mode: 'out' });
+sel.neighborsUpToLevel(3, { mode: 'both' });
+```
+
+Python:
+
+```python
+# Existing one-hop helpers (single source)
+network.out_neighbors(node_id)
+network.in_neighbors(node_id)
+
+# New one-hop helper (single or multi source)
+network.neighbors([a, b, c], direction="out", include_source_nodes=True)
+
+# New concentric helpers
+network.neighbors_at_level([a, b], level=2, direction="out", include_source_nodes=False)
+network.neighbors_up_to_level([a, b], max_level=3, direction="both", include_source_nodes=False)
+```
+
+Native C:
+
+```c
+// Existing direct adjacency access (single source containers)
+CXNetworkOutNeighbors(network, nodeId);
+CXNetworkInNeighbors(network, nodeId);
+
+// New one-hop collection (single/multi source)
+CXNetworkCollectNeighbors(
+    network, sourceNodes, sourceCount, CXNeighborDirectionBoth,
+    CXTrue, outNodeSelector, outEdgeSelector
+);
+
+// New concentric collection
+CXNetworkCollectNeighborsAtLevel(
+    network, sourceNodes, sourceCount, CXNeighborDirectionOut,
+    2, CXFalse, outNodeSelector, outEdgeSelector
+);
+CXNetworkCollectNeighborsUpToLevel(
+    network, sourceNodes, sourceCount, CXNeighborDirectionBoth,
+    3, CXFalse, outNodeSelector, outEdgeSelector
+);
 ```
 
 ### Fixed active index buffers

@@ -58,6 +58,8 @@ static CXBool lookup_category_id(CXStringDictionaryRef dictionary, const char *l
 	return CXFalse;
 }
 
+static CXSize find_node_position(const CXIndex *nodes, CXSize count, uint64_t needle);
+
 static void test_basic_network(void) {
 	CXNetworkRef net = CXNewNetwork(CXTrue);
 	assert(net);
@@ -93,6 +95,135 @@ static void test_basic_network(void) {
 	assert(CXNetworkRemoveNodes(net, &nodes[1], 1));
 	assert(!CXNetworkIsNodeActive(net, nodes[1]));
 
+	CXFreeNetwork(net);
+}
+
+static void test_neighbor_collection(void) {
+	CXNetworkRef net = CXNewNetwork(CXTrue);
+	assert(net);
+
+	CXIndex nodes[6] = {0};
+	assert(CXNetworkAddNodes(net, 6, nodes));
+	CXEdge edges[6] = {
+		{ .from = nodes[0], .to = nodes[1] },
+		{ .from = nodes[0], .to = nodes[2] },
+		{ .from = nodes[1], .to = nodes[3] },
+		{ .from = nodes[2], .to = nodes[4] },
+		{ .from = nodes[3], .to = nodes[5] },
+		{ .from = nodes[4], .to = nodes[5] },
+	};
+	CXIndex edgeIds[6] = {0};
+	assert(CXNetworkAddEdges(net, edges, 6, edgeIds));
+
+	CXNodeSelectorRef nodeSelector = CXNodeSelectorCreate(0);
+	CXEdgeSelectorRef edgeSelector = CXEdgeSelectorCreate(0);
+	assert(nodeSelector);
+	assert(edgeSelector);
+
+	CXIndex source0[1] = { nodes[0] };
+	assert(CXNetworkCollectNeighbors(
+		net,
+		source0,
+		1,
+		CXNeighborDirectionOut,
+		CXFalse,
+		nodeSelector,
+		edgeSelector
+	));
+	assert(CXNodeSelectorCount(nodeSelector) == 2);
+	assert(CXEdgeSelectorCount(edgeSelector) == 2);
+	assert(find_node_position(CXNodeSelectorData(nodeSelector), CXNodeSelectorCount(nodeSelector), nodes[1]) != (CXSize)-1);
+	assert(find_node_position(CXNodeSelectorData(nodeSelector), CXNodeSelectorCount(nodeSelector), nodes[2]) != (CXSize)-1);
+
+	CXIndex source01[2] = { nodes[0], nodes[1] };
+	assert(CXNetworkCollectNeighbors(
+		net,
+		source01,
+		2,
+		CXNeighborDirectionOut,
+		CXFalse,
+		nodeSelector,
+		edgeSelector
+	));
+	assert(CXNodeSelectorCount(nodeSelector) == 2);
+	assert(find_node_position(CXNodeSelectorData(nodeSelector), CXNodeSelectorCount(nodeSelector), nodes[2]) != (CXSize)-1);
+	assert(find_node_position(CXNodeSelectorData(nodeSelector), CXNodeSelectorCount(nodeSelector), nodes[3]) != (CXSize)-1);
+
+	assert(CXNetworkCollectNeighbors(
+		net,
+		source01,
+		2,
+		CXNeighborDirectionOut,
+		CXTrue,
+		nodeSelector,
+		edgeSelector
+	));
+	assert(CXNodeSelectorCount(nodeSelector) == 3);
+	assert(find_node_position(CXNodeSelectorData(nodeSelector), CXNodeSelectorCount(nodeSelector), nodes[1]) != (CXSize)-1);
+	assert(find_node_position(CXNodeSelectorData(nodeSelector), CXNodeSelectorCount(nodeSelector), nodes[2]) != (CXSize)-1);
+	assert(find_node_position(CXNodeSelectorData(nodeSelector), CXNodeSelectorCount(nodeSelector), nodes[3]) != (CXSize)-1);
+
+	assert(CXNetworkCollectNeighborsAtLevel(
+		net,
+		source0,
+		1,
+		CXNeighborDirectionOut,
+		2,
+		CXFalse,
+		nodeSelector,
+		edgeSelector
+	));
+	assert(CXNodeSelectorCount(nodeSelector) == 2);
+	assert(find_node_position(CXNodeSelectorData(nodeSelector), CXNodeSelectorCount(nodeSelector), nodes[3]) != (CXSize)-1);
+	assert(find_node_position(CXNodeSelectorData(nodeSelector), CXNodeSelectorCount(nodeSelector), nodes[4]) != (CXSize)-1);
+
+	assert(CXNetworkCollectNeighborsUpToLevel(
+		net,
+		source0,
+		1,
+		CXNeighborDirectionOut,
+		2,
+		CXFalse,
+		nodeSelector,
+		edgeSelector
+	));
+	assert(CXNodeSelectorCount(nodeSelector) == 4);
+	assert(find_node_position(CXNodeSelectorData(nodeSelector), CXNodeSelectorCount(nodeSelector), nodes[1]) != (CXSize)-1);
+	assert(find_node_position(CXNodeSelectorData(nodeSelector), CXNodeSelectorCount(nodeSelector), nodes[2]) != (CXSize)-1);
+	assert(find_node_position(CXNodeSelectorData(nodeSelector), CXNodeSelectorCount(nodeSelector), nodes[3]) != (CXSize)-1);
+	assert(find_node_position(CXNodeSelectorData(nodeSelector), CXNodeSelectorCount(nodeSelector), nodes[4]) != (CXSize)-1);
+
+	assert(CXNetworkCollectNeighborsAtLevel(
+		net,
+		source0,
+		1,
+		CXNeighborDirectionOut,
+		0,
+		CXTrue,
+		nodeSelector,
+		edgeSelector
+	));
+	assert(CXNodeSelectorCount(nodeSelector) == 1);
+	assert(CXNodeSelectorData(nodeSelector)[0] == nodes[0]);
+	assert(CXEdgeSelectorCount(edgeSelector) == 0);
+
+	CXIndex source5[1] = { nodes[5] };
+	assert(CXNetworkCollectNeighborsAtLevel(
+		net,
+		source5,
+		1,
+		CXNeighborDirectionIn,
+		1,
+		CXFalse,
+		nodeSelector,
+		edgeSelector
+	));
+	assert(CXNodeSelectorCount(nodeSelector) == 2);
+	assert(find_node_position(CXNodeSelectorData(nodeSelector), CXNodeSelectorCount(nodeSelector), nodes[3]) != (CXSize)-1);
+	assert(find_node_position(CXNodeSelectorData(nodeSelector), CXNodeSelectorCount(nodeSelector), nodes[4]) != (CXSize)-1);
+
+	CXNodeSelectorDestroy(nodeSelector);
+	CXEdgeSelectorDestroy(edgeSelector);
 	CXFreeNetwork(net);
 }
 
@@ -1324,6 +1455,7 @@ static void test_serialization_fuzz(void) {
 
 int main(void) {
 	test_basic_network();
+	test_neighbor_collection();
 	test_attributes();
 	test_xnet_round_trip();
 	test_categorical_serialization();

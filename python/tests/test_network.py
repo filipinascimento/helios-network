@@ -2,7 +2,19 @@ import os
 import tempfile
 import warnings
 
-from helios_network import AttributeScope, AttributeType, DimensionMethod, Network, read_bxnet, read_xnet, read_zxnet
+from helios_network import (
+    AttributeScope,
+    AttributeType,
+    ClusteringVariant,
+    DimensionMethod,
+    MeasurementExecutionMode,
+    NeighborDirection,
+    Network,
+    StrengthMeasure,
+    read_bxnet,
+    read_xnet,
+    read_zxnet,
+)
 
 
 def test_network_add_remove_counts():
@@ -77,6 +89,51 @@ def test_edge_selectors_and_pairs():
         (edges[0], (nodes[0], nodes[1])),
         (edges[1], (nodes[1], nodes[2])),
     ]
+
+
+def test_neighbors_and_concentric_levels():
+    network = Network(directed=True)
+    nodes = network.add_nodes(6)
+    network.add_edges([
+        (nodes[0], nodes[1]),
+        (nodes[0], nodes[2]),
+        (nodes[1], nodes[3]),
+        (nodes[2], nodes[4]),
+        (nodes[3], nodes[5]),
+        (nodes[4], nodes[5]),
+    ])
+
+    out_n = network.out_neighbors(nodes[0])
+    assert set(out_n["nodes"]) == {nodes[1], nodes[2]}
+
+    in_n = network.in_neighbors(nodes[5])
+    assert set(in_n["nodes"]) == {nodes[3], nodes[4]}
+
+    one_hop = network.neighbors([nodes[0], nodes[1]], direction=NeighborDirection.Out, include_source_nodes=False)
+    assert set(one_hop["nodes"]) == {nodes[2], nodes[3]}
+    assert len(one_hop["edges"]) == 3
+
+    one_hop_in = network.neighbors(nodes[5], direction=NeighborDirection.In_, include_source_nodes=False)
+    assert set(one_hop_in["nodes"]) == {nodes[3], nodes[4]}
+    assert len(one_hop_in["edges"]) == 2
+
+    level2 = network.neighbors_at_level(nodes[0], level=2, direction=NeighborDirection.Out)
+    assert set(level2["nodes"]) == {nodes[3], nodes[4]}
+    assert len(level2["edges"]) == 2
+
+    up_to2 = network.neighbors_up_to_level(nodes[0], max_level=2, direction=NeighborDirection.Out)
+    assert set(up_to2["nodes"]) == {nodes[1], nodes[2], nodes[3], nodes[4]}
+    assert len(up_to2["edges"]) == 4
+
+    selector = network.nodes[[nodes[0]]]
+    selector_one_hop = selector.neighbors(direction=NeighborDirection.Out, include_source_nodes=False)
+    assert set(selector_one_hop["nodes"]) == {nodes[1], nodes[2]}
+
+    selector_level2 = selector.neighbors_at_level(2, direction=NeighborDirection.Out)
+    assert set(selector_level2["nodes"]) == {nodes[3], nodes[4]}
+
+    selector_up_to2 = selector.neighbors_up_to_level(2, direction=NeighborDirection.Out)
+    assert set(selector_up_to2["nodes"]) == {nodes[1], nodes[2], nodes[3], nodes[4]}
 
 
 def test_query_select_nodes_and_edges():
@@ -336,3 +393,91 @@ def test_dimension_order_limits_follow_cv_bounds():
         network.measure_node_dimension(node=0, max_level=6, method=DimensionMethod.Backward, order=7)
     with pytest.raises(RuntimeError):
         network.measure_node_dimension(node=0, max_level=6, method=DimensionMethod.Central, order=5)
+
+
+def test_measure_degree_strength_and_clustering_known_values():
+    network = Network(directed=False)
+    nodes = network.add_nodes(4)
+    edges = network.add_edges([(nodes[0], nodes[1]), (nodes[0], nodes[2]), (nodes[0], nodes[3])])
+    network.define_attribute(AttributeScope.Edge, "w", AttributeType.Float, 1)
+    network.edges[[edges[0], edges[1], edges[2]]]["w"] = [2.0, 3.0, 4.0]
+
+    degree = network.measure_degree(direction=NeighborDirection.Both)
+    assert degree["values_by_node"][0] == 3
+    assert degree["values_by_node"][1] == 1
+
+    strength = network.measure_strength(edge_weight_attribute="w", direction=NeighborDirection.Both, measure=StrengthMeasure.Sum)
+    assert strength["values_by_node"][0] == 9.0
+    assert strength["values_by_node"][3] == 4.0
+
+    triangle = Network(directed=False)
+    tri_nodes = triangle.add_nodes(3)
+    tri_edges = triangle.add_edges([(tri_nodes[0], tri_nodes[1]), (tri_nodes[1], tri_nodes[2]), (tri_nodes[0], tri_nodes[2])])
+    triangle.define_attribute(AttributeScope.Edge, "w", AttributeType.Float, 1)
+    triangle.edges[[tri_edges[0], tri_edges[1], tri_edges[2]]]["w"] = [1.0, 1.0, 1.0]
+
+    clustering = triangle.measure_local_clustering_coefficient(variant=ClusteringVariant.Unweighted)
+    assert abs(clustering["values_by_node"][0] - 1.0) < 1e-6
+    onnela = triangle.measure_local_clustering_coefficient(edge_weight_attribute="w", variant=ClusteringVariant.Onnela)
+    assert abs(onnela["values_by_node"][1] - 1.0) < 1e-6
+    newman = triangle.measure_local_clustering_coefficient(edge_weight_attribute="w", variant=ClusteringVariant.Newman)
+    assert abs(newman["values_by_node"][2] - 1.0) < 1e-6
+
+
+def test_measure_eigenvector_and_betweenness_known_values():
+    star = Network(directed=False)
+    nodes = star.add_nodes(5)
+    star.add_edges([(nodes[0], nodes[1]), (nodes[0], nodes[2]), (nodes[0], nodes[3]), (nodes[0], nodes[4])])
+    eigen = star.measure_eigenvector_centrality(
+        direction=NeighborDirection.Both,
+        max_iterations=256,
+        tolerance=1e-8,
+        execution_mode=MeasurementExecutionMode.SingleThread,
+    )
+    values = eigen["values_by_node"]
+    assert eigen["iterations"] > 0
+    assert values[0] > values[1]
+    assert abs((values[0] / values[1]) - 2.0) < 0.1
+
+    path = Network(directed=False)
+    path_nodes = path.add_nodes(4)
+    path.add_edges([(path_nodes[0], path_nodes[1]), (path_nodes[1], path_nodes[2]), (path_nodes[2], path_nodes[3])])
+    between = path.measure_betweenness_centrality(
+        normalize=True,
+        execution_mode=MeasurementExecutionMode.SingleThread,
+    )
+    b_values = between["values_by_node"]
+    assert abs(b_values[1] - (2.0 / 3.0)) < 0.05
+    assert abs(b_values[2] - (2.0 / 3.0)) < 0.05
+    assert abs(b_values[0]) < 1e-6
+    assert abs(b_values[3]) < 1e-6
+
+
+def test_measure_betweenness_chunk_accumulation_matches_full_run():
+    network = Network(directed=False)
+    nodes = network.add_nodes(4)
+    edges = network.add_edges([(nodes[0], nodes[1]), (nodes[1], nodes[3]), (nodes[0], nodes[2]), (nodes[2], nodes[3])])
+    network.define_attribute(AttributeScope.Edge, "w", AttributeType.Float, 1)
+    network.edges[[edges[0], edges[1], edges[2], edges[3]]]["w"] = [1.0, 1.0, 1.0, 10.0]
+
+    full = network.measure_betweenness_centrality(
+        edge_weight_attribute="w",
+        normalize=False,
+        execution_mode=MeasurementExecutionMode.SingleThread,
+    )
+    chunk_a = network.measure_betweenness_centrality(
+        edge_weight_attribute="w",
+        source_nodes=[0, 1],
+        normalize=False,
+        execution_mode=MeasurementExecutionMode.SingleThread,
+    )
+    chunk_b = network.measure_betweenness_centrality(
+        edge_weight_attribute="w",
+        source_nodes=[2, 3],
+        normalize=False,
+        accumulate=True,
+        initial=chunk_a["values_by_node"],
+        execution_mode=MeasurementExecutionMode.SingleThread,
+    )
+    for idx in range(network.node_capacity()):
+        assert abs(chunk_b["values_by_node"][idx] - full["values_by_node"][idx]) < 1e-6

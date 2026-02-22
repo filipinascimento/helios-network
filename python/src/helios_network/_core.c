@@ -150,6 +150,237 @@ static int parse_dimension_method(PyObject *obj, CXDimensionDifferenceMethod *ou
     return -1;
 }
 
+static int parse_neighbor_direction(PyObject *obj, CXNeighborDirection *out) {
+    if (obj == NULL || obj == Py_None) {
+        *out = CXNeighborDirectionBoth;
+        return 0;
+    }
+    if (PyLong_Check(obj)) {
+        long value = PyLong_AsLong(obj);
+        if (value == -1 && PyErr_Occurred()) {
+            return -1;
+        }
+        if (value < CXNeighborDirectionOut || value > CXNeighborDirectionBoth) {
+            PyErr_SetString(PyExc_ValueError, "Invalid neighbor direction");
+            return -1;
+        }
+        *out = (CXNeighborDirection)value;
+        return 0;
+    }
+    if (PyUnicode_Check(obj)) {
+        const char *value = PyUnicode_AsUTF8(obj);
+        if (!value) {
+            return -1;
+        }
+        if (strcmp(value, "out") == 0 || strcmp(value, "outgoing") == 0) {
+            *out = CXNeighborDirectionOut;
+            return 0;
+        }
+        if (strcmp(value, "in") == 0 || strcmp(value, "incoming") == 0) {
+            *out = CXNeighborDirectionIn;
+            return 0;
+        }
+        if (strcmp(value, "both") == 0 || strcmp(value, "all") == 0 || strcmp(value, "union") == 0) {
+            *out = CXNeighborDirectionBoth;
+            return 0;
+        }
+    }
+    PyErr_SetString(PyExc_ValueError, "Direction must be int or one of: out, in, both");
+    return -1;
+}
+
+static int parse_strength_measure(PyObject *obj, CXStrengthMeasure *out) {
+    if (obj == NULL || obj == Py_None) {
+        *out = CXStrengthMeasureSum;
+        return 0;
+    }
+    if (PyLong_Check(obj)) {
+        long value = PyLong_AsLong(obj);
+        if (value == -1 && PyErr_Occurred()) {
+            return -1;
+        }
+        if (value < CXStrengthMeasureSum || value > CXStrengthMeasureMinimum) {
+            PyErr_SetString(PyExc_ValueError, "Invalid strength measure");
+            return -1;
+        }
+        *out = (CXStrengthMeasure)value;
+        return 0;
+    }
+    if (PyUnicode_Check(obj)) {
+        const char *value = PyUnicode_AsUTF8(obj);
+        if (!value) {
+            return -1;
+        }
+        if (strcmp(value, "sum") == 0 || strcmp(value, "total") == 0) {
+            *out = CXStrengthMeasureSum;
+            return 0;
+        }
+        if (strcmp(value, "average") == 0 || strcmp(value, "avg") == 0 || strcmp(value, "mean") == 0) {
+            *out = CXStrengthMeasureAverage;
+            return 0;
+        }
+        if (strcmp(value, "maximum") == 0 || strcmp(value, "max") == 0) {
+            *out = CXStrengthMeasureMaximum;
+            return 0;
+        }
+        if (strcmp(value, "minimum") == 0 || strcmp(value, "min") == 0) {
+            *out = CXStrengthMeasureMinimum;
+            return 0;
+        }
+    }
+    PyErr_SetString(PyExc_ValueError, "Strength measure must be int or one of: sum, average, maximum, minimum");
+    return -1;
+}
+
+static int parse_clustering_variant(PyObject *obj, CXClusteringCoefficientVariant *out) {
+    if (obj == NULL || obj == Py_None) {
+        *out = CXClusteringCoefficientUnweighted;
+        return 0;
+    }
+    if (PyLong_Check(obj)) {
+        long value = PyLong_AsLong(obj);
+        if (value == -1 && PyErr_Occurred()) {
+            return -1;
+        }
+        if (value < CXClusteringCoefficientUnweighted || value > CXClusteringCoefficientNewman) {
+            PyErr_SetString(PyExc_ValueError, "Invalid clustering variant");
+            return -1;
+        }
+        *out = (CXClusteringCoefficientVariant)value;
+        return 0;
+    }
+    if (PyUnicode_Check(obj)) {
+        const char *value = PyUnicode_AsUTF8(obj);
+        if (!value) {
+            return -1;
+        }
+        if (strcmp(value, "unweighted") == 0 || strcmp(value, "binary") == 0) {
+            *out = CXClusteringCoefficientUnweighted;
+            return 0;
+        }
+        if (strcmp(value, "onnela") == 0) {
+            *out = CXClusteringCoefficientOnnela;
+            return 0;
+        }
+        if (strcmp(value, "newman") == 0 || strcmp(value, "barrat") == 0 || strcmp(value, "weighted") == 0) {
+            *out = CXClusteringCoefficientNewman;
+            return 0;
+        }
+    }
+    PyErr_SetString(PyExc_ValueError, "Clustering variant must be int or one of: unweighted, onnela, newman");
+    return -1;
+}
+
+static int parse_execution_mode(PyObject *obj, CXMeasurementExecutionMode *out) {
+    if (obj == NULL || obj == Py_None) {
+        *out = CXMeasurementExecutionParallel;
+        return 0;
+    }
+    if (PyLong_Check(obj)) {
+        long value = PyLong_AsLong(obj);
+        if (value == -1 && PyErr_Occurred()) {
+            return -1;
+        }
+        if (value < CXMeasurementExecutionAuto || value > CXMeasurementExecutionParallel) {
+            PyErr_SetString(PyExc_ValueError, "Invalid measurement execution mode");
+            return -1;
+        }
+        *out = (CXMeasurementExecutionMode)value;
+        return 0;
+    }
+    if (PyUnicode_Check(obj)) {
+        const char *value = PyUnicode_AsUTF8(obj);
+        if (!value) {
+            return -1;
+        }
+        if (strcmp(value, "auto") == 0) {
+            *out = CXMeasurementExecutionAuto;
+            return 0;
+        }
+        if (strcmp(value, "single") == 0 || strcmp(value, "single-thread") == 0 || strcmp(value, "singlethread") == 0) {
+            *out = CXMeasurementExecutionSingleThread;
+            return 0;
+        }
+        if (strcmp(value, "parallel") == 0 || strcmp(value, "native") == 0) {
+            *out = CXMeasurementExecutionParallel;
+            return 0;
+        }
+    }
+    PyErr_SetString(PyExc_ValueError, "Execution mode must be int or one of: auto, single-thread, parallel");
+    return -1;
+}
+
+static int parse_source_nodes(PyObject *obj, CXIndex **outNodes, CXSize *outCount) {
+    if (!outNodes || !outCount) {
+        PyErr_SetString(PyExc_RuntimeError, "Internal error while parsing source nodes");
+        return -1;
+    }
+    *outNodes = NULL;
+    *outCount = 0;
+
+    if (!obj || obj == Py_None) {
+        return 0;
+    }
+    if (PyLong_Check(obj)) {
+        unsigned long value = PyLong_AsUnsignedLong(obj);
+        if (PyErr_Occurred()) {
+            return -1;
+        }
+        CXIndex *single = (CXIndex *)calloc(1, sizeof(CXIndex));
+        if (!single) {
+            PyErr_NoMemory();
+            return -1;
+        }
+        single[0] = (CXIndex)value;
+        *outNodes = single;
+        *outCount = 1;
+        return 0;
+    }
+
+    PyObject *fast = PySequence_Fast(obj, "source_nodes must be a node id or a sequence of node ids");
+    if (!fast) {
+        return -1;
+    }
+    Py_ssize_t pyCount = PySequence_Fast_GET_SIZE(fast);
+    if (pyCount <= 0) {
+        Py_DECREF(fast);
+        return 0;
+    }
+
+    CXIndex *nodes = (CXIndex *)calloc((size_t)pyCount, sizeof(CXIndex));
+    if (!nodes) {
+        Py_DECREF(fast);
+        PyErr_NoMemory();
+        return -1;
+    }
+    for (Py_ssize_t i = 0; i < pyCount; i++) {
+        PyObject *item = PySequence_Fast_GET_ITEM(fast, i);
+        unsigned long value = PyLong_AsUnsignedLong(item);
+        if (PyErr_Occurred()) {
+            free(nodes);
+            Py_DECREF(fast);
+            return -1;
+        }
+        nodes[(size_t)i] = (CXIndex)value;
+    }
+    Py_DECREF(fast);
+
+    *outNodes = nodes;
+    *outCount = (CXSize)pyCount;
+    return 0;
+}
+
+static PyObject *index_buffer_to_list(const CXIndex *values, CXSize count) {
+    PyObject *list = PyList_New((Py_ssize_t)count);
+    if (!list) {
+        return NULL;
+    }
+    for (CXSize i = 0; i < count; i++) {
+        PyList_SET_ITEM(list, (Py_ssize_t)i, PyLong_FromUnsignedLong((unsigned long)values[i]));
+    }
+    return list;
+}
+
 static CXAttributeRef get_attribute_for_scope(CXNetworkRef network, CXAttributeScope scope, const char *name) {
     switch (scope) {
         case CXAttributeScopeNode:
@@ -514,6 +745,301 @@ static PyObject *Network_edge_endpoints(PyHeliosNetwork *self, PyObject *args) {
     }
     CXEdge edge = edges[index];
     return Py_BuildValue("kk", (unsigned long)edge.from, (unsigned long)edge.to);
+}
+
+static PyObject *neighbor_container_to_dict(CXNeighborContainer *container) {
+    CXSize count = container ? CXNeighborContainerCount(container) : 0;
+    CXIndex *nodes = NULL;
+    CXIndex *edges = NULL;
+    if (count > 0) {
+        nodes = (CXIndex *)calloc((size_t)count, sizeof(CXIndex));
+        edges = (CXIndex *)calloc((size_t)count, sizeof(CXIndex));
+        if (!nodes || !edges) {
+            free(nodes);
+            free(edges);
+            PyErr_NoMemory();
+            return NULL;
+        }
+        CXNeighborContainerGetNodes(container, nodes, count);
+        CXNeighborContainerGetEdges(container, edges, count);
+    }
+
+    PyObject *nodes_list = index_buffer_to_list(nodes, count);
+    PyObject *edges_list = index_buffer_to_list(edges, count);
+    free(nodes);
+    free(edges);
+    if (!nodes_list || !edges_list) {
+        Py_XDECREF(nodes_list);
+        Py_XDECREF(edges_list);
+        return NULL;
+    }
+
+    PyObject *result = PyDict_New();
+    if (!result) {
+        Py_DECREF(nodes_list);
+        Py_DECREF(edges_list);
+        return NULL;
+    }
+    PyDict_SetItemString(result, "nodes", nodes_list);
+    PyDict_SetItemString(result, "edges", edges_list);
+    Py_DECREF(nodes_list);
+    Py_DECREF(edges_list);
+    return result;
+}
+
+static PyObject *Network_out_neighbors(PyHeliosNetwork *self, PyObject *args) {
+    unsigned long node = 0;
+    if (!PyArg_ParseTuple(args, "k", &node)) {
+        return NULL;
+    }
+    if (!self->network) {
+        PyErr_SetString(PyExc_RuntimeError, "Network is not initialized");
+        return NULL;
+    }
+    CXNeighborContainer *container = CXNetworkOutNeighbors(self->network, (CXIndex)node);
+    if (!container) {
+        PyErr_SetString(PyExc_IndexError, "Node index is out of range");
+        return NULL;
+    }
+    return neighbor_container_to_dict(container);
+}
+
+static PyObject *Network_in_neighbors(PyHeliosNetwork *self, PyObject *args) {
+    unsigned long node = 0;
+    if (!PyArg_ParseTuple(args, "k", &node)) {
+        return NULL;
+    }
+    if (!self->network) {
+        PyErr_SetString(PyExc_RuntimeError, "Network is not initialized");
+        return NULL;
+    }
+    CXNeighborContainer *container = CXNetworkInNeighbors(self->network, (CXIndex)node);
+    if (!container) {
+        PyErr_SetString(PyExc_IndexError, "Node index is out of range");
+        return NULL;
+    }
+    return neighbor_container_to_dict(container);
+}
+
+static PyObject *neighbor_selectors_to_dict(CXNodeSelectorRef nodeSelector, CXEdgeSelectorRef edgeSelector) {
+    CXSize nodeCount = nodeSelector ? CXNodeSelectorCount(nodeSelector) : 0;
+    CXSize edgeCount = edgeSelector ? CXEdgeSelectorCount(edgeSelector) : 0;
+    CXIndex *nodeData = nodeSelector ? CXNodeSelectorData(nodeSelector) : NULL;
+    CXIndex *edgeData = edgeSelector ? CXEdgeSelectorData(edgeSelector) : NULL;
+
+    PyObject *nodes_list = index_buffer_to_list(nodeData, nodeCount);
+    PyObject *edges_list = index_buffer_to_list(edgeData, edgeCount);
+    if (!nodes_list || !edges_list) {
+        Py_XDECREF(nodes_list);
+        Py_XDECREF(edges_list);
+        return NULL;
+    }
+    PyObject *result = PyDict_New();
+    if (!result) {
+        Py_DECREF(nodes_list);
+        Py_DECREF(edges_list);
+        return NULL;
+    }
+    PyDict_SetItemString(result, "nodes", nodes_list);
+    PyDict_SetItemString(result, "edges", edges_list);
+    Py_DECREF(nodes_list);
+    Py_DECREF(edges_list);
+    return result;
+}
+
+static PyObject *Network_neighbors(PyHeliosNetwork *self, PyObject *args, PyObject *kwargs) {
+    static const char *kwlist[] = {"source_nodes", "direction", "include_source_nodes", NULL};
+    PyObject *source_nodes_obj = NULL;
+    PyObject *direction_obj = NULL;
+    int include_source_nodes = 1;
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|Op", (char **)kwlist, &source_nodes_obj, &direction_obj, &include_source_nodes)) {
+        return NULL;
+    }
+    if (!self->network) {
+        PyErr_SetString(PyExc_RuntimeError, "Network is not initialized");
+        return NULL;
+    }
+
+    CXNeighborDirection direction = CXNeighborDirectionBoth;
+    if (parse_neighbor_direction(direction_obj, &direction) != 0) {
+        return NULL;
+    }
+
+    CXIndex *sources = NULL;
+    CXSize source_count = 0;
+    if (parse_source_nodes(source_nodes_obj, &sources, &source_count) != 0) {
+        return NULL;
+    }
+
+    CXNodeSelectorRef nodeSelector = CXNodeSelectorCreate(0);
+    CXEdgeSelectorRef edgeSelector = CXEdgeSelectorCreate(0);
+    if (!nodeSelector || !edgeSelector) {
+        free(sources);
+        if (nodeSelector) {
+            CXNodeSelectorDestroy(nodeSelector);
+        }
+        if (edgeSelector) {
+            CXEdgeSelectorDestroy(edgeSelector);
+        }
+        PyErr_NoMemory();
+        return NULL;
+    }
+
+    CXBool ok = CXNetworkCollectNeighbors(
+        self->network,
+        sources,
+        source_count,
+        direction,
+        include_source_nodes ? CXTrue : CXFalse,
+        nodeSelector,
+        edgeSelector
+    );
+    free(sources);
+    if (!ok) {
+        CXNodeSelectorDestroy(nodeSelector);
+        CXEdgeSelectorDestroy(edgeSelector);
+        PyErr_SetString(PyExc_RuntimeError, "Failed to collect neighbors");
+        return NULL;
+    }
+
+    PyObject *result = neighbor_selectors_to_dict(nodeSelector, edgeSelector);
+    CXNodeSelectorDestroy(nodeSelector);
+    CXEdgeSelectorDestroy(edgeSelector);
+    return result;
+}
+
+static PyObject *Network_neighbors_at_level(PyHeliosNetwork *self, PyObject *args, PyObject *kwargs) {
+    static const char *kwlist[] = {"source_nodes", "level", "direction", "include_source_nodes", NULL};
+    PyObject *source_nodes_obj = NULL;
+    Py_ssize_t level = 0;
+    PyObject *direction_obj = NULL;
+    int include_source_nodes = 0;
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "On|Op", (char **)kwlist, &source_nodes_obj, &level, &direction_obj, &include_source_nodes)) {
+        return NULL;
+    }
+    if (!self->network) {
+        PyErr_SetString(PyExc_RuntimeError, "Network is not initialized");
+        return NULL;
+    }
+    if (level < 0) {
+        PyErr_SetString(PyExc_ValueError, "level must be >= 0");
+        return NULL;
+    }
+
+    CXNeighborDirection direction = CXNeighborDirectionBoth;
+    if (parse_neighbor_direction(direction_obj, &direction) != 0) {
+        return NULL;
+    }
+
+    CXIndex *sources = NULL;
+    CXSize source_count = 0;
+    if (parse_source_nodes(source_nodes_obj, &sources, &source_count) != 0) {
+        return NULL;
+    }
+
+    CXNodeSelectorRef nodeSelector = CXNodeSelectorCreate(0);
+    CXEdgeSelectorRef edgeSelector = CXEdgeSelectorCreate(0);
+    if (!nodeSelector || !edgeSelector) {
+        free(sources);
+        if (nodeSelector) {
+            CXNodeSelectorDestroy(nodeSelector);
+        }
+        if (edgeSelector) {
+            CXEdgeSelectorDestroy(edgeSelector);
+        }
+        PyErr_NoMemory();
+        return NULL;
+    }
+
+    CXBool ok = CXNetworkCollectNeighborsAtLevel(
+        self->network,
+        sources,
+        source_count,
+        direction,
+        (CXSize)level,
+        include_source_nodes ? CXTrue : CXFalse,
+        nodeSelector,
+        edgeSelector
+    );
+    free(sources);
+    if (!ok) {
+        CXNodeSelectorDestroy(nodeSelector);
+        CXEdgeSelectorDestroy(edgeSelector);
+        PyErr_SetString(PyExc_RuntimeError, "Failed to collect neighbors at level");
+        return NULL;
+    }
+
+    PyObject *result = neighbor_selectors_to_dict(nodeSelector, edgeSelector);
+    CXNodeSelectorDestroy(nodeSelector);
+    CXEdgeSelectorDestroy(edgeSelector);
+    return result;
+}
+
+static PyObject *Network_neighbors_up_to_level(PyHeliosNetwork *self, PyObject *args, PyObject *kwargs) {
+    static const char *kwlist[] = {"source_nodes", "max_level", "direction", "include_source_nodes", NULL};
+    PyObject *source_nodes_obj = NULL;
+    Py_ssize_t max_level = 0;
+    PyObject *direction_obj = NULL;
+    int include_source_nodes = 0;
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "On|Op", (char **)kwlist, &source_nodes_obj, &max_level, &direction_obj, &include_source_nodes)) {
+        return NULL;
+    }
+    if (!self->network) {
+        PyErr_SetString(PyExc_RuntimeError, "Network is not initialized");
+        return NULL;
+    }
+    if (max_level < 0) {
+        PyErr_SetString(PyExc_ValueError, "max_level must be >= 0");
+        return NULL;
+    }
+
+    CXNeighborDirection direction = CXNeighborDirectionBoth;
+    if (parse_neighbor_direction(direction_obj, &direction) != 0) {
+        return NULL;
+    }
+
+    CXIndex *sources = NULL;
+    CXSize source_count = 0;
+    if (parse_source_nodes(source_nodes_obj, &sources, &source_count) != 0) {
+        return NULL;
+    }
+
+    CXNodeSelectorRef nodeSelector = CXNodeSelectorCreate(0);
+    CXEdgeSelectorRef edgeSelector = CXEdgeSelectorCreate(0);
+    if (!nodeSelector || !edgeSelector) {
+        free(sources);
+        if (nodeSelector) {
+            CXNodeSelectorDestroy(nodeSelector);
+        }
+        if (edgeSelector) {
+            CXEdgeSelectorDestroy(edgeSelector);
+        }
+        PyErr_NoMemory();
+        return NULL;
+    }
+
+    CXBool ok = CXNetworkCollectNeighborsUpToLevel(
+        self->network,
+        sources,
+        source_count,
+        direction,
+        (CXSize)max_level,
+        include_source_nodes ? CXTrue : CXFalse,
+        nodeSelector,
+        edgeSelector
+    );
+    free(sources);
+    if (!ok) {
+        CXNodeSelectorDestroy(nodeSelector);
+        CXEdgeSelectorDestroy(edgeSelector);
+        PyErr_SetString(PyExc_RuntimeError, "Failed to collect neighbors up to level");
+        return NULL;
+    }
+
+    PyObject *result = neighbor_selectors_to_dict(nodeSelector, edgeSelector);
+    CXNodeSelectorDestroy(nodeSelector);
+    CXEdgeSelectorDestroy(edgeSelector);
+    return result;
 }
 
 static PyObject *Network_edges_with_indices(PyHeliosNetwork *self, PyObject *args) {
@@ -1678,6 +2204,483 @@ static PyObject *Network_measure_dimension(PyHeliosNetwork *self, PyObject *args
     return result;
 }
 
+static PyObject *float_buffer_to_list(const float *values, CXSize count) {
+    PyObject *list = PyList_New((Py_ssize_t)count);
+    if (!list) {
+        return NULL;
+    }
+    for (CXSize i = 0; i < count; i++) {
+        PyList_SET_ITEM(list, (Py_ssize_t)i, PyFloat_FromDouble((double)values[i]));
+    }
+    return list;
+}
+
+static PyObject *Network_measure_degree(PyHeliosNetwork *self, PyObject *args, PyObject *kwargs) {
+    static const char *kwlist[] = {"direction", NULL};
+    PyObject *direction_obj = NULL;
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|O", (char **)kwlist, &direction_obj)) {
+        return NULL;
+    }
+    if (!self->network) {
+        PyErr_SetString(PyExc_RuntimeError, "Network is not initialized");
+        return NULL;
+    }
+
+    CXNeighborDirection direction = CXNeighborDirectionBoth;
+    if (parse_neighbor_direction(direction_obj, &direction) != 0) {
+        return NULL;
+    }
+
+    float *values = (float *)calloc(self->network->nodeCapacity, sizeof(float));
+    if (!values) {
+        PyErr_NoMemory();
+        return NULL;
+    }
+    CXBool ok = CXNetworkMeasureDegree(self->network, direction, values);
+    if (!ok) {
+        free(values);
+        PyErr_SetString(PyExc_RuntimeError, "Failed to measure degree");
+        return NULL;
+    }
+
+    PyObject *values_list = float_buffer_to_list(values, self->network->nodeCapacity);
+    free(values);
+    if (!values_list) {
+        return NULL;
+    }
+
+    PyObject *result = PyDict_New();
+    if (!result) {
+        Py_DECREF(values_list);
+        return NULL;
+    }
+    PyObject *direction_out = PyLong_FromLong((long)direction);
+    if (!direction_out) {
+        Py_DECREF(values_list);
+        Py_DECREF(result);
+        return NULL;
+    }
+    PyDict_SetItemString(result, "values_by_node", values_list);
+    PyDict_SetItemString(result, "direction", direction_out);
+    Py_DECREF(values_list);
+    Py_DECREF(direction_out);
+    return result;
+}
+
+static PyObject *Network_measure_strength(PyHeliosNetwork *self, PyObject *args, PyObject *kwargs) {
+    static const char *kwlist[] = {"edge_weight_attribute", "direction", "measure", NULL};
+    const char *edge_weight_attribute = NULL;
+    PyObject *direction_obj = NULL;
+    PyObject *measure_obj = NULL;
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|zOO", (char **)kwlist, &edge_weight_attribute, &direction_obj, &measure_obj)) {
+        return NULL;
+    }
+    if (!self->network) {
+        PyErr_SetString(PyExc_RuntimeError, "Network is not initialized");
+        return NULL;
+    }
+
+    CXNeighborDirection direction = CXNeighborDirectionBoth;
+    if (parse_neighbor_direction(direction_obj, &direction) != 0) {
+        return NULL;
+    }
+    CXStrengthMeasure measure = CXStrengthMeasureSum;
+    if (parse_strength_measure(measure_obj, &measure) != 0) {
+        return NULL;
+    }
+
+    float *values = (float *)calloc(self->network->nodeCapacity, sizeof(float));
+    if (!values) {
+        PyErr_NoMemory();
+        return NULL;
+    }
+    CXBool ok = CXNetworkMeasureStrength(self->network, edge_weight_attribute, direction, measure, values);
+    if (!ok) {
+        free(values);
+        PyErr_SetString(PyExc_RuntimeError, "Failed to measure strength");
+        return NULL;
+    }
+
+    PyObject *values_list = float_buffer_to_list(values, self->network->nodeCapacity);
+    free(values);
+    if (!values_list) {
+        return NULL;
+    }
+
+    PyObject *result = PyDict_New();
+    if (!result) {
+        Py_DECREF(values_list);
+        return NULL;
+    }
+    PyObject *direction_out = PyLong_FromLong((long)direction);
+    PyObject *measure_out = PyLong_FromLong((long)measure);
+    if (!direction_out || !measure_out) {
+        Py_XDECREF(direction_out);
+        Py_XDECREF(measure_out);
+        Py_DECREF(values_list);
+        Py_DECREF(result);
+        return NULL;
+    }
+    PyDict_SetItemString(result, "values_by_node", values_list);
+    PyDict_SetItemString(result, "direction", direction_out);
+    PyDict_SetItemString(result, "measure", measure_out);
+    Py_DECREF(values_list);
+    Py_DECREF(direction_out);
+    Py_DECREF(measure_out);
+    return result;
+}
+
+static PyObject *Network_measure_local_clustering_coefficient(PyHeliosNetwork *self, PyObject *args, PyObject *kwargs) {
+    static const char *kwlist[] = {"edge_weight_attribute", "direction", "variant", NULL};
+    const char *edge_weight_attribute = NULL;
+    PyObject *direction_obj = NULL;
+    PyObject *variant_obj = NULL;
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|zOO", (char **)kwlist, &edge_weight_attribute, &direction_obj, &variant_obj)) {
+        return NULL;
+    }
+    if (!self->network) {
+        PyErr_SetString(PyExc_RuntimeError, "Network is not initialized");
+        return NULL;
+    }
+
+    CXNeighborDirection direction = CXNeighborDirectionBoth;
+    if (parse_neighbor_direction(direction_obj, &direction) != 0) {
+        return NULL;
+    }
+    CXClusteringCoefficientVariant variant = CXClusteringCoefficientUnweighted;
+    if (parse_clustering_variant(variant_obj, &variant) != 0) {
+        return NULL;
+    }
+
+    float *values = (float *)calloc(self->network->nodeCapacity, sizeof(float));
+    if (!values) {
+        PyErr_NoMemory();
+        return NULL;
+    }
+    CXBool ok = CXNetworkMeasureLocalClusteringCoefficient(
+        self->network,
+        edge_weight_attribute,
+        direction,
+        variant,
+        values
+    );
+    if (!ok) {
+        free(values);
+        PyErr_SetString(PyExc_RuntimeError, "Failed to measure local clustering coefficient");
+        return NULL;
+    }
+
+    PyObject *values_list = float_buffer_to_list(values, self->network->nodeCapacity);
+    free(values);
+    if (!values_list) {
+        return NULL;
+    }
+    PyObject *result = PyDict_New();
+    if (!result) {
+        Py_DECREF(values_list);
+        return NULL;
+    }
+    PyObject *direction_out = PyLong_FromLong((long)direction);
+    PyObject *variant_out = PyLong_FromLong((long)variant);
+    if (!direction_out || !variant_out) {
+        Py_XDECREF(direction_out);
+        Py_XDECREF(variant_out);
+        Py_DECREF(values_list);
+        Py_DECREF(result);
+        return NULL;
+    }
+    PyDict_SetItemString(result, "values_by_node", values_list);
+    PyDict_SetItemString(result, "direction", direction_out);
+    PyDict_SetItemString(result, "variant", variant_out);
+    Py_DECREF(values_list);
+    Py_DECREF(direction_out);
+    Py_DECREF(variant_out);
+    return result;
+}
+
+static PyObject *Network_measure_eigenvector_centrality(PyHeliosNetwork *self, PyObject *args, PyObject *kwargs) {
+    static const char *kwlist[] = {"edge_weight_attribute", "direction", "max_iterations", "tolerance", "initial", "execution_mode", NULL};
+    const char *edge_weight_attribute = NULL;
+    PyObject *direction_obj = NULL;
+    Py_ssize_t max_iterations = 100;
+    double tolerance = 1e-6;
+    PyObject *initial_obj = NULL;
+    PyObject *execution_mode_obj = NULL;
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|zOndOO", (char **)kwlist, &edge_weight_attribute, &direction_obj, &max_iterations, &tolerance, &initial_obj, &execution_mode_obj)) {
+        return NULL;
+    }
+    if (!self->network) {
+        PyErr_SetString(PyExc_RuntimeError, "Network is not initialized");
+        return NULL;
+    }
+    if (max_iterations <= 0) {
+        PyErr_SetString(PyExc_ValueError, "max_iterations must be positive");
+        return NULL;
+    }
+
+    CXNeighborDirection direction = CXNeighborDirectionBoth;
+    if (parse_neighbor_direction(direction_obj, &direction) != 0) {
+        return NULL;
+    }
+    CXMeasurementExecutionMode execution_mode = CXMeasurementExecutionParallel;
+    if (parse_execution_mode(execution_mode_obj, &execution_mode) != 0) {
+        return NULL;
+    }
+
+    float *initial_values = NULL;
+    PyObject *initial_fast = NULL;
+    if (initial_obj && initial_obj != Py_None) {
+        initial_fast = PySequence_Fast(initial_obj, "initial must be a sequence with node_capacity values");
+        if (!initial_fast) {
+            return NULL;
+        }
+        Py_ssize_t initial_count = PySequence_Fast_GET_SIZE(initial_fast);
+        if ((CXSize)initial_count != self->network->nodeCapacity) {
+            Py_DECREF(initial_fast);
+            PyErr_SetString(PyExc_ValueError, "initial sequence length must equal node_capacity");
+            return NULL;
+        }
+        initial_values = (float *)calloc(self->network->nodeCapacity, sizeof(float));
+        if (!initial_values) {
+            Py_DECREF(initial_fast);
+            PyErr_NoMemory();
+            return NULL;
+        }
+        for (Py_ssize_t i = 0; i < initial_count; i++) {
+            PyObject *item = PySequence_Fast_GET_ITEM(initial_fast, i);
+            double value = PyFloat_AsDouble(item);
+            if (PyErr_Occurred()) {
+                free(initial_values);
+                Py_DECREF(initial_fast);
+                return NULL;
+            }
+            initial_values[i] = (float)value;
+        }
+    }
+
+    float *values = (float *)calloc(self->network->nodeCapacity, sizeof(float));
+    if (!values) {
+        free(initial_values);
+        Py_XDECREF(initial_fast);
+        PyErr_NoMemory();
+        return NULL;
+    }
+
+    double eigenvalue = 0.0;
+    double delta = 0.0;
+    CXSize iterations = 0;
+    CXBool converged = CXFalse;
+    CXBool ok = CXNetworkMeasureEigenvectorCentrality(
+        self->network,
+        edge_weight_attribute,
+        direction,
+        execution_mode,
+        (CXSize)max_iterations,
+        tolerance,
+        initial_values,
+        values,
+        &eigenvalue,
+        &delta,
+        &iterations,
+        &converged
+    );
+
+    free(initial_values);
+    Py_XDECREF(initial_fast);
+
+    if (!ok) {
+        free(values);
+        PyErr_SetString(PyExc_RuntimeError, "Failed to measure eigenvector centrality");
+        return NULL;
+    }
+
+    PyObject *values_list = float_buffer_to_list(values, self->network->nodeCapacity);
+    free(values);
+    if (!values_list) {
+        return NULL;
+    }
+
+    PyObject *result = PyDict_New();
+    if (!result) {
+        Py_DECREF(values_list);
+        return NULL;
+    }
+    PyObject *direction_out = PyLong_FromLong((long)direction);
+    PyObject *execution_out = PyLong_FromLong((long)execution_mode);
+    PyObject *eigenvalue_out = PyFloat_FromDouble(eigenvalue);
+    PyObject *delta_out = PyFloat_FromDouble(delta);
+    PyObject *iterations_out = PyLong_FromSize_t((size_t)iterations);
+    PyObject *converged_out = PyBool_FromLong(converged ? 1 : 0);
+    if (!direction_out || !execution_out || !eigenvalue_out || !delta_out || !iterations_out || !converged_out) {
+        Py_XDECREF(direction_out);
+        Py_XDECREF(execution_out);
+        Py_XDECREF(eigenvalue_out);
+        Py_XDECREF(delta_out);
+        Py_XDECREF(iterations_out);
+        Py_XDECREF(converged_out);
+        Py_DECREF(values_list);
+        Py_DECREF(result);
+        return NULL;
+    }
+    PyDict_SetItemString(result, "values_by_node", values_list);
+    PyDict_SetItemString(result, "direction", direction_out);
+    PyDict_SetItemString(result, "execution_mode", execution_out);
+    PyDict_SetItemString(result, "eigenvalue", eigenvalue_out);
+    PyDict_SetItemString(result, "delta", delta_out);
+    PyDict_SetItemString(result, "iterations", iterations_out);
+    PyDict_SetItemString(result, "converged", converged_out);
+    Py_DECREF(values_list);
+    Py_DECREF(direction_out);
+    Py_DECREF(execution_out);
+    Py_DECREF(eigenvalue_out);
+    Py_DECREF(delta_out);
+    Py_DECREF(iterations_out);
+    Py_DECREF(converged_out);
+    return result;
+}
+
+static PyObject *Network_measure_betweenness_centrality(PyHeliosNetwork *self, PyObject *args, PyObject *kwargs) {
+    static const char *kwlist[] = {"edge_weight_attribute", "source_nodes", "normalize", "accumulate", "initial", "execution_mode", NULL};
+    const char *edge_weight_attribute = NULL;
+    PyObject *source_nodes_obj = NULL;
+    int normalize = 1;
+    int accumulate = 0;
+    PyObject *initial_obj = NULL;
+    PyObject *execution_mode_obj = NULL;
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|zOppOO", (char **)kwlist, &edge_weight_attribute, &source_nodes_obj, &normalize, &accumulate, &initial_obj, &execution_mode_obj)) {
+        return NULL;
+    }
+    if (!self->network) {
+        PyErr_SetString(PyExc_RuntimeError, "Network is not initialized");
+        return NULL;
+    }
+
+    CXMeasurementExecutionMode execution_mode = CXMeasurementExecutionParallel;
+    if (parse_execution_mode(execution_mode_obj, &execution_mode) != 0) {
+        return NULL;
+    }
+
+    CXIndex *source_nodes = NULL;
+    CXSize source_count = 0;
+    PyObject *source_fast = NULL;
+    if (source_nodes_obj && source_nodes_obj != Py_None) {
+        source_fast = PySequence_Fast(source_nodes_obj, "source_nodes must be a sequence");
+        if (!source_fast) {
+            return NULL;
+        }
+        Py_ssize_t py_count = PySequence_Fast_GET_SIZE(source_fast);
+        if (py_count > 0) {
+            source_nodes = (CXIndex *)calloc((size_t)py_count, sizeof(CXIndex));
+            if (!source_nodes) {
+                Py_DECREF(source_fast);
+                PyErr_NoMemory();
+                return NULL;
+            }
+            for (Py_ssize_t i = 0; i < py_count; i++) {
+                PyObject *item = PySequence_Fast_GET_ITEM(source_fast, i);
+                unsigned long value = PyLong_AsUnsignedLong(item);
+                if (PyErr_Occurred()) {
+                    free(source_nodes);
+                    Py_DECREF(source_fast);
+                    return NULL;
+                }
+                source_nodes[source_count++] = (CXIndex)value;
+            }
+        }
+    }
+
+    float *values = (float *)calloc(self->network->nodeCapacity, sizeof(float));
+    if (!values) {
+        free(source_nodes);
+        Py_XDECREF(source_fast);
+        PyErr_NoMemory();
+        return NULL;
+    }
+
+    PyObject *initial_fast = NULL;
+    if (initial_obj && initial_obj != Py_None) {
+        initial_fast = PySequence_Fast(initial_obj, "initial must be a sequence with node_capacity values");
+        if (!initial_fast) {
+            free(values);
+            free(source_nodes);
+            Py_XDECREF(source_fast);
+            return NULL;
+        }
+        Py_ssize_t initial_count = PySequence_Fast_GET_SIZE(initial_fast);
+        if ((CXSize)initial_count != self->network->nodeCapacity) {
+            Py_DECREF(initial_fast);
+            free(values);
+            free(source_nodes);
+            Py_XDECREF(source_fast);
+            PyErr_SetString(PyExc_ValueError, "initial sequence length must equal node_capacity");
+            return NULL;
+        }
+        for (Py_ssize_t i = 0; i < initial_count; i++) {
+            PyObject *item = PySequence_Fast_GET_ITEM(initial_fast, i);
+            double value = PyFloat_AsDouble(item);
+            if (PyErr_Occurred()) {
+                Py_DECREF(initial_fast);
+                free(values);
+                free(source_nodes);
+                Py_XDECREF(source_fast);
+                return NULL;
+            }
+            values[i] = (float)value;
+        }
+    }
+
+    CXSize processed_sources = CXNetworkMeasureBetweennessCentrality(
+        self->network,
+        edge_weight_attribute,
+        execution_mode,
+        source_nodes,
+        source_count,
+        normalize ? CXTrue : CXFalse,
+        accumulate ? CXTrue : CXFalse,
+        values
+    );
+
+    Py_XDECREF(initial_fast);
+    free(source_nodes);
+    Py_XDECREF(source_fast);
+
+    PyObject *values_list = float_buffer_to_list(values, self->network->nodeCapacity);
+    free(values);
+    if (!values_list) {
+        return NULL;
+    }
+
+    PyObject *result = PyDict_New();
+    if (!result) {
+        Py_DECREF(values_list);
+        return NULL;
+    }
+    PyObject *processed_out = PyLong_FromSize_t((size_t)processed_sources);
+    PyObject *normalize_out = PyBool_FromLong(normalize ? 1 : 0);
+    PyObject *accumulate_out = PyBool_FromLong(accumulate ? 1 : 0);
+    PyObject *execution_out = PyLong_FromLong((long)execution_mode);
+    if (!processed_out || !normalize_out || !accumulate_out || !execution_out) {
+        Py_XDECREF(processed_out);
+        Py_XDECREF(normalize_out);
+        Py_XDECREF(accumulate_out);
+        Py_XDECREF(execution_out);
+        Py_DECREF(values_list);
+        Py_DECREF(result);
+        return NULL;
+    }
+    PyDict_SetItemString(result, "values_by_node", values_list);
+    PyDict_SetItemString(result, "processed_sources", processed_out);
+    PyDict_SetItemString(result, "normalize", normalize_out);
+    PyDict_SetItemString(result, "accumulate", accumulate_out);
+    PyDict_SetItemString(result, "execution_mode", execution_out);
+    Py_DECREF(values_list);
+    Py_DECREF(processed_out);
+    Py_DECREF(normalize_out);
+    Py_DECREF(accumulate_out);
+    Py_DECREF(execution_out);
+    return result;
+}
+
 static PyMethodDef Network_methods[] = {
     {"node_count", (PyCFunction)Network_node_count, METH_NOARGS, "Return number of active nodes."},
     {"edge_count", (PyCFunction)Network_edge_count, METH_NOARGS, "Return number of active edges."},
@@ -1692,6 +2695,11 @@ static PyMethodDef Network_methods[] = {
     {"node_indices", (PyCFunction)Network_node_indices, METH_NOARGS, "Return list of active node indices."},
     {"edge_indices", (PyCFunction)Network_edge_indices, METH_NOARGS, "Return list of active edge indices."},
     {"edge_endpoints", (PyCFunction)Network_edge_endpoints, METH_VARARGS, "Return (source, target) for edge index."},
+    {"out_neighbors", (PyCFunction)Network_out_neighbors, METH_VARARGS, "Return outgoing neighbors for one node."},
+    {"in_neighbors", (PyCFunction)Network_in_neighbors, METH_VARARGS, "Return incoming neighbors for one node."},
+    {"neighbors", (PyCFunction)Network_neighbors, METH_VARARGS | METH_KEYWORDS, "Return one-hop neighbors for source node(s)."},
+    {"neighbors_at_level", (PyCFunction)Network_neighbors_at_level, METH_VARARGS | METH_KEYWORDS, "Return neighbors at an exact concentric level."},
+    {"neighbors_up_to_level", (PyCFunction)Network_neighbors_up_to_level, METH_VARARGS | METH_KEYWORDS, "Return neighbors up to a concentric level."},
     {"edges_with_indices", (PyCFunction)Network_edges_with_indices, METH_NOARGS, "Return list of (edge_index, (source, target))."},
     {"define_attribute", (PyCFunction)Network_define_attribute, METH_VARARGS, "Define an attribute."},
     {"list_attributes", (PyCFunction)Network_list_attributes, METH_VARARGS, "List attribute names for a scope."},
@@ -1708,6 +2716,11 @@ static PyMethodDef Network_methods[] = {
     {"decategorize_attribute", (PyCFunction)Network_decategorize_attribute, METH_VARARGS | METH_KEYWORDS, "Convert categorical attribute to strings."},
     {"get_category_dictionary", (PyCFunction)Network_get_category_dictionary, METH_VARARGS, "Get categorical dictionary as {label: id}."},
     {"set_category_dictionary", (PyCFunction)Network_set_category_dictionary, METH_VARARGS | METH_KEYWORDS, "Set categorical dictionary from mapping or pairs."},
+    {"measure_degree", (PyCFunction)Network_measure_degree, METH_VARARGS | METH_KEYWORDS, "Measure node degree values."},
+    {"measure_strength", (PyCFunction)Network_measure_strength, METH_VARARGS | METH_KEYWORDS, "Measure node strength values."},
+    {"measure_local_clustering_coefficient", (PyCFunction)Network_measure_local_clustering_coefficient, METH_VARARGS | METH_KEYWORDS, "Measure local clustering coefficient values."},
+    {"measure_eigenvector_centrality", (PyCFunction)Network_measure_eigenvector_centrality, METH_VARARGS | METH_KEYWORDS, "Measure eigenvector centrality values."},
+    {"measure_betweenness_centrality", (PyCFunction)Network_measure_betweenness_centrality, METH_VARARGS | METH_KEYWORDS, "Measure betweenness centrality values."},
     {"measure_node_dimension", (PyCFunction)Network_measure_node_dimension, METH_VARARGS | METH_KEYWORDS, "Measure local multiscale dimension for one node."},
     {"measure_dimension", (PyCFunction)Network_measure_dimension, METH_VARARGS | METH_KEYWORDS, "Measure global multiscale dimension statistics."},
     {NULL, NULL, 0, NULL}
@@ -1841,6 +2854,23 @@ PyMODINIT_FUNC PyInit__core(void) {
     PyModule_AddIntConstant(module, "DIMENSION_METHOD_BACKWARD", CXDimensionBackwardDifferenceMethod);
     PyModule_AddIntConstant(module, "DIMENSION_METHOD_CENTRAL", CXDimensionCentralDifferenceMethod);
     PyModule_AddIntConstant(module, "DIMENSION_METHOD_LEAST_SQUARES", CXDimensionLeastSquaresDifferenceMethod);
+
+    PyModule_AddIntConstant(module, "NEIGHBOR_DIRECTION_OUT", CXNeighborDirectionOut);
+    PyModule_AddIntConstant(module, "NEIGHBOR_DIRECTION_IN", CXNeighborDirectionIn);
+    PyModule_AddIntConstant(module, "NEIGHBOR_DIRECTION_BOTH", CXNeighborDirectionBoth);
+
+    PyModule_AddIntConstant(module, "STRENGTH_MEASURE_SUM", CXStrengthMeasureSum);
+    PyModule_AddIntConstant(module, "STRENGTH_MEASURE_AVERAGE", CXStrengthMeasureAverage);
+    PyModule_AddIntConstant(module, "STRENGTH_MEASURE_MAXIMUM", CXStrengthMeasureMaximum);
+    PyModule_AddIntConstant(module, "STRENGTH_MEASURE_MINIMUM", CXStrengthMeasureMinimum);
+
+    PyModule_AddIntConstant(module, "CLUSTERING_VARIANT_UNWEIGHTED", CXClusteringCoefficientUnweighted);
+    PyModule_AddIntConstant(module, "CLUSTERING_VARIANT_ONNELA", CXClusteringCoefficientOnnela);
+    PyModule_AddIntConstant(module, "CLUSTERING_VARIANT_NEWMAN", CXClusteringCoefficientNewman);
+
+    PyModule_AddIntConstant(module, "MEASUREMENT_EXECUTION_AUTO", CXMeasurementExecutionAuto);
+    PyModule_AddIntConstant(module, "MEASUREMENT_EXECUTION_SINGLE_THREAD", CXMeasurementExecutionSingleThread);
+    PyModule_AddIntConstant(module, "MEASUREMENT_EXECUTION_PARALLEL", CXMeasurementExecutionParallel);
 
     return module;
 }

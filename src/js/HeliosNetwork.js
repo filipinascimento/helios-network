@@ -42,6 +42,31 @@ const DimensionDifferenceMethod = Object.freeze({
 	LeastSquares: 3,
 });
 
+const NeighborDirection = Object.freeze({
+	Out: 0,
+	In: 1,
+	Both: 2,
+});
+
+const StrengthMeasure = Object.freeze({
+	Sum: 0,
+	Average: 1,
+	Maximum: 2,
+	Minimum: 3,
+});
+
+const ClusteringCoefficientVariant = Object.freeze({
+	Unweighted: 0,
+	Onnela: 1,
+	Newman: 2,
+});
+
+const MeasurementExecutionMode = Object.freeze({
+	Auto: 0,
+	SingleThread: 1,
+	Parallel: 2,
+});
+
 const DIMENSION_FORWARD_MAX_ORDER = 6;
 const DIMENSION_BACKWARD_MAX_ORDER = 6;
 const DIMENSION_CENTRAL_MAX_ORDER = 4;
@@ -1191,47 +1216,64 @@ class NodeSelector extends Selector {
 			includeEdges = false,
 			asSelector = false,
 		} = options;
+		return this.network.getNeighborsForNodes(this.toTypedArray(), {
+			direction: mode,
+			includeEdges,
+			asSelector,
+			includeSourceNodes: true,
+		});
+	}
 
-		const collectOut = mode === 'out' || mode === 'both' || mode === 'all';
-		const collectIn = mode === 'in' || mode === 'both' || mode === 'all';
-		const nodeSet = new Set();
-		const edgeSet = includeEdges ? new Set() : null;
+	/**
+	 * Computes neighbors at exactly the requested hop distance from this selector.
+	 *
+	 * @param {number} level - Target concentric level (0 = sources).
+	 * @param {Object} [options] - Query options.
+	 * @param {'out'|'in'|'both'|'all'} [options.mode='out'] - Traversal direction.
+	 * @param {boolean} [options.includeEdges=false] - When true, include traversed edge ids.
+	 * @param {boolean} [options.includeSources=false] - Whether source nodes can appear in results.
+	 * @param {boolean} [options.asSelector=false] - When true, returns selector proxies.
+	 * @returns {(Uint32Array|{nodes:(Uint32Array|NodeSelector), edges:(Uint32Array|EdgeSelector)})}
+	 */
+	neighborsAtLevel(level, options = {}) {
+		const {
+			mode = 'out',
+			includeEdges = false,
+			includeSources = false,
+			asSelector = false,
+		} = options;
+		return this.network.getNeighborsAtLevel(this.toTypedArray(), level, {
+			direction: mode,
+			includeEdges,
+			includeSourceNodes: includeSources,
+			asSelector,
+		});
+	}
 
-		for (const node of this) {
-			if (collectOut) {
-				const { nodes, edges } = this.network.getOutNeighbors(node);
-				for (const neighbor of nodes) {
-					nodeSet.add(neighbor);
-				}
-				if (edgeSet) {
-					for (const edge of edges) {
-						edgeSet.add(edge);
-					}
-				}
-			}
-			if (collectIn) {
-				const { nodes, edges } = this.network.getInNeighbors(node);
-				for (const neighbor of nodes) {
-					nodeSet.add(neighbor);
-				}
-				if (edgeSet) {
-					for (const edge of edges) {
-						edgeSet.add(edge);
-					}
-				}
-			}
-		}
-
-		const nodesArray = setToUint32Array(nodeSet);
-		if (!includeEdges) {
-			return asSelector ? NodeSelector.fromIndices(this.network, nodesArray) : nodesArray;
-		}
-
-		const edgesArray = edgeSet ? setToUint32Array(edgeSet) : new Uint32Array();
-		return {
-			nodes: asSelector ? NodeSelector.fromIndices(this.network, nodesArray) : nodesArray,
-			edges: asSelector ? EdgeSelector.fromIndices(this.network, edgesArray) : edgesArray,
-		};
+	/**
+	 * Computes neighbors up to the requested hop distance from this selector.
+	 *
+	 * @param {number} maxLevel - Maximum concentric level (inclusive).
+	 * @param {Object} [options] - Query options.
+	 * @param {'out'|'in'|'both'|'all'} [options.mode='out'] - Traversal direction.
+	 * @param {boolean} [options.includeEdges=false] - When true, include traversed edge ids.
+	 * @param {boolean} [options.includeSources=false] - Whether source nodes can appear in results.
+	 * @param {boolean} [options.asSelector=false] - When true, returns selector proxies.
+	 * @returns {(Uint32Array|{nodes:(Uint32Array|NodeSelector), edges:(Uint32Array|EdgeSelector)})}
+	 */
+	neighborsUpToLevel(maxLevel, options = {}) {
+		const {
+			mode = 'out',
+			includeEdges = false,
+			includeSources = false,
+			asSelector = false,
+		} = options;
+		return this.network.getNeighborsUpToLevel(this.toTypedArray(), maxLevel, {
+			direction: mode,
+			includeEdges,
+			includeSourceNodes: includeSources,
+			asSelector,
+		});
 	}
 
 	/**
@@ -4828,6 +4870,227 @@ export class HeliosNetwork extends BaseEventTarget {
 	}
 
 	/**
+	 * Returns one-hop neighbors of a node with configurable direction.
+	 *
+	 * @param {number} node - Source node index.
+	 * @param {object} [options]
+	 * @param {(number|string)} [options.direction='both'] - out/in/both direction.
+	 * @param {boolean} [options.includeEdges=true] - Include traversed edge ids.
+	 * @param {boolean} [options.includeSourceNodes=true] - Allow source node in results.
+	 * @returns {Uint32Array|{nodes:Uint32Array,edges:Uint32Array}} Neighbor nodes (and optional edges).
+	 */
+	getNeighbors(node, options = {}) {
+		return this.getNeighborsForNodes([node], options);
+	}
+
+	/**
+	 * Returns unique one-hop neighbors for a sequence of source nodes.
+	 *
+	 * @param {Iterable<number>|Uint32Array} sourceNodes - Source node ids.
+	 * @param {object} [options]
+	 * @param {(number|string)} [options.direction='both'] - out/in/both direction.
+	 * @param {boolean} [options.includeEdges=true] - Include traversed edge ids.
+	 * @param {boolean} [options.includeSourceNodes=true] - Allow source nodes in results.
+	 * @param {boolean} [options.asSelector=false] - Return selectors instead of arrays.
+	 * @returns {(Uint32Array|NodeSelector)|{nodes:(Uint32Array|NodeSelector),edges:(Uint32Array|EdgeSelector)}}
+	 */
+	getNeighborsForNodes(sourceNodes, options = {}) {
+		const {
+			direction = 'both',
+			includeEdges = true,
+			includeSourceNodes = true,
+			asSelector = false,
+		} = options;
+		return this._collectNeighborsNative({
+			sourceNodes,
+			direction,
+			includeEdges,
+			includeSourceNodes,
+			asSelector,
+			mode: 'one-hop',
+		});
+	}
+
+	/**
+	 * Returns neighbors at exactly the given concentric level.
+	 *
+	 * @param {number|Iterable<number>|Uint32Array} sourceNodes - Source node id(s).
+	 * @param {number} level - Hop distance (0 = source set).
+	 * @param {object} [options]
+	 * @param {(number|string)} [options.direction='both'] - out/in/both direction.
+	 * @param {boolean} [options.includeEdges=true] - Include traversed edge ids.
+	 * @param {boolean} [options.includeSourceNodes=false] - Allow source nodes in results.
+	 * @param {boolean} [options.asSelector=false] - Return selectors instead of arrays.
+	 * @returns {(Uint32Array|NodeSelector)|{nodes:(Uint32Array|NodeSelector),edges:(Uint32Array|EdgeSelector)}}
+	 */
+	getNeighborsAtLevel(sourceNodes, level, options = {}) {
+		const {
+			direction = 'both',
+			includeEdges = true,
+			includeSourceNodes = false,
+			asSelector = false,
+		} = options;
+		const numericLevel = Number(level);
+		const normalizedLevel = Number.isFinite(numericLevel) && numericLevel > 0
+			? Math.floor(numericLevel)
+			: 0;
+		return this._collectNeighborsNative({
+			sourceNodes,
+			direction,
+			includeEdges,
+			includeSourceNodes,
+			asSelector,
+			mode: 'exact-level',
+			level: normalizedLevel,
+		});
+	}
+
+	/**
+	 * Returns neighbors up to and including the given concentric level.
+	 *
+	 * @param {number|Iterable<number>|Uint32Array} sourceNodes - Source node id(s).
+	 * @param {number} maxLevel - Maximum hop distance (inclusive).
+	 * @param {object} [options]
+	 * @param {(number|string)} [options.direction='both'] - out/in/both direction.
+	 * @param {boolean} [options.includeEdges=true] - Include traversed edge ids.
+	 * @param {boolean} [options.includeSourceNodes=false] - Allow source nodes in results.
+	 * @param {boolean} [options.asSelector=false] - Return selectors instead of arrays.
+	 * @returns {(Uint32Array|NodeSelector)|{nodes:(Uint32Array|NodeSelector),edges:(Uint32Array|EdgeSelector)}}
+	 */
+	getNeighborsUpToLevel(sourceNodes, maxLevel, options = {}) {
+		const {
+			direction = 'both',
+			includeEdges = true,
+			includeSourceNodes = false,
+			asSelector = false,
+		} = options;
+		const numericLevel = Number(maxLevel);
+		const normalizedLevel = Number.isFinite(numericLevel) && numericLevel > 0
+			? Math.floor(numericLevel)
+			: 0;
+		return this._collectNeighborsNative({
+			sourceNodes,
+			direction,
+			includeEdges,
+			includeSourceNodes,
+			asSelector,
+			mode: 'up-to-level',
+			level: normalizedLevel,
+		});
+	}
+
+	_collectNeighborsNative({
+		sourceNodes,
+		direction = 'both',
+		includeEdges = true,
+		includeSourceNodes = false,
+		asSelector = false,
+		mode = 'one-hop',
+		level = 0,
+	}) {
+		this._ensureActive();
+		this._assertCanAllocate('neighbor collection');
+
+		const sourceArray = this._normalizeNeighborSourceNodes(sourceNodes);
+		const sourceInfo = this._copyIndicesToWasm(sourceArray);
+		const nodeSelector = NodeSelector.create(this.module, this);
+		const edgeSelector = includeEdges ? EdgeSelector.create(this.module, this) : null;
+		const directionId = this._normalizeNeighborDirection(direction) >>> 0;
+		const includeSourcesFlag = includeSourceNodes ? 1 : 0;
+
+		const fn = mode === 'one-hop'
+			? this.module._CXNetworkCollectNeighbors
+			: mode === 'exact-level'
+				? this.module._CXNetworkCollectNeighborsAtLevel
+				: this.module._CXNetworkCollectNeighborsUpToLevel;
+		if (typeof fn !== 'function') {
+			sourceInfo.dispose();
+			nodeSelector.dispose();
+			if (edgeSelector) {
+				edgeSelector.dispose();
+			}
+			throw new Error('Neighbor collection helpers are unavailable in this WASM build. Rebuild the module to enable neighbor traversal APIs.');
+		}
+
+		let ok = false;
+		try {
+			if (mode === 'one-hop') {
+				ok = fn.call(
+					this.module,
+					this.ptr,
+					sourceInfo.ptr,
+					sourceInfo.count,
+					directionId,
+					includeSourcesFlag,
+					nodeSelector.ptr,
+					edgeSelector ? edgeSelector.ptr : 0
+				);
+			} else {
+				ok = fn.call(
+					this.module,
+					this.ptr,
+					sourceInfo.ptr,
+					sourceInfo.count,
+					directionId,
+					level >>> 0,
+					includeSourcesFlag,
+					nodeSelector.ptr,
+					edgeSelector ? edgeSelector.ptr : 0
+				);
+			}
+		} finally {
+			sourceInfo.dispose();
+		}
+		if (!ok) {
+			nodeSelector.dispose();
+			if (edgeSelector) {
+				edgeSelector.dispose();
+			}
+			throw new Error('Neighbor collection failed');
+		}
+
+		const nodes = nodeSelector.toTypedArray();
+		nodeSelector.dispose();
+		if (!includeEdges) {
+			return asSelector ? NodeSelector.fromIndices(this, nodes) : nodes;
+		}
+		const edges = edgeSelector ? edgeSelector.toTypedArray() : new Uint32Array();
+		if (edgeSelector) {
+			edgeSelector.dispose();
+		}
+		if (asSelector) {
+			return {
+				nodes: NodeSelector.fromIndices(this, nodes),
+				edges: EdgeSelector.fromIndices(this, edges),
+			};
+		}
+		return { nodes, edges };
+	}
+
+	_normalizeNeighborSourceNodes(sourceNodes) {
+		if (sourceNodes == null) {
+			return new Uint32Array();
+		}
+		if (typeof sourceNodes === 'number') {
+			const value = Number(sourceNodes);
+			if (!Number.isFinite(value) || value < 0) {
+				return new Uint32Array();
+			}
+			return Uint32Array.of(value >>> 0);
+		}
+		const iterable = ArrayBuffer.isView(sourceNodes) ? sourceNodes : Array.from(sourceNodes);
+		const out = [];
+		for (let i = 0; i < iterable.length; i += 1) {
+			const value = Number(iterable[i]);
+			if (!Number.isFinite(value) || value < 0) {
+				continue;
+			}
+			out.push(value >>> 0);
+		}
+		return Uint32Array.from(out);
+	}
+
+	/**
 	 * Hydrates a native neighbor container into JavaScript typed arrays.
 	 * @private
 	 *
@@ -6245,6 +6508,124 @@ export class HeliosNetwork extends BaseEventTarget {
 			throw new Error(`order must be <= ${maxOrder} for method ${method}`);
 		}
 		return order;
+	}
+
+	_normalizeNeighborDirection(value) {
+		if (typeof value === 'number' && Number.isFinite(value)) {
+			const n = value | 0;
+			if (n >= NeighborDirection.Out && n <= NeighborDirection.Both) {
+				return n;
+			}
+		}
+		if (typeof value === 'string') {
+			const normalized = value.trim().toLowerCase();
+			if (normalized === 'out' || normalized === 'outgoing') return NeighborDirection.Out;
+			if (normalized === 'in' || normalized === 'incoming') return NeighborDirection.In;
+			if (normalized === 'both' || normalized === 'all' || normalized === 'union') return NeighborDirection.Both;
+		}
+		return NeighborDirection.Both;
+	}
+
+	_normalizeStrengthMeasure(value) {
+		if (typeof value === 'number' && Number.isFinite(value)) {
+			const n = value | 0;
+			if (n >= StrengthMeasure.Sum && n <= StrengthMeasure.Minimum) {
+				return n;
+			}
+		}
+		if (typeof value === 'string') {
+			const normalized = value.trim().toLowerCase();
+			if (normalized === 'sum' || normalized === 'total') return StrengthMeasure.Sum;
+			if (normalized === 'avg' || normalized === 'average' || normalized === 'mean') return StrengthMeasure.Average;
+			if (normalized === 'max' || normalized === 'maximum') return StrengthMeasure.Maximum;
+			if (normalized === 'min' || normalized === 'minimum') return StrengthMeasure.Minimum;
+		}
+		return StrengthMeasure.Sum;
+	}
+
+	_normalizeClusteringVariant(value) {
+		if (typeof value === 'number' && Number.isFinite(value)) {
+			const n = value | 0;
+			if (n >= ClusteringCoefficientVariant.Unweighted && n <= ClusteringCoefficientVariant.Newman) {
+				return n;
+			}
+		}
+		if (typeof value === 'string') {
+			const normalized = value.trim().toLowerCase();
+			if (normalized === 'unweighted' || normalized === 'binary') return ClusteringCoefficientVariant.Unweighted;
+			if (normalized === 'onnela') return ClusteringCoefficientVariant.Onnela;
+			if (normalized === 'newman' || normalized === 'barrat' || normalized === 'weighted') return ClusteringCoefficientVariant.Newman;
+		}
+		return ClusteringCoefficientVariant.Unweighted;
+	}
+
+	_normalizeMeasurementExecutionMode(value, fallback = MeasurementExecutionMode.Auto) {
+		if (typeof value === 'number' && Number.isFinite(value)) {
+			const n = value | 0;
+			if (n >= MeasurementExecutionMode.Auto && n <= MeasurementExecutionMode.Parallel) {
+				return n;
+			}
+		}
+		if (typeof value === 'string') {
+			const normalized = value.trim().toLowerCase();
+			if (normalized === 'auto') return MeasurementExecutionMode.Auto;
+			if (normalized === 'single' || normalized === 'singlethread' || normalized === 'single-thread' || normalized === 'js') {
+				return MeasurementExecutionMode.SingleThread;
+			}
+			if (normalized === 'parallel' || normalized === 'native') return MeasurementExecutionMode.Parallel;
+		}
+		return fallback;
+	}
+
+	_normalizeNodeSelection(nodes) {
+		if (nodes == null) {
+			return this.nodeIndices;
+		}
+		const source = ArrayBuffer.isView(nodes) ? nodes : Array.from(nodes);
+		const out = [];
+		for (let i = 0; i < source.length; i += 1) {
+			const raw = Number(source[i]);
+			if (!Number.isFinite(raw) || raw < 0) {
+				continue;
+			}
+			const node = raw >>> 0;
+			if (this.hasNodeIndex(node)) {
+				out.push(node);
+			}
+		}
+		return Uint32Array.from(out);
+	}
+
+	_collectNodeMetricResult(valuesByNode, nodes = null) {
+		const nodeIndices = this._normalizeNodeSelection(nodes);
+		const values = new Float32Array(nodeIndices.length);
+		for (let i = 0; i < nodeIndices.length; i += 1) {
+			values[i] = valuesByNode[nodeIndices[i]] ?? 0;
+		}
+		return { nodeIndices, values, valuesByNode };
+	}
+
+	_copyFloat32NodeValuesToWasm(values) {
+		if (!values) {
+			return { ptr: 0, dispose: () => {} };
+		}
+		const source = ArrayBuffer.isView(values) ? values : Array.from(values);
+		if (source.length !== this.nodeCapacity) {
+			throw new Error(`Expected ${this.nodeCapacity} initial values (nodeCapacity)`);
+		}
+		const ptr = this.module._malloc(this.nodeCapacity * Float32Array.BYTES_PER_ELEMENT);
+		if (!ptr) {
+			throw new Error('Failed to allocate initial node value buffer');
+		}
+		const view = new Float32Array(this.module.HEAPF32.buffer, ptr, this.nodeCapacity);
+		for (let i = 0; i < this.nodeCapacity; i += 1) {
+			const value = Number(source[i]);
+			view[i] = Number.isFinite(value) ? value : 0;
+		}
+		return {
+			ptr,
+			dispose: () => this.module._free(ptr),
+		};
 	}
 
 	_normalizeCategorySortOrder(value) {
@@ -7913,6 +8294,313 @@ export class HeliosNetwork extends BaseEventTarget {
 	}
 
 	/**
+	 * Measures degree for selected nodes.
+	 *
+	 * @param {object} [options]
+	 * @param {(number|string)} [options.direction='both'] - out/in/both
+	 * @param {Array<number>|TypedArray|null} [options.nodes=null] - Optional node subset.
+	 * @returns {{nodeIndices:Uint32Array, values:Float32Array, valuesByNode:Float32Array, direction:number}}
+	 */
+	measureDegree(options = {}) {
+		this._ensureActive();
+		this._assertCanAllocate('degree measurement');
+		if (typeof this.module._CXNetworkMeasureDegree !== 'function') {
+			throw new Error('CXNetworkMeasureDegree is not available in this WASM build. Rebuild the module to enable measureDegree().');
+		}
+
+		const direction = this._normalizeNeighborDirection(options.direction ?? 'both');
+		const outPtr = this.module._malloc(this.nodeCapacity * Float32Array.BYTES_PER_ELEMENT);
+		if (!outPtr) {
+			throw new Error('Failed to allocate WASM buffer for degree measurement');
+		}
+		try {
+			const ok = this.module._CXNetworkMeasureDegree(this.ptr, direction >>> 0, outPtr);
+			if (!ok) {
+				throw new Error('Degree measurement failed');
+			}
+			const valuesByNode = new Float32Array(this.module.HEAPF32.buffer, outPtr, this.nodeCapacity).slice();
+			const result = this._collectNodeMetricResult(valuesByNode, options.nodes ?? null);
+			return { ...result, direction };
+		} finally {
+			this.module._free(outPtr);
+		}
+	}
+
+	/**
+	 * Measures weighted node strength.
+	 *
+	 * @param {object} [options]
+	 * @param {string|null} [options.edgeWeightAttribute=null] - Edge attribute name (dimension 1).
+	 * @param {(number|string)} [options.direction='both'] - out/in/both
+	 * @param {(number|string)} [options.measure='sum'] - sum/average/maximum/minimum
+	 * @param {Array<number>|TypedArray|null} [options.nodes=null] - Optional node subset.
+	 * @returns {{nodeIndices:Uint32Array, values:Float32Array, valuesByNode:Float32Array, direction:number, measure:number}}
+	 */
+	measureStrength(options = {}) {
+		this._ensureActive();
+		this._assertCanAllocate('strength measurement');
+		if (typeof this.module._CXNetworkMeasureStrength !== 'function') {
+			throw new Error('CXNetworkMeasureStrength is not available in this WASM build. Rebuild the module to enable measureStrength().');
+		}
+
+		const direction = this._normalizeNeighborDirection(options.direction ?? 'both');
+		const measure = this._normalizeStrengthMeasure(options.measure ?? 'sum');
+		const edgeWeightAttribute = options.edgeWeightAttribute ?? null;
+		const weightName = edgeWeightAttribute ? new CString(this.module, String(edgeWeightAttribute)) : null;
+		const outPtr = this.module._malloc(this.nodeCapacity * Float32Array.BYTES_PER_ELEMENT);
+		if (!outPtr) {
+			if (weightName) weightName.dispose();
+			throw new Error('Failed to allocate WASM buffer for strength measurement');
+		}
+		try {
+			const ok = this.module._CXNetworkMeasureStrength(
+				this.ptr,
+				weightName ? weightName.ptr : 0,
+				direction >>> 0,
+				measure >>> 0,
+				outPtr
+			);
+			if (!ok) {
+				throw new Error('Strength measurement failed');
+			}
+			const valuesByNode = new Float32Array(this.module.HEAPF32.buffer, outPtr, this.nodeCapacity).slice();
+			const result = this._collectNodeMetricResult(valuesByNode, options.nodes ?? null);
+			return { ...result, direction, measure };
+		} finally {
+			this.module._free(outPtr);
+			if (weightName) {
+				weightName.dispose();
+			}
+		}
+	}
+
+	/**
+	 * Measures local clustering coefficients.
+	 *
+	 * @param {object} [options]
+	 * @param {(number|string)} [options.variant='unweighted'] - unweighted/onnela/newman
+	 * @param {string|null} [options.edgeWeightAttribute=null] - Required for weighted variants.
+	 * @param {(number|string)} [options.direction='both'] - out/in/both
+	 * @param {Array<number>|TypedArray|null} [options.nodes=null] - Optional node subset.
+	 * @returns {{nodeIndices:Uint32Array, values:Float32Array, valuesByNode:Float32Array, direction:number, variant:number}}
+	 */
+	measureLocalClusteringCoefficient(options = {}) {
+		this._ensureActive();
+		this._assertCanAllocate('local clustering measurement');
+		if (typeof this.module._CXNetworkMeasureLocalClusteringCoefficient !== 'function') {
+			throw new Error('CXNetworkMeasureLocalClusteringCoefficient is not available in this WASM build. Rebuild the module to enable measureLocalClusteringCoefficient().');
+		}
+
+		const direction = this._normalizeNeighborDirection(options.direction ?? 'both');
+		const variant = this._normalizeClusteringVariant(options.variant ?? 'unweighted');
+		const edgeWeightAttribute = options.edgeWeightAttribute ?? null;
+		const weightName = edgeWeightAttribute ? new CString(this.module, String(edgeWeightAttribute)) : null;
+		const outPtr = this.module._malloc(this.nodeCapacity * Float32Array.BYTES_PER_ELEMENT);
+		if (!outPtr) {
+			if (weightName) weightName.dispose();
+			throw new Error('Failed to allocate WASM buffer for clustering measurement');
+		}
+		try {
+			const ok = this.module._CXNetworkMeasureLocalClusteringCoefficient(
+				this.ptr,
+				weightName ? weightName.ptr : 0,
+				direction >>> 0,
+				variant >>> 0,
+				outPtr
+			);
+			if (!ok) {
+				throw new Error('Local clustering coefficient measurement failed');
+			}
+			const valuesByNode = new Float32Array(this.module.HEAPF32.buffer, outPtr, this.nodeCapacity).slice();
+			const result = this._collectNodeMetricResult(valuesByNode, options.nodes ?? null);
+			return { ...result, direction, variant };
+		} finally {
+			this.module._free(outPtr);
+			if (weightName) {
+				weightName.dispose();
+			}
+		}
+	}
+
+	/**
+	 * Measures eigenvector centrality.
+	 *
+	 * @param {object} [options]
+	 * @param {string|null} [options.edgeWeightAttribute=null] - Edge weight attribute name.
+	 * @param {(number|string)} [options.direction='both'] - out/in/both
+	 * @param {(number|string)} [options.executionMode='single-thread'] - auto/single-thread/parallel
+	 * @param {number} [options.maxIterations=100]
+	 * @param {number} [options.tolerance=1e-6]
+	 * @param {Float32Array|Array<number>|null} [options.initialValues=null] - Optional node-capacity-sized initial vector.
+	 * @param {Array<number>|TypedArray|null} [options.nodes=null] - Optional node subset.
+	 * @returns {{nodeIndices:Uint32Array, values:Float32Array, valuesByNode:Float32Array, direction:number, eigenvalue:number, delta:number, iterations:number, converged:boolean}}
+	 */
+	measureEigenvectorCentrality(options = {}) {
+		this._ensureActive();
+		this._assertCanAllocate('eigenvector centrality measurement');
+		if (typeof this.module._CXNetworkMeasureEigenvectorCentrality !== 'function') {
+			throw new Error('CXNetworkMeasureEigenvectorCentrality is not available in this WASM build. Rebuild the module to enable measureEigenvectorCentrality().');
+		}
+
+		const direction = this._normalizeNeighborDirection(options.direction ?? 'both');
+		const executionMode = this._normalizeMeasurementExecutionMode(
+			options.executionMode ?? 'single-thread',
+			MeasurementExecutionMode.SingleThread
+		);
+		const maxIterations = Math.max(1, (options.maxIterations ?? 100) | 0);
+		const tolerance = Number.isFinite(options.tolerance) ? Number(options.tolerance) : 1e-6;
+		const edgeWeightAttribute = options.edgeWeightAttribute ?? null;
+		const weightName = edgeWeightAttribute ? new CString(this.module, String(edgeWeightAttribute)) : null;
+		const initialInfo = this._copyFloat32NodeValuesToWasm(options.initialValues ?? null);
+
+		const outPtr = this.module._malloc(this.nodeCapacity * Float32Array.BYTES_PER_ELEMENT);
+		const eigenvaluePtr = this.module._malloc(Float64Array.BYTES_PER_ELEMENT);
+		const deltaPtr = this.module._malloc(Float64Array.BYTES_PER_ELEMENT);
+		const iterationsPtr = this.module._malloc(Uint32Array.BYTES_PER_ELEMENT);
+		const convergedPtr = this.module._malloc(Uint32Array.BYTES_PER_ELEMENT);
+		if (!outPtr || !eigenvaluePtr || !deltaPtr || !iterationsPtr || !convergedPtr) {
+			if (outPtr) this.module._free(outPtr);
+			if (eigenvaluePtr) this.module._free(eigenvaluePtr);
+			if (deltaPtr) this.module._free(deltaPtr);
+			if (iterationsPtr) this.module._free(iterationsPtr);
+			if (convergedPtr) this.module._free(convergedPtr);
+			initialInfo.dispose();
+			if (weightName) weightName.dispose();
+			throw new Error('Failed to allocate WASM buffers for eigenvector centrality measurement');
+		}
+
+		try {
+			this.module.HEAPF64[eigenvaluePtr / Float64Array.BYTES_PER_ELEMENT] = 0;
+			this.module.HEAPF64[deltaPtr / Float64Array.BYTES_PER_ELEMENT] = 0;
+			this.module.HEAPU32[iterationsPtr / Uint32Array.BYTES_PER_ELEMENT] = 0;
+			this.module.HEAPU32[convergedPtr / Uint32Array.BYTES_PER_ELEMENT] = 0;
+
+			const ok = this.module._CXNetworkMeasureEigenvectorCentrality(
+				this.ptr,
+				weightName ? weightName.ptr : 0,
+				direction >>> 0,
+				executionMode >>> 0,
+				maxIterations >>> 0,
+				tolerance,
+				initialInfo.ptr,
+				outPtr,
+				eigenvaluePtr,
+				deltaPtr,
+				iterationsPtr,
+				convergedPtr
+			);
+			if (!ok) {
+				throw new Error('Eigenvector centrality measurement failed');
+			}
+
+			const valuesByNode = new Float32Array(this.module.HEAPF32.buffer, outPtr, this.nodeCapacity).slice();
+			const result = this._collectNodeMetricResult(valuesByNode, options.nodes ?? null);
+			const eigenvalue = this.module.HEAPF64[eigenvaluePtr / Float64Array.BYTES_PER_ELEMENT] ?? 0;
+			const delta = this.module.HEAPF64[deltaPtr / Float64Array.BYTES_PER_ELEMENT] ?? 0;
+			const iterations = this.module.HEAPU32[iterationsPtr / Uint32Array.BYTES_PER_ELEMENT] ?? 0;
+			const converged = !!this.module.HEAPU32[convergedPtr / Uint32Array.BYTES_PER_ELEMENT];
+			return {
+				...result,
+				direction,
+				eigenvalue,
+				delta,
+				iterations,
+				converged,
+			};
+		} finally {
+			this.module._free(outPtr);
+			this.module._free(eigenvaluePtr);
+			this.module._free(deltaPtr);
+			this.module._free(iterationsPtr);
+			this.module._free(convergedPtr);
+			initialInfo.dispose();
+			if (weightName) {
+				weightName.dispose();
+			}
+		}
+	}
+
+	/**
+	 * Measures betweenness centrality (weighted or unweighted).
+	 *
+	 * @param {object} [options]
+	 * @param {string|null} [options.edgeWeightAttribute=null] - Edge weight attribute name.
+	 * @param {(number|string)} [options.executionMode='single-thread'] - auto/single-thread/parallel
+	 * @param {Array<number>|TypedArray|null} [options.sourceNodes=null] - Optional source-node subset.
+	 * @param {boolean} [options.normalize=true] - Apply canonical normalization.
+	 * @param {boolean} [options.accumulate=false] - Add into `initialValues` instead of resetting.
+	 * @param {Float32Array|Array<number>|null} [options.initialValues=null] - Optional node-capacity-sized seed values.
+	 * @param {Array<number>|TypedArray|null} [options.nodes=null] - Optional node subset for returned vector.
+	 * @returns {{nodeIndices:Uint32Array, values:Float32Array, valuesByNode:Float32Array, processedSources:number, normalize:boolean, accumulate:boolean}}
+	 */
+	measureBetweennessCentrality(options = {}) {
+		this._ensureActive();
+		this._assertCanAllocate('betweenness centrality measurement');
+		if (typeof this.module._CXNetworkMeasureBetweennessCentrality !== 'function') {
+			throw new Error('CXNetworkMeasureBetweennessCentrality is not available in this WASM build. Rebuild the module to enable measureBetweennessCentrality().');
+		}
+
+		const executionMode = this._normalizeMeasurementExecutionMode(
+			options.executionMode ?? 'single-thread',
+			MeasurementExecutionMode.SingleThread
+		);
+		const normalize = options.normalize !== false;
+		const accumulate = options.accumulate === true;
+		const edgeWeightAttribute = options.edgeWeightAttribute ?? null;
+		const weightName = edgeWeightAttribute ? new CString(this.module, String(edgeWeightAttribute)) : null;
+		const sourceInfo = this._copyIndicesToWasm(options.sourceNodes ?? null);
+		const initialInfo = this._copyFloat32NodeValuesToWasm(options.initialValues ?? null);
+
+		const outPtr = this.module._malloc(this.nodeCapacity * Float32Array.BYTES_PER_ELEMENT);
+		if (!outPtr) {
+			if (weightName) weightName.dispose();
+			sourceInfo.dispose();
+			initialInfo.dispose();
+			throw new Error('Failed to allocate WASM buffer for betweenness centrality measurement');
+		}
+
+		try {
+			// Initialize the output buffer before calling into native code.
+			// Do not keep this view after the call because native execution may
+			// trigger WASM memory growth, which can detach/repoint HEAP views.
+			const outView = new Float32Array(this.module.HEAPF32.buffer, outPtr, this.nodeCapacity);
+			if (accumulate && initialInfo.ptr) {
+				const seedView = new Float32Array(this.module.HEAPF32.buffer, initialInfo.ptr, this.nodeCapacity);
+				outView.set(seedView);
+			} else {
+				outView.fill(0);
+			}
+
+			const processedSources = this.module._CXNetworkMeasureBetweennessCentrality(
+				this.ptr,
+				weightName ? weightName.ptr : 0,
+				executionMode >>> 0,
+				sourceInfo.ptr,
+				sourceInfo.count,
+				normalize ? 1 : 0,
+				accumulate ? 1 : 0,
+				outPtr
+			) >>> 0;
+
+			const valuesByNode = new Float32Array(this.module.HEAPF32.buffer, outPtr, this.nodeCapacity).slice();
+			const result = this._collectNodeMetricResult(valuesByNode, options.nodes ?? null);
+			return {
+				...result,
+				processedSources,
+				normalize,
+				accumulate,
+			};
+		} finally {
+			this.module._free(outPtr);
+			if (weightName) {
+				weightName.dispose();
+			}
+			sourceInfo.dispose();
+			initialInfo.dispose();
+		}
+	}
+
+	/**
 	 * Measures local multiscale capacity and dimension around a single node.
 	 *
 	 * @param {number} node - Node index.
@@ -8794,5 +9482,17 @@ function resolvePairsRelative(pairs, set) {
 	});
 }
 
-export { AttributeType, CategorySortOrder, DenseColorEncodingFormat, DimensionDifferenceMethod, NodeSelector, EdgeSelector, getModule as getHeliosModule };
+export {
+	AttributeType,
+	CategorySortOrder,
+	DenseColorEncodingFormat,
+	DimensionDifferenceMethod,
+	NeighborDirection,
+	StrengthMeasure,
+	ClusteringCoefficientVariant,
+	MeasurementExecutionMode,
+	NodeSelector,
+	EdgeSelector,
+	getModule as getHeliosModule,
+};
 export default HeliosNetwork;

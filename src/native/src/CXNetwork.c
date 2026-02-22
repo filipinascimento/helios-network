@@ -2015,6 +2015,36 @@ CXEdge* CXNetworkEdgesBuffer(CXNetworkRef network) {
 // Adjacency access
 // -----------------------------------------------------------------------------
 
+static CXNeighborDirection CXNetworkNormalizeNeighborDirection(CXNetworkRef network, CXNeighborDirection direction) {
+	if (direction != CXNeighborDirectionOut
+		&& direction != CXNeighborDirectionIn
+		&& direction != CXNeighborDirectionBoth) {
+		return (network && !network->isDirected) ? CXNeighborDirectionOut : CXNeighborDirectionBoth;
+	}
+	if (network && !network->isDirected && direction == CXNeighborDirectionBoth) {
+		return CXNeighborDirectionOut;
+	}
+	return direction;
+}
+
+static CXBool CXNodeSelectorFillMaybeEmpty(CXNodeSelectorRef selector, const CXIndex *values, CXSize count) {
+	if (!selector) {
+		return CXFalse;
+	}
+	CXIndex emptyValue = 0;
+	const CXIndex *src = (count > 0 && values) ? values : &emptyValue;
+	return CXNodeSelectorFillFromArray(selector, src, count);
+}
+
+static CXBool CXEdgeSelectorFillMaybeEmpty(CXEdgeSelectorRef selector, const CXIndex *values, CXSize count) {
+	if (!selector) {
+		return CXFalse;
+	}
+	CXIndex emptyValue = 0;
+	const CXIndex *src = (count > 0 && values) ? values : &emptyValue;
+	return CXEdgeSelectorFillFromArray(selector, src, count);
+}
+
 /** Returns the outbound neighbour container for the given node. */
 CXNeighborContainer* CXNetworkOutNeighbors(CXNetworkRef network, CXIndex node) {
 	if (!network || node >= network->nodeCapacity) {
@@ -2029,6 +2059,352 @@ CXNeighborContainer* CXNetworkInNeighbors(CXNetworkRef network, CXIndex node) {
 		return NULL;
 	}
 	return &network->nodes[node].inNeighbors;
+}
+
+CXBool CXNetworkCollectNeighbors(
+	CXNetworkRef network,
+	const CXIndex *sourceNodes,
+	CXSize sourceCount,
+	CXNeighborDirection direction,
+	CXBool includeSourceNodes,
+	CXNodeSelectorRef outNodeSelector,
+	CXEdgeSelectorRef outEdgeSelector
+) {
+	if (!network || !outNodeSelector) {
+		return CXFalse;
+	}
+	if (sourceCount > 0 && !sourceNodes) {
+		return CXFalse;
+	}
+	if (network->nodeCapacity == 0 || sourceCount == 0) {
+		if (!CXNodeSelectorFillMaybeEmpty(outNodeSelector, NULL, 0)) {
+			return CXFalse;
+		}
+		if (outEdgeSelector && !CXEdgeSelectorFillMaybeEmpty(outEdgeSelector, NULL, 0)) {
+			return CXFalse;
+		}
+		return CXTrue;
+	}
+
+	direction = CXNetworkNormalizeNeighborDirection(network, direction);
+	const CXBool collectOut = (direction == CXNeighborDirectionOut || direction == CXNeighborDirectionBoth);
+	const CXBool collectIn = (direction == CXNeighborDirectionIn || direction == CXNeighborDirectionBoth);
+
+	CXIndex *nodeValues = (CXIndex *)calloc((size_t)network->nodeCapacity, sizeof(CXIndex));
+	uint8_t *seenNodes = (uint8_t *)calloc((size_t)network->nodeCapacity, sizeof(uint8_t));
+	uint8_t *sourceMask = (uint8_t *)calloc((size_t)network->nodeCapacity, sizeof(uint8_t));
+	if (!nodeValues || !seenNodes || !sourceMask) {
+		free(nodeValues);
+		free(seenNodes);
+		free(sourceMask);
+		return CXFalse;
+	}
+
+	CXIndex *edgeValues = NULL;
+	uint8_t *seenEdges = NULL;
+	if (outEdgeSelector && network->edgeCapacity > 0) {
+		edgeValues = (CXIndex *)calloc((size_t)network->edgeCapacity, sizeof(CXIndex));
+		seenEdges = (uint8_t *)calloc((size_t)network->edgeCapacity, sizeof(uint8_t));
+		if (!edgeValues || !seenEdges) {
+			free(nodeValues);
+			free(seenNodes);
+			free(sourceMask);
+			free(edgeValues);
+			free(seenEdges);
+			return CXFalse;
+		}
+	}
+
+	CXSize nodeCount = 0;
+	CXSize edgeCount = 0;
+
+	for (CXSize i = 0; i < sourceCount; i++) {
+		CXIndex source = sourceNodes[i];
+		if (source >= network->nodeCapacity || !network->nodeActive[source]) {
+			continue;
+		}
+		sourceMask[source] = 1;
+	}
+
+	for (CXSize i = 0; i < sourceCount; i++) {
+		CXIndex source = sourceNodes[i];
+		if (source >= network->nodeCapacity || !network->nodeActive[source]) {
+			continue;
+		}
+
+		if (collectOut) {
+			CXNeighborContainer *container = &network->nodes[source].outNeighbors;
+			CXNeighborIterator iterator;
+			CXNeighborIteratorInit(&iterator, container);
+			while (CXNeighborIteratorNext(&iterator)) {
+				CXIndex neighborNode = iterator.node;
+				CXIndex edgeIndex = iterator.edge;
+				if (neighborNode >= network->nodeCapacity || !network->nodeActive[neighborNode]) {
+					continue;
+				}
+				if (edgeIndex >= network->edgeCapacity || !network->edgeActive[edgeIndex]) {
+					continue;
+				}
+				if (!includeSourceNodes && sourceMask[neighborNode]) {
+					// Exclude any source node from neighbor results when requested.
+				} else if (!seenNodes[neighborNode]) {
+					seenNodes[neighborNode] = 1;
+					nodeValues[nodeCount++] = neighborNode;
+				}
+				if (outEdgeSelector && seenEdges && !seenEdges[edgeIndex]) {
+					seenEdges[edgeIndex] = 1;
+					edgeValues[edgeCount++] = edgeIndex;
+				}
+			}
+		}
+
+		if (collectIn) {
+			CXNeighborContainer *container = &network->nodes[source].inNeighbors;
+			CXNeighborIterator iterator;
+			CXNeighborIteratorInit(&iterator, container);
+			while (CXNeighborIteratorNext(&iterator)) {
+				CXIndex neighborNode = iterator.node;
+				CXIndex edgeIndex = iterator.edge;
+				if (neighborNode >= network->nodeCapacity || !network->nodeActive[neighborNode]) {
+					continue;
+				}
+				if (edgeIndex >= network->edgeCapacity || !network->edgeActive[edgeIndex]) {
+					continue;
+				}
+				if (!includeSourceNodes && sourceMask[neighborNode]) {
+					// Exclude any source node from neighbor results when requested.
+				} else if (!seenNodes[neighborNode]) {
+					seenNodes[neighborNode] = 1;
+					nodeValues[nodeCount++] = neighborNode;
+				}
+				if (outEdgeSelector && seenEdges && !seenEdges[edgeIndex]) {
+					seenEdges[edgeIndex] = 1;
+					edgeValues[edgeCount++] = edgeIndex;
+				}
+			}
+		}
+	}
+
+	CXBool ok = CXNodeSelectorFillMaybeEmpty(outNodeSelector, nodeValues, nodeCount);
+	if (ok && outEdgeSelector) {
+		ok = CXEdgeSelectorFillMaybeEmpty(outEdgeSelector, edgeValues, edgeCount);
+	}
+
+	free(nodeValues);
+	free(seenNodes);
+	free(sourceMask);
+	free(edgeValues);
+	free(seenEdges);
+	return ok;
+}
+
+static CXBool CXNetworkCollectConcentricNeighbors(
+	CXNetworkRef network,
+	const CXIndex *sourceNodes,
+	CXSize sourceCount,
+	CXNeighborDirection direction,
+	CXSize level,
+	CXBool upToLevel,
+	CXBool includeSourceNodes,
+	CXNodeSelectorRef outNodeSelector,
+	CXEdgeSelectorRef outEdgeSelector
+) {
+	if (!network || !outNodeSelector) {
+		return CXFalse;
+	}
+	if (sourceCount > 0 && !sourceNodes) {
+		return CXFalse;
+	}
+	if (network->nodeCapacity == 0 || sourceCount == 0) {
+		if (!CXNodeSelectorFillMaybeEmpty(outNodeSelector, NULL, 0)) {
+			return CXFalse;
+		}
+		if (outEdgeSelector && !CXEdgeSelectorFillMaybeEmpty(outEdgeSelector, NULL, 0)) {
+			return CXFalse;
+		}
+		return CXTrue;
+	}
+
+	direction = CXNetworkNormalizeNeighborDirection(network, direction);
+	const CXBool collectOut = (direction == CXNeighborDirectionOut || direction == CXNeighborDirectionBoth);
+	const CXBool collectIn = (direction == CXNeighborDirectionIn || direction == CXNeighborDirectionBoth);
+
+	CXSize *distances = (CXSize *)malloc(sizeof(CXSize) * (size_t)network->nodeCapacity);
+	CXIndex *queue = (CXIndex *)calloc((size_t)network->nodeCapacity, sizeof(CXIndex));
+	CXIndex *nodeValues = (CXIndex *)calloc((size_t)network->nodeCapacity, sizeof(CXIndex));
+	if (!distances || !queue || !nodeValues) {
+		free(distances);
+		free(queue);
+		free(nodeValues);
+		return CXFalse;
+	}
+	for (CXSize i = 0; i < network->nodeCapacity; i++) {
+		distances[i] = CXSizeMAX;
+	}
+
+	CXIndex *edgeValues = NULL;
+	uint8_t *seenEdges = NULL;
+	if (outEdgeSelector && network->edgeCapacity > 0) {
+		edgeValues = (CXIndex *)calloc((size_t)network->edgeCapacity, sizeof(CXIndex));
+		seenEdges = (uint8_t *)calloc((size_t)network->edgeCapacity, sizeof(uint8_t));
+		if (!edgeValues || !seenEdges) {
+			free(distances);
+			free(queue);
+			free(nodeValues);
+			free(edgeValues);
+			free(seenEdges);
+			return CXFalse;
+		}
+	}
+
+	CXSize queueHead = 0;
+	CXSize queueTail = 0;
+	for (CXSize i = 0; i < sourceCount; i++) {
+		CXIndex source = sourceNodes[i];
+		if (source >= network->nodeCapacity || !network->nodeActive[source]) {
+			continue;
+		}
+		if (distances[source] == CXSizeMAX) {
+			distances[source] = 0;
+			queue[queueTail++] = source;
+		}
+	}
+
+	CXSize edgeCount = 0;
+	while (queueHead < queueTail) {
+		CXIndex node = queue[queueHead++];
+		CXSize distance = distances[node];
+		if (distance >= level) {
+			continue;
+		}
+		CXSize nextDistance = distance + 1;
+
+		if (collectOut) {
+			CXNeighborContainer *container = &network->nodes[node].outNeighbors;
+			CXNeighborIterator iterator;
+			CXNeighborIteratorInit(&iterator, container);
+			while (CXNeighborIteratorNext(&iterator)) {
+				CXIndex neighborNode = iterator.node;
+				CXIndex edgeIndex = iterator.edge;
+				if (neighborNode >= network->nodeCapacity || !network->nodeActive[neighborNode]) {
+					continue;
+				}
+				if (edgeIndex >= network->edgeCapacity || !network->edgeActive[edgeIndex]) {
+					continue;
+				}
+				if (distances[neighborNode] == CXSizeMAX) {
+					distances[neighborNode] = nextDistance;
+					queue[queueTail++] = neighborNode;
+				}
+				if (outEdgeSelector && seenEdges && distances[neighborNode] == nextDistance) {
+					CXBool includeEdge = upToLevel ? (nextDistance <= level) : (nextDistance == level);
+					if (includeEdge && !seenEdges[edgeIndex]) {
+						seenEdges[edgeIndex] = 1;
+						edgeValues[edgeCount++] = edgeIndex;
+					}
+				}
+			}
+		}
+
+		if (collectIn) {
+			CXNeighborContainer *container = &network->nodes[node].inNeighbors;
+			CXNeighborIterator iterator;
+			CXNeighborIteratorInit(&iterator, container);
+			while (CXNeighborIteratorNext(&iterator)) {
+				CXIndex neighborNode = iterator.node;
+				CXIndex edgeIndex = iterator.edge;
+				if (neighborNode >= network->nodeCapacity || !network->nodeActive[neighborNode]) {
+					continue;
+				}
+				if (edgeIndex >= network->edgeCapacity || !network->edgeActive[edgeIndex]) {
+					continue;
+				}
+				if (distances[neighborNode] == CXSizeMAX) {
+					distances[neighborNode] = nextDistance;
+					queue[queueTail++] = neighborNode;
+				}
+				if (outEdgeSelector && seenEdges && distances[neighborNode] == nextDistance) {
+					CXBool includeEdge = upToLevel ? (nextDistance <= level) : (nextDistance == level);
+					if (includeEdge && !seenEdges[edgeIndex]) {
+						seenEdges[edgeIndex] = 1;
+						edgeValues[edgeCount++] = edgeIndex;
+					}
+				}
+			}
+		}
+	}
+
+	CXSize nodeCount = 0;
+	for (CXSize i = 0; i < queueTail; i++) {
+		CXIndex node = queue[i];
+		CXSize distance = distances[node];
+		CXBool includeNode = upToLevel ? (distance <= level) : (distance == level);
+		if (!includeNode) {
+			continue;
+		}
+		if (!includeSourceNodes && distance == 0) {
+			continue;
+		}
+		nodeValues[nodeCount++] = node;
+	}
+
+	CXBool ok = CXNodeSelectorFillMaybeEmpty(outNodeSelector, nodeValues, nodeCount);
+	if (ok && outEdgeSelector) {
+		ok = CXEdgeSelectorFillMaybeEmpty(outEdgeSelector, edgeValues, edgeCount);
+	}
+
+	free(distances);
+	free(queue);
+	free(nodeValues);
+	free(edgeValues);
+	free(seenEdges);
+	return ok;
+}
+
+CXBool CXNetworkCollectNeighborsAtLevel(
+	CXNetworkRef network,
+	const CXIndex *sourceNodes,
+	CXSize sourceCount,
+	CXNeighborDirection direction,
+	CXSize level,
+	CXBool includeSourceNodes,
+	CXNodeSelectorRef outNodeSelector,
+	CXEdgeSelectorRef outEdgeSelector
+) {
+	return CXNetworkCollectConcentricNeighbors(
+		network,
+		sourceNodes,
+		sourceCount,
+		direction,
+		level,
+		CXFalse,
+		includeSourceNodes,
+		outNodeSelector,
+		outEdgeSelector
+	);
+}
+
+CXBool CXNetworkCollectNeighborsUpToLevel(
+	CXNetworkRef network,
+	const CXIndex *sourceNodes,
+	CXSize sourceCount,
+	CXNeighborDirection direction,
+	CXSize maxLevel,
+	CXBool includeSourceNodes,
+	CXNodeSelectorRef outNodeSelector,
+	CXEdgeSelectorRef outEdgeSelector
+) {
+	return CXNetworkCollectConcentricNeighbors(
+		network,
+		sourceNodes,
+		sourceCount,
+		direction,
+		maxLevel,
+		CXTrue,
+		includeSourceNodes,
+		outNodeSelector,
+		outEdgeSelector
+	);
 }
 
 // -----------------------------------------------------------------------------
