@@ -1477,15 +1477,18 @@ describe('HeliosNetwork (Node runtime)', () => {
 			const restored = await HeliosNetwork.fromXNet(payload);
 			const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'helios-xnet-'));
 			const targetPath = path.join(tmpDir, `graph-${randomUUID()}.xnet`);
-			try {
-				expect(restored.directed).toBe(true);
-				expect(restored.nodeCount).toBe(3);
-				expect(restored.edgeCount).toBe(2);
-				expect(restored.getNodeAttributeBuffer('score').view[1]).toBeCloseTo(2.5);
-				expect(restored.getNodeStringAttribute('label', 2)).toBe('Gamma#Tag');
-				expect(restored.getEdgeStringAttribute('kind', 1)).toBe('return\ntrip');
-				expect(restored.getNetworkStringAttribute('title')).toBe('Human Readable XNET');
-				expect(restored.getNodeStringAttribute('_original_ids_', 0)).toBe('0');
+				try {
+					expect(restored.directed).toBe(true);
+					expect(restored.nodeCount).toBe(3);
+					expect(restored.edgeCount).toBe(2);
+					expect(restored.getNodeAttributeNames()).toEqual(expect.arrayContaining(['score', 'label', '_original_ids_']));
+					expect(restored.getEdgeAttributeNames()).toEqual(expect.arrayContaining(['kind']));
+					expect(restored.getNetworkAttributeNames()).toEqual(expect.arrayContaining(['title']));
+					expect(restored.getNodeAttributeBuffer('score').view[1]).toBeCloseTo(2.5);
+					expect(restored.getNodeStringAttribute('label', 2)).toBe('Gamma#Tag');
+					expect(restored.getEdgeStringAttribute('kind', 1)).toBe('return\ntrip');
+					expect(restored.getNetworkStringAttribute('title')).toBe('Human Readable XNET');
+					expect(restored.getNodeStringAttribute('_original_ids_', 0)).toBe('0');
 
 				await restored.saveXNet({ path: targetPath });
 				const stats = await fs.stat(targetPath);
@@ -1502,13 +1505,40 @@ describe('HeliosNetwork (Node runtime)', () => {
 				restored.dispose();
 				await fs.rm(tmpDir, { recursive: true, force: true });
 			}
-		} finally {
-			networkInstance.dispose();
-		}
-	});
+			} finally {
+				networkInstance.dispose();
+			}
+		});
 
-	test('saveXNet respects attribute allow/ignore filters', async () => {
-		const networkInstance = await HeliosNetwork.create({ directed: true, initialNodes: 0, initialEdges: 0 });
+		test('loads legacy .xnet string attributes into attribute name lists', async () => {
+			const legacyText = [
+				'#vertices 3 nonweighted',
+				'"Node A"',
+				'"Node B"',
+				'"Node C"',
+				'#edges nonweighted directed',
+				'0 1',
+				'1 2',
+				'#v "Main Category" s',
+				'"Alpha"',
+				'"Beta"',
+				'"Gamma"',
+			].join('\n');
+			const payload = new TextEncoder().encode(legacyText);
+			const restored = await HeliosNetwork.fromXNet(payload);
+			try {
+				expect(restored.getNodeAttributeNames()).toEqual(expect.arrayContaining(['Label', 'Main Category']));
+				expect(restored.hasNodeAttribute('Label')).toBe(true);
+				expect(restored.hasNodeAttribute('Main Category')).toBe(true);
+				expect(restored.getNodeStringAttribute('Label', 0)).toBe('Node A');
+				expect(restored.getNodeStringAttribute('Main Category', 2)).toBe('Gamma');
+			} finally {
+				restored.dispose();
+			}
+		});
+
+		test('saveXNet respects attribute allow/ignore filters', async () => {
+			const networkInstance = await HeliosNetwork.create({ directed: true, initialNodes: 0, initialEdges: 0 });
 		try {
 			const nodes = networkInstance.addNodes(3);
 			const edges = networkInstance.addEdges([[nodes[0], nodes[1]]]);

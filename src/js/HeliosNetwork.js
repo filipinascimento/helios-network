@@ -6384,7 +6384,60 @@ export class HeliosNetwork extends BaseEventTarget {
 
 	_attributeNames(scope) {
 		this._ensureActive();
+		this._syncAttributeNamesFromNative(scope);
 		return Array.from(this._attributeMap(scope).keys());
+	}
+
+	_syncAttributeNamesFromNative(scope) {
+		const metaMap = this._attributeMap(scope);
+		let countFn = null;
+		let nameAtFn = null;
+		switch (scope) {
+			case 'node':
+				countFn = this.module._CXNetworkNodeAttributeCount;
+				nameAtFn = this.module._CXNetworkNodeAttributeNameAt;
+				break;
+			case 'edge':
+				countFn = this.module._CXNetworkEdgeAttributeCount;
+				nameAtFn = this.module._CXNetworkEdgeAttributeNameAt;
+				break;
+			case 'network':
+				countFn = this.module._CXNetworkNetworkAttributeCount;
+				nameAtFn = this.module._CXNetworkNetworkAttributeNameAt;
+				break;
+			default:
+				return;
+		}
+		if (typeof countFn !== 'function' || typeof nameAtFn !== 'function') {
+			return;
+		}
+		const rawCount = Number(countFn.call(this.module, this.ptr));
+		const count = Number.isFinite(rawCount) && rawCount > 0 ? Math.floor(rawCount) : 0;
+		const names = [];
+		for (let i = 0; i < count; i += 1) {
+			const namePtr = nameAtFn.call(this.module, this.ptr, i) >>> 0;
+			if (!namePtr) {
+				continue;
+			}
+			const decoded = this.module.UTF8ToString(namePtr);
+			if (typeof decoded !== 'string' || decoded.length === 0) {
+				continue;
+			}
+			names.push(decoded);
+		}
+		const nativeSet = new Set(names);
+		if (metaMap.size > nativeSet.size) {
+			for (const existing of Array.from(metaMap.keys())) {
+				if (!nativeSet.has(existing)) {
+					metaMap.delete(existing);
+				}
+			}
+		}
+		for (const name of names) {
+			if (!metaMap.has(name)) {
+				this._ensureAttributeMetadata(scope, name);
+			}
+		}
 	}
 
 	_attributeInfo(scope, name) {

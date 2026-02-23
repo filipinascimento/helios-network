@@ -2419,6 +2419,36 @@ static CXAttributeRef CXNetworkGetAttribute(CXStringDictionaryRef dictionary, co
 	return (CXAttributeRef)CXStringDictionaryEntryForKey(dictionary, name);
 }
 
+static CXStringDictionaryRef CXNetworkGetAttributeDictionaryForScope(CXNetworkRef network, CXAttributeScope scope) {
+	if (!network) {
+		return NULL;
+	}
+	switch (scope) {
+		case CXAttributeScopeNode:
+			return network->nodeAttributes;
+		case CXAttributeScopeEdge:
+			return network->edgeAttributes;
+		case CXAttributeScopeNetwork:
+			return network->networkAttributes;
+		default:
+			return NULL;
+	}
+}
+
+static const CXString CXNetworkAttributeNameAtIndex(CXStringDictionaryRef dictionary, CXSize index) {
+	if (!dictionary) {
+		return NULL;
+	}
+	CXSize cursor = 0;
+	CXStringDictionaryFOR(entry, dictionary) {
+		if (cursor == index) {
+			return entry->key;
+		}
+		cursor++;
+	}
+	return NULL;
+}
+
 /** Registers a node attribute with the provided configuration. */
 CXBool CXNetworkDefineNodeAttribute(CXNetworkRef network, const CXString name, CXAttributeType type, CXSize dimension) {
 	if (!network || !name) {
@@ -2503,6 +2533,39 @@ CXAttributeRef CXNetworkGetEdgeAttribute(CXNetworkRef network, const CXString na
 /** Retrieves the network-level attribute descriptor for the supplied name. */
 CXAttributeRef CXNetworkGetNetworkAttribute(CXNetworkRef network, const CXString name) {
 	return network ? CXNetworkGetAttribute(network->networkAttributes, name) : NULL;
+}
+
+CXSize CXNetworkNodeAttributeCount(CXNetworkRef network) {
+	if (!network || !network->nodeAttributes) {
+		return 0;
+	}
+	return CXStringDictionaryCount(network->nodeAttributes);
+}
+
+CXSize CXNetworkEdgeAttributeCount(CXNetworkRef network) {
+	if (!network || !network->edgeAttributes) {
+		return 0;
+	}
+	return CXStringDictionaryCount(network->edgeAttributes);
+}
+
+CXSize CXNetworkNetworkAttributeCount(CXNetworkRef network) {
+	if (!network || !network->networkAttributes) {
+		return 0;
+	}
+	return CXStringDictionaryCount(network->networkAttributes);
+}
+
+const CXString CXNetworkNodeAttributeNameAt(CXNetworkRef network, CXSize index) {
+	return CXNetworkAttributeNameAtIndex(CXNetworkGetAttributeDictionaryForScope(network, CXAttributeScopeNode), index);
+}
+
+const CXString CXNetworkEdgeAttributeNameAt(CXNetworkRef network, CXSize index) {
+	return CXNetworkAttributeNameAtIndex(CXNetworkGetAttributeDictionaryForScope(network, CXAttributeScopeEdge), index);
+}
+
+const CXString CXNetworkNetworkAttributeNameAt(CXNetworkRef network, CXSize index) {
+	return CXNetworkAttributeNameAtIndex(CXNetworkGetAttributeDictionaryForScope(network, CXAttributeScopeNetwork), index);
 }
 
 CXStringDictionaryRef CXNetworkGetAttributeCategoryDictionary(CXNetworkRef network, CXAttributeScope scope, const CXString name) {

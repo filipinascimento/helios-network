@@ -463,6 +463,21 @@ CX_EXTERN CXAttributeRef CXNetworkGetNodeAttribute(CXNetworkRef network, const C
 CX_EXTERN CXAttributeRef CXNetworkGetEdgeAttribute(CXNetworkRef network, const CXString name);
 /** Fetches a network attribute descriptor by name. */
 CX_EXTERN CXAttributeRef CXNetworkGetNetworkAttribute(CXNetworkRef network, const CXString name);
+/** Returns the number of node attributes currently defined on the network. */
+CX_EXTERN CXSize CXNetworkNodeAttributeCount(CXNetworkRef network);
+/** Returns the number of edge attributes currently defined on the network. */
+CX_EXTERN CXSize CXNetworkEdgeAttributeCount(CXNetworkRef network);
+/** Returns the number of network attributes currently defined on the network. */
+CX_EXTERN CXSize CXNetworkNetworkAttributeCount(CXNetworkRef network);
+/**
+ * Returns the node attribute name at `index` in the internal dictionary iteration
+ * order, or NULL when out of range.
+ */
+CX_EXTERN const CXString CXNetworkNodeAttributeNameAt(CXNetworkRef network, CXSize index);
+/** Returns the edge attribute name at `index`, or NULL when out of range. */
+CX_EXTERN const CXString CXNetworkEdgeAttributeNameAt(CXNetworkRef network, CXSize index);
+/** Returns the network attribute name at `index`, or NULL when out of range. */
+CX_EXTERN const CXString CXNetworkNetworkAttributeNameAt(CXNetworkRef network, CXSize index);
 
 CX_EXTERN CXStringDictionaryRef CXNetworkGetAttributeCategoryDictionary(CXNetworkRef network, CXAttributeScope scope, const CXString name);
 CX_EXTERN CXSize CXNetworkGetAttributeCategoryDictionaryCount(CXNetworkRef network, CXAttributeScope scope, const CXString name);
