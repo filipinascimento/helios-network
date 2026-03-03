@@ -228,6 +228,14 @@ console.log(edgeSelector.label);            // -> ['a→b', null, ...]
 selector.dispose();
 edgeSelector.dispose();
 
+// Build an induced filtered subgraph (edges always follow node visibility)
+const filtered = net.filterSubgraph({
+  nodeQuery: 'year >= 2020',
+  edgeQuery: 'weight > 0.1',
+  orderNodesBy: '-id', // optional
+});
+console.log(filtered.nodeIndices, filtered.edgeIndices);
+
 net.dispose();
 ```
 

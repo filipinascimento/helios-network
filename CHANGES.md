@@ -1,5 +1,18 @@
 # CHANGES
 
+## 2026-02-27
+
+- Added native filtered-subgraph helpers for selectors:
+  - `CXNetworkBuildFilteredSubgraph` to build induced node/edge outputs from optional node/edge filters.
+  - New selector utilities: clear, active-filter, and in-place intersection for node/edge selectors.
+- Added JS API `filterSubgraph(options)` on `HeliosNetwork`:
+  - Supports node/edge query filters (`nodeQuery`, `edgeQuery`) and/or selector/indices inputs (`nodeSelector`/`nodeSelection`, `edgeSelector`/`edgeSelection`).
+  - Always enforces induced-edge semantics (edges are removed when either endpoint is filtered out).
+  - Supports optional ordering for nodes/edges (`orderNodesBy`, `orderEdgesBy`) by id or numeric attribute component.
+  - Supports selector output mode (`asSelector: true`) for reuse in visualization pipelines.
+- Exported the new native functions in the WASM export list.
+- Added JS regression tests covering filtered subgraph behavior, induced-edge enforcement, selector intersections, and ordering.
+
 ## 2026-02-21
 
 - Added neighbor traversal APIs across native C, JS, and Python:

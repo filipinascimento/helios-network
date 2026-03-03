@@ -105,6 +105,69 @@ test('can select nodes and edges with query expressions', async () => {
 	network.dispose();
 });
 
+test('can build filtered subgraphs with induced-edge semantics and optional ordering', async () => {
+	const network = await HeliosNetwork.create({ directed: false });
+	try {
+		const nodes = network.addNodes(4);
+		network.defineNodeAttribute('year', AttributeType.Integer, 1);
+		const years = network.getNodeAttributeBuffer('year').view;
+		years[nodes[0]] = 2018;
+		years[nodes[1]] = 2019;
+		years[nodes[2]] = 2020;
+		years[nodes[3]] = 2021;
+
+		network.defineEdgeAttribute('score', AttributeType.Float, 1);
+		const edges = network.addEdges([
+			{ from: nodes[0], to: nodes[1] },
+			{ from: nodes[1], to: nodes[2] },
+			{ from: nodes[2], to: nodes[3] },
+			{ from: nodes[0], to: nodes[3] },
+		]);
+		const scores = network.getEdgeAttributeBuffer('score').view;
+		scores[edges[0]] = 10;
+		scores[edges[1]] = 20;
+		scores[edges[2]] = 30;
+		scores[edges[3]] = 40;
+
+		const filtered = network.filterSubgraph({
+			nodeQuery: 'year >= 2020',
+			edgeQuery: 'score >= 20',
+		});
+		expect(Array.from(filtered.nodeIndices)).toEqual([nodes[2], nodes[3]]);
+		expect(Array.from(filtered.edgeIndices)).toEqual([edges[2]]);
+
+		const nodeSelector = network.createNodeSelector(nodes);
+		const fromSelector = network.filterSubgraph({
+			nodeQuery: 'year >= 2020',
+			nodeSelector,
+		});
+		expect(Array.from(fromSelector.nodeIndices)).toEqual([nodes[2], nodes[3]]);
+		expect(nodeSelector.count).toBe(nodes.length);
+		nodeSelector.dispose();
+
+		const ordered = network.filterSubgraph({
+			nodeSelection: [nodes[0], nodes[2], nodes[3]],
+			edgeSelection: [edges[0], edges[2], edges[3]],
+			orderNodesBy: '-id',
+			orderEdgesBy: { attribute: 'score', direction: 'desc' },
+		});
+		expect(Array.from(ordered.nodeIndices)).toEqual([nodes[3], nodes[2], nodes[0]]);
+		expect(Array.from(ordered.edgeIndices)).toEqual([edges[3], edges[2]]);
+
+		const selectors = network.filterSubgraph({
+			nodeQuery: 'year >= 2020',
+			edgeQuery: 'score >= 20',
+			asSelector: true,
+		});
+		expect(Array.from(selectors.nodes)).toEqual([nodes[2], nodes[3]]);
+		expect(Array.from(selectors.edges)).toEqual([edges[2]]);
+		selectors.nodes.dispose();
+		selectors.edges.dispose();
+	} finally {
+		network.dispose();
+	}
+});
+
 test('can apply text batch with relative ids', async () => {
 	const network = await HeliosNetwork.create({ directed: false });
 	network.defineNodeAttribute('weight', AttributeType.Float, 1);

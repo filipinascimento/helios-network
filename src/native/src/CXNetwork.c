@@ -4500,6 +4500,79 @@ static CXBool CXSelectorFillFromArrayInternal(CXSelector *selector, const CXInde
 	return CXTrue;
 }
 
+static CXBool CXSelectorClearInternal(CXSelector *selector) {
+	if (!selector) {
+		return CXFalse;
+	}
+	selector->count = 0;
+	return CXTrue;
+}
+
+static CXBool CXSelectorFilterActiveInternal(CXSelector *selector, const CXBool *activity, CXSize capacity) {
+	if (!selector || !activity) {
+		return CXFalse;
+	}
+	if (selector->count == 0 || capacity == 0) {
+		selector->count = 0;
+		return CXTrue;
+	}
+	uint8_t *seen = (uint8_t *)calloc((size_t)capacity, sizeof(uint8_t));
+	if (!seen) {
+		return CXFalse;
+	}
+	CXSize writeCount = 0;
+	for (CXSize i = 0; i < selector->count; i++) {
+		CXIndex index = selector->indices[i];
+		if (index >= capacity || !activity[index]) {
+			continue;
+		}
+		if (seen[index]) {
+			continue;
+		}
+		seen[index] = 1;
+		selector->indices[writeCount++] = index;
+	}
+	selector->count = writeCount;
+	free(seen);
+	return CXTrue;
+}
+
+static CXBool CXSelectorIntersectInternal(CXSelector *selector, const CXSelector *other, const CXBool *activity, CXSize capacity) {
+	if (!selector || !other || !activity) {
+		return CXFalse;
+	}
+	if (selector->count == 0 || other->count == 0 || capacity == 0) {
+		selector->count = 0;
+		return CXTrue;
+	}
+	uint8_t *mask = (uint8_t *)calloc((size_t)capacity, sizeof(uint8_t));
+	if (!mask) {
+		return CXFalse;
+	}
+	for (CXSize i = 0; i < other->count; i++) {
+		CXIndex index = other->indices[i];
+		if (index >= capacity || !activity[index]) {
+			continue;
+		}
+		mask[index] = 1;
+	}
+	CXSize writeCount = 0;
+	for (CXSize i = 0; i < selector->count; i++) {
+		CXIndex index = selector->indices[i];
+		if (index >= capacity || !activity[index]) {
+			continue;
+		}
+		if (mask[index] != 1) {
+			continue;
+		}
+		selector->indices[writeCount++] = index;
+		mask[index] = 2; // dedupe while preserving the selector's original order
+	}
+	selector->count = writeCount;
+	free(mask);
+	return CXTrue;
+}
+
 /** Allocates a node selector with optional preallocated capacity. */
 CXNodeSelectorRef CXNodeSelectorCreate(CXSize initialCapacity) {
 	return CXSelectorCreateInternal(initialCapacity);
@@ -4508,6 +4581,11 @@ CXNodeSelectorRef CXNodeSelectorCreate(CXSize initialCapacity) {
 /** Releases the selector and its backing storage. */
 void CXNodeSelectorDestroy(CXNodeSelectorRef selector) {
 	CXSelectorDestroyInternal(selector);
+}
+
+/** Clears a node selector in-place while keeping capacity. */
+CXBool CXNodeSelectorClear(CXNodeSelectorRef selector) {
+	return CXSelectorClearInternal(selector);
 }
 
 /** Populates the selector with all active node indices. */
@@ -4521,6 +4599,22 @@ CXBool CXNodeSelectorFillAll(CXNodeSelectorRef selector, CXNetworkRef network) {
 /** Copies the provided list of indices into the selector. */
 CXBool CXNodeSelectorFillFromArray(CXNodeSelectorRef selector, const CXIndex *indices, CXSize count) {
 	return CXSelectorFillFromArrayInternal(selector, indices, count);
+}
+
+/** Removes invalid/inactive indices from the node selector. */
+CXBool CXNodeSelectorFilterActive(CXNodeSelectorRef selector, CXNetworkRef network) {
+	if (!network || !selector) {
+		return CXFalse;
+	}
+	return CXSelectorFilterActiveInternal(selector, network->nodeActive, network->nodeCapacity);
+}
+
+/** Intersects a node selector in-place with another node selector. */
+CXBool CXNodeSelectorIntersect(CXNodeSelectorRef selector, CXNodeSelectorRef other, CXNetworkRef network) {
+	if (!network || !selector || !other) {
+		return CXFalse;
+	}
+	return CXSelectorIntersectInternal(selector, other, network->nodeActive, network->nodeCapacity);
 }
 
 /** Returns a pointer to the contiguous array of node indices. */
@@ -4543,6 +4637,11 @@ void CXEdgeSelectorDestroy(CXEdgeSelectorRef selector) {
 	CXSelectorDestroyInternal(selector);
 }
 
+/** Clears an edge selector in-place while keeping capacity. */
+CXBool CXEdgeSelectorClear(CXEdgeSelectorRef selector) {
+	return CXSelectorClearInternal(selector);
+}
+
 /** Populates the selector with all active edge indices. */
 CXBool CXEdgeSelectorFillAll(CXEdgeSelectorRef selector, CXNetworkRef network) {
 	if (!network || !selector) {
@@ -4556,6 +4655,74 @@ CXBool CXEdgeSelectorFillFromArray(CXEdgeSelectorRef selector, const CXIndex *in
 	return CXSelectorFillFromArrayInternal(selector, indices, count);
 }
 
+/** Removes invalid/inactive indices from the edge selector. */
+CXBool CXEdgeSelectorFilterActive(CXEdgeSelectorRef selector, CXNetworkRef network) {
+	if (!network || !selector) {
+		return CXFalse;
+	}
+	return CXSelectorFilterActiveInternal(selector, network->edgeActive, network->edgeCapacity);
+}
+
+/** Intersects an edge selector in-place with another edge selector. */
+CXBool CXEdgeSelectorIntersect(CXEdgeSelectorRef selector, CXEdgeSelectorRef other, CXNetworkRef network) {
+	if (!network || !selector || !other) {
+		return CXFalse;
+	}
+	return CXSelectorIntersectInternal(selector, other, network->edgeActive, network->edgeCapacity);
+}
+
+/** Keeps only edges whose endpoints are both present in the supplied node selector. */
+CXBool CXEdgeSelectorFilterByNodes(CXEdgeSelectorRef selector, CXNetworkRef network, CXNodeSelectorRef nodeSelector) {
+	if (!network || !selector || !nodeSelector) {
+		return CXFalse;
+	}
+	if (selector->count == 0 || nodeSelector->count == 0 || network->nodeCapacity == 0 || network->edgeCapacity == 0) {
+		selector->count = 0;
+		return CXTrue;
+	}
+
+	uint8_t *nodeMask = (uint8_t *)calloc((size_t)network->nodeCapacity, sizeof(uint8_t));
+	uint8_t *seenEdges = (uint8_t *)calloc((size_t)network->edgeCapacity, sizeof(uint8_t));
+	if (!nodeMask || !seenEdges) {
+		free(nodeMask);
+		free(seenEdges);
+		return CXFalse;
+	}
+
+	for (CXSize i = 0; i < nodeSelector->count; i++) {
+		CXIndex node = nodeSelector->indices[i];
+		if (node >= network->nodeCapacity || !network->nodeActive[node]) {
+			continue;
+		}
+		nodeMask[node] = 1;
+	}
+
+	CXSize writeCount = 0;
+	for (CXSize i = 0; i < selector->count; i++) {
+		CXIndex edge = selector->indices[i];
+		if (edge >= network->edgeCapacity || !network->edgeActive[edge]) {
+			continue;
+		}
+		if (seenEdges[edge]) {
+			continue;
+		}
+		seenEdges[edge] = 1;
+		CXEdge endpoints = network->edges[edge];
+		if (endpoints.from >= network->nodeCapacity || endpoints.to >= network->nodeCapacity) {
+			continue;
+		}
+		if (!nodeMask[endpoints.from] || !nodeMask[endpoints.to]) {
+			continue;
+		}
+		selector->indices[writeCount++] = edge;
+	}
+	selector->count = writeCount;
+
+	free(nodeMask);
+	free(seenEdges);
+	return CXTrue;
+}
+
 /** Returns a pointer to the contiguous array of edge indices. */
 CXIndex* CXEdgeSelectorData(CXEdgeSelectorRef selector) {
 	return selector ? selector->indices : NULL;
@@ -4564,4 +4731,105 @@ CXIndex* CXEdgeSelectorData(CXEdgeSelectorRef selector) {
 /** Returns how many entries are currently stored in the selector. */
 CXSize CXEdgeSelectorCount(CXEdgeSelectorRef selector) {
 	return selector ? selector->count : 0;
+}
+
+CXBool CXNetworkBuildFilteredSubgraph(
+	CXNetworkRef network,
+	CXNodeSelectorRef nodeFilter,
+	CXEdgeSelectorRef edgeFilter,
+	CXNodeSelectorRef outNodeSelector,
+	CXEdgeSelectorRef outEdgeSelector
+) {
+	if (!network || !outNodeSelector || !outEdgeSelector) {
+		return CXFalse;
+	}
+
+	if (!CXSelectorEnsureCapacity(outNodeSelector, network->nodeCapacity)) {
+		return CXFalse;
+	}
+	if (!CXSelectorEnsureCapacity(outEdgeSelector, network->edgeCapacity)) {
+		return CXFalse;
+	}
+
+	if (network->nodeCapacity == 0 || network->nodeCount == 0) {
+		outNodeSelector->count = 0;
+		outEdgeSelector->count = 0;
+		return CXTrue;
+	}
+
+	uint8_t *nodeMask = (uint8_t *)calloc((size_t)network->nodeCapacity, sizeof(uint8_t));
+	if (!nodeMask) {
+		return CXFalse;
+	}
+
+	if (nodeFilter) {
+		for (CXSize i = 0; i < nodeFilter->count; i++) {
+			CXIndex node = nodeFilter->indices[i];
+			if (node >= network->nodeCapacity || !network->nodeActive[node]) {
+				continue;
+			}
+			nodeMask[node] = 1;
+		}
+	} else {
+		for (CXSize node = 0; node < network->nodeCapacity; node++) {
+			if (!network->nodeActive[node]) {
+				continue;
+			}
+			nodeMask[node] = 1;
+		}
+	}
+
+	CXSize nodeWriteCount = 0;
+	for (CXSize node = 0; node < network->nodeCapacity; node++) {
+		if (!nodeMask[node]) {
+			continue;
+		}
+		outNodeSelector->indices[nodeWriteCount++] = node;
+	}
+	outNodeSelector->count = nodeWriteCount;
+
+	if (nodeWriteCount == 0 || network->edgeCount == 0) {
+		outEdgeSelector->count = 0;
+		free(nodeMask);
+		return CXTrue;
+	}
+
+	uint8_t *edgeMask = NULL;
+	if (edgeFilter) {
+		edgeMask = (uint8_t *)calloc((size_t)network->edgeCapacity, sizeof(uint8_t));
+		if (!edgeMask) {
+			free(nodeMask);
+			return CXFalse;
+		}
+		for (CXSize i = 0; i < edgeFilter->count; i++) {
+			CXIndex edge = edgeFilter->indices[i];
+			if (edge >= network->edgeCapacity || !network->edgeActive[edge]) {
+				continue;
+			}
+			edgeMask[edge] = 1;
+		}
+	}
+
+	CXSize edgeWriteCount = 0;
+	for (CXSize edge = 0; edge < network->edgeCapacity; edge++) {
+		if (!network->edgeActive[edge]) {
+			continue;
+		}
+		if (edgeMask && !edgeMask[edge]) {
+			continue;
+		}
+		CXEdge endpoints = network->edges[edge];
+		if (endpoints.from >= network->nodeCapacity || endpoints.to >= network->nodeCapacity) {
+			continue;
+		}
+		if (!nodeMask[endpoints.from] || !nodeMask[endpoints.to]) {
+			continue;
+		}
+		outEdgeSelector->indices[edgeWriteCount++] = edge;
+	}
+	outEdgeSelector->count = edgeWriteCount;
+
+	free(nodeMask);
+	free(edgeMask);
+	return CXTrue;
 }

@@ -882,15 +882,38 @@ CX_EXTERN CXBool CXNetworkGetNodeValidRange(CXNetworkRef network, CXSize *start,
 /** Returns the min/max active edge indices as [start,end). */
 CX_EXTERN CXBool CXNetworkGetEdgeValidRange(CXNetworkRef network, CXSize *start, CXSize *end);
 
+/**
+ * Builds an induced filtered subgraph from optional node/edge filters.
+ *
+ * - `nodeFilter` / `edgeFilter` may be NULL to indicate "all active".
+ * - Node output is always active-only.
+ * - Edge output is always active-only and induced by the resulting node set
+ *   (edges with at least one endpoint outside `outNodeSelector` are removed).
+ * - Output order follows native active index order.
+ */
+CX_EXTERN CXBool CXNetworkBuildFilteredSubgraph(
+	CXNetworkRef network,
+	CXNodeSelectorRef nodeFilter,
+	CXEdgeSelectorRef edgeFilter,
+	CXNodeSelectorRef outNodeSelector,
+	CXEdgeSelectorRef outEdgeSelector
+);
+
 // Selector utilities
 /** Creates a selector object for nodes with an optional initial capacity. */
 CX_EXTERN CXNodeSelectorRef CXNodeSelectorCreate(CXSize initialCapacity);
 /** Releases all heap memory associated with a node selector. */
 CX_EXTERN void CXNodeSelectorDestroy(CXNodeSelectorRef selector);
+/** Clears all indices from a node selector without releasing its capacity. */
+CX_EXTERN CXBool CXNodeSelectorClear(CXNodeSelectorRef selector);
 /** Populates the selector with every active node. */
 CX_EXTERN CXBool CXNodeSelectorFillAll(CXNodeSelectorRef selector, CXNetworkRef network);
 /** Fills the selector with the provided node indices. */
 CX_EXTERN CXBool CXNodeSelectorFillFromArray(CXNodeSelectorRef selector, const CXIndex *indices, CXSize count);
+/** Removes invalid/inactive indices in-place from a node selector. */
+CX_EXTERN CXBool CXNodeSelectorFilterActive(CXNodeSelectorRef selector, CXNetworkRef network);
+/** Intersects a node selector in-place with another selector (active indices only). */
+CX_EXTERN CXBool CXNodeSelectorIntersect(CXNodeSelectorRef selector, CXNodeSelectorRef other, CXNetworkRef network);
 /** Returns a pointer to the selector's contiguous index data. */
 CX_EXTERN CXIndex* CXNodeSelectorData(CXNodeSelectorRef selector);
 /** Returns how many indices are currently stored in the selector. */
@@ -900,10 +923,18 @@ CX_EXTERN CXSize CXNodeSelectorCount(CXNodeSelectorRef selector);
 CX_EXTERN CXEdgeSelectorRef CXEdgeSelectorCreate(CXSize initialCapacity);
 /** Releases all heap memory associated with an edge selector. */
 CX_EXTERN void CXEdgeSelectorDestroy(CXEdgeSelectorRef selector);
+/** Clears all indices from an edge selector without releasing its capacity. */
+CX_EXTERN CXBool CXEdgeSelectorClear(CXEdgeSelectorRef selector);
 /** Populates the selector with every active edge. */
 CX_EXTERN CXBool CXEdgeSelectorFillAll(CXEdgeSelectorRef selector, CXNetworkRef network);
 /** Fills the selector with the provided edge indices. */
 CX_EXTERN CXBool CXEdgeSelectorFillFromArray(CXEdgeSelectorRef selector, const CXIndex *indices, CXSize count);
+/** Removes invalid/inactive indices in-place from an edge selector. */
+CX_EXTERN CXBool CXEdgeSelectorFilterActive(CXEdgeSelectorRef selector, CXNetworkRef network);
+/** Intersects an edge selector in-place with another selector (active indices only). */
+CX_EXTERN CXBool CXEdgeSelectorIntersect(CXEdgeSelectorRef selector, CXEdgeSelectorRef other, CXNetworkRef network);
+/** Keeps only active edges whose endpoints are both present in `nodeSelector`. */
+CX_EXTERN CXBool CXEdgeSelectorFilterByNodes(CXEdgeSelectorRef selector, CXNetworkRef network, CXNodeSelectorRef nodeSelector);
 /** Returns a pointer to the selector's index data. */
 CX_EXTERN CXIndex* CXEdgeSelectorData(CXEdgeSelectorRef selector);
 /** Returns how many indices are currently stored in the selector. */

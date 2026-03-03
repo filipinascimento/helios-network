@@ -240,6 +240,31 @@ const DIMENSION_FORWARD_COEFFICIENTS = Object.freeze([
  */
 
 /**
+ * Optional ordering descriptor for filtered node/edge outputs.
+ * @typedef {object} FilterOrderSpec
+ * @property {'id'|'attribute'=} type
+ * @property {string=} by
+ * @property {string=} attribute
+ * @property {string=} name
+ * @property {'asc'|'desc'=} direction
+ * @property {number=} component
+ */
+
+/**
+ * Options for filtered subgraph extraction.
+ * @typedef {object} FilterSubgraphOptions
+ * @property {string=} nodeQuery
+ * @property {string=} edgeQuery
+ * @property {NodeSelector|Iterable<number>|Uint32Array=} nodeSelector
+ * @property {EdgeSelector|Iterable<number>|Uint32Array=} edgeSelector
+ * @property {NodeSelector|Iterable<number>|Uint32Array=} nodeSelection
+ * @property {EdgeSelector|Iterable<number>|Uint32Array=} edgeSelection
+ * @property {FilterOrderSpec|string=} orderNodesBy
+ * @property {FilterOrderSpec|string=} orderEdgesBy
+ * @property {boolean=} asSelector
+ */
+
+/**
  * Cached WASM module promise and resolved instance.
  * @type {Promise<object>|null}
  */
@@ -8054,6 +8079,289 @@ export class HeliosNetwork extends BaseEventTarget {
 		const array = selector.toTypedArray();
 		selector.dispose();
 		return array;
+	}
+
+	_normalizeFilterOrder(scope, orderBy) {
+		if (orderBy == null || orderBy === false) {
+			return null;
+		}
+
+		if (typeof orderBy === 'string') {
+			const trimmed = orderBy.trim();
+			if (!trimmed) {
+				return null;
+			}
+			const lower = trimmed.toLowerCase();
+			if (lower === 'id' || lower === 'id:asc' || lower === 'asc:id') {
+				return { mode: 'id', descending: false, component: 0 };
+			}
+			if (lower === '-id' || lower === 'id:desc' || lower === 'desc:id') {
+				return { mode: 'id', descending: true, component: 0 };
+			}
+			const descending = trimmed.startsWith('-');
+			const attribute = descending ? trimmed.slice(1).trim() : trimmed;
+			if (!attribute) {
+				return null;
+			}
+			return { mode: 'attribute', name: attribute, descending, component: 0 };
+		}
+
+		if (typeof orderBy !== 'object') {
+			throw new Error(`${scope} order descriptor must be a string or object`);
+		}
+
+		const directionValue = typeof orderBy.direction === 'string'
+			? orderBy.direction.trim().toLowerCase()
+			: 'asc';
+		const descending = directionValue === 'desc' || directionValue === 'descending';
+		const requestedType = typeof orderBy.type === 'string'
+			? orderBy.type.trim().toLowerCase()
+			: (typeof orderBy.by === 'string' ? orderBy.by.trim().toLowerCase() : '');
+		const componentRaw = Number.isFinite(orderBy.component) ? Math.floor(orderBy.component) : 0;
+		const component = Math.max(0, componentRaw);
+
+		if (requestedType === 'id') {
+			return { mode: 'id', descending, component: 0 };
+		}
+
+		const name = (typeof orderBy.attribute === 'string' && orderBy.attribute.trim())
+			|| (typeof orderBy.by === 'string' && orderBy.by.trim() && orderBy.by.toLowerCase() !== 'id' ? orderBy.by.trim() : '')
+			|| (typeof orderBy.name === 'string' && orderBy.name.trim())
+			|| '';
+		if (!name) {
+			throw new Error(`${scope} order descriptor must provide an attribute name or "id"`);
+		}
+		return { mode: 'attribute', name, descending, component };
+	}
+
+	_applyFilterOrder(scope, indices, order) {
+		if (!order || !(indices instanceof Uint32Array) || indices.length <= 1) {
+			return indices;
+		}
+
+		const sorted = Array.from(indices);
+		if (order.mode === 'id') {
+			sorted.sort((a, b) => (order.descending ? b - a : a - b));
+			return Uint32Array.from(sorted);
+		}
+
+		const attributeName = order.name;
+		const hasAttribute = scope === 'edge'
+			? this.hasEdgeAttribute(attributeName)
+			: this.hasNodeAttribute(attributeName);
+		if (!hasAttribute) {
+			throw new Error(`Unknown ${scope} attribute "${attributeName}" for ordering`);
+		}
+
+		const info = scope === 'edge'
+			? this.getEdgeAttributeInfo(attributeName)
+			: this.getNodeAttributeInfo(attributeName);
+		if (!info) {
+			throw new Error(`Attribute "${attributeName}" metadata is unavailable`);
+		}
+		if (
+			info.type === AttributeType.String
+			|| info.type === AttributeType.Data
+			|| info.type === AttributeType.Javascript
+			|| info.type === AttributeType.MultiCategory
+		) {
+			throw new Error(`Attribute "${attributeName}" on ${scope} is not orderable`);
+		}
+
+		const dimension = Math.max(1, Math.floor(info.dimension || 1));
+		const component = Math.min(Math.max(0, Math.floor(order.component || 0)), dimension - 1);
+		const values = scope === 'edge'
+			? this.getEdgeAttributeBuffer(attributeName).view
+			: this.getNodeAttributeBuffer(attributeName).view;
+		const sign = order.descending ? -1 : 1;
+		const indexStride = dimension;
+
+		sorted.sort((a, b) => {
+			const valueA = Number(values[a * indexStride + component]);
+			const valueB = Number(values[b * indexStride + component]);
+			const finiteA = Number.isFinite(valueA);
+			const finiteB = Number.isFinite(valueB);
+			if (finiteA && finiteB) {
+				if (valueA < valueB) return -1 * sign;
+				if (valueA > valueB) return 1 * sign;
+				return a - b;
+			}
+			if (finiteA) return -1;
+			if (finiteB) return 1;
+			return a - b;
+		});
+
+		return Uint32Array.from(sorted);
+	}
+
+	/**
+	 * Builds a filtered node/edge view with optional query and selector constraints.
+	 *
+	 * Node and edge filters are independent, but returned edges are always induced
+	 * by the final node set (an edge is kept only when both endpoints are kept).
+	 *
+	 * @param {FilterSubgraphOptions} [options]
+	 * @returns {{nodeIndices:Uint32Array,edgeIndices:Uint32Array}|{nodes:NodeSelector,edges:EdgeSelector}}
+	 */
+	filterSubgraph(options = {}) {
+		this._assertCanAllocate('filterSubgraph');
+		this._ensureActive();
+		if (typeof this.module._CXNetworkBuildFilteredSubgraph !== 'function') {
+			throw new Error('Filtered subgraph helpers are unavailable in this WASM build. Rebuild the artefacts.');
+		}
+		if (typeof this.module._CXNodeSelectorIntersect !== 'function' || typeof this.module._CXEdgeSelectorIntersect !== 'function') {
+			throw new Error('Selector intersection helpers are unavailable in this WASM build. Rebuild the artefacts.');
+		}
+
+		const asSelector = options.asSelector === true;
+		const nodeQuery = options.nodeQuery;
+		const edgeQuery = options.edgeQuery;
+		if (nodeQuery != null && typeof nodeQuery !== 'string') {
+			throw new Error('nodeQuery must be a string');
+		}
+		if (edgeQuery != null && typeof edgeQuery !== 'string') {
+			throw new Error('edgeQuery must be a string');
+		}
+
+		const nodeInput = options.nodeSelection ?? options.nodeSelector ?? null;
+		const edgeInput = options.edgeSelection ?? options.edgeSelector ?? null;
+		const nodeOrder = this._normalizeFilterOrder('node', options.orderNodesBy);
+		const edgeOrder = this._normalizeFilterOrder('edge', options.orderEdgesBy);
+
+		const temporarySelectors = [];
+		const ownSelector = (selector) => {
+			if (selector) {
+				temporarySelectors.push(selector);
+			}
+			return selector;
+		};
+		const disposeTemporaries = () => {
+			for (let i = temporarySelectors.length - 1; i >= 0; i -= 1) {
+				try {
+					temporarySelectors[i].dispose?.();
+				} catch (_) {
+					// ignore cleanup failures
+				}
+			}
+			temporarySelectors.length = 0;
+		};
+
+		const isSelectorLike = (value) => value
+			&& typeof value === 'object'
+			&& typeof value.ptr === 'number'
+			&& typeof value.toTypedArray === 'function';
+
+		const cloneSelector = (scope, selectorLike) => {
+			const raw = scope === 'edge'
+				? EdgeSelector.create(this.module, this)
+				: NodeSelector.create(this.module, this);
+			raw.fillFromArray(this, selectorLike.toTypedArray());
+			return ownSelector(raw._asProxy());
+		};
+
+		const materializeInputSelector = (scope, input) => {
+			if (input == null) {
+				return null;
+			}
+			if (isSelectorLike(input)) {
+				if (input.network === this) {
+					return input;
+				}
+				return cloneSelector(scope, input);
+			}
+			const proxy = scope === 'edge'
+				? this.createEdgeSelector(input)
+				: this.createNodeSelector(input);
+			return ownSelector(proxy);
+		};
+
+		let nodeOutput = null;
+		let edgeOutput = null;
+		try {
+			const queryNodeSelector = (typeof nodeQuery === 'string' && nodeQuery.length > 0)
+				? ownSelector(this.selectNodes(nodeQuery, { asSelector: true }))
+				: null;
+			const queryEdgeSelector = (typeof edgeQuery === 'string' && edgeQuery.length > 0)
+				? ownSelector(this.selectEdges(edgeQuery, { asSelector: true }))
+				: null;
+
+			const inputNodeSelector = materializeInputSelector('node', nodeInput);
+			const inputEdgeSelector = materializeInputSelector('edge', edgeInput);
+
+			let nodeFilter = queryNodeSelector ?? inputNodeSelector ?? null;
+			if (queryNodeSelector && inputNodeSelector) {
+				const writable = inputNodeSelector.network === this && !temporarySelectors.includes(inputNodeSelector)
+					? cloneSelector('node', inputNodeSelector)
+					: inputNodeSelector;
+				const ok = this.module._CXNodeSelectorIntersect(writable.ptr, queryNodeSelector.ptr, this.ptr);
+				if (!ok) {
+					throw new Error('Failed to intersect node selectors');
+				}
+				nodeFilter = writable;
+			}
+
+			let edgeFilter = queryEdgeSelector ?? inputEdgeSelector ?? null;
+			if (queryEdgeSelector && inputEdgeSelector) {
+				const writable = inputEdgeSelector.network === this && !temporarySelectors.includes(inputEdgeSelector)
+					? cloneSelector('edge', inputEdgeSelector)
+					: inputEdgeSelector;
+				const ok = this.module._CXEdgeSelectorIntersect(writable.ptr, queryEdgeSelector.ptr, this.ptr);
+				if (!ok) {
+					throw new Error('Failed to intersect edge selectors');
+				}
+				edgeFilter = writable;
+			}
+
+			nodeOutput = NodeSelector.create(this.module, this);
+			edgeOutput = EdgeSelector.create(this.module, this);
+			const built = this.module._CXNetworkBuildFilteredSubgraph(
+				this.ptr,
+				nodeFilter?.ptr ?? 0,
+				edgeFilter?.ptr ?? 0,
+				nodeOutput.ptr,
+				edgeOutput.ptr,
+			);
+			if (!built) {
+				throw new Error('Failed to build filtered subgraph');
+			}
+
+			if (asSelector && !nodeOrder && !edgeOrder) {
+				const nodes = nodeOutput._asProxy();
+				const edges = edgeOutput._asProxy();
+				nodeOutput = null;
+				edgeOutput = null;
+				return { nodes, edges };
+			}
+
+			let nodeIndices = nodeOutput.toTypedArray();
+			let edgeIndices = edgeOutput.toTypedArray();
+			if (nodeOrder) {
+				nodeIndices = this._applyFilterOrder('node', nodeIndices, nodeOrder);
+			}
+			if (edgeOrder) {
+				edgeIndices = this._applyFilterOrder('edge', edgeIndices, edgeOrder);
+			}
+
+			if (asSelector) {
+				nodeOutput.fillFromArray(this, nodeIndices);
+				edgeOutput.fillFromArray(this, edgeIndices);
+				const nodes = nodeOutput._asProxy();
+				const edges = edgeOutput._asProxy();
+				nodeOutput = null;
+				edgeOutput = null;
+				return { nodes, edges };
+			}
+
+			return { nodeIndices, edgeIndices };
+		} finally {
+			if (nodeOutput) {
+				nodeOutput.dispose();
+			}
+			if (edgeOutput) {
+				edgeOutput.dispose();
+			}
+			disposeTemporaries();
+		}
 	}
 
 	/**
