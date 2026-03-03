@@ -451,7 +451,7 @@ CX_INLINE CXString CXNewStringFromString(const CXString theString){
 extern int vasprintf(char **strp, const char *fmt, va_list ap);
 #endif
 
-CX_INLINE CXString CXNewStringFromFormat(const CXString format, ...){
+static CXString CXNewStringFromFormat(const CXString format, ...){
 	va_list arglist;
 	va_start(arglist,format);
 	CXString returnedString = NULL;
