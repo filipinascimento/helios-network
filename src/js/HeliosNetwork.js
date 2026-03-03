@@ -67,6 +67,11 @@ const MeasurementExecutionMode = Object.freeze({
 	Parallel: 2,
 });
 
+const ConnectedComponentsMode = Object.freeze({
+	Weak: 0,
+	Strong: 1,
+});
+
 const DIMENSION_FORWARD_MAX_ORDER = 6;
 const DIMENSION_BACKWARD_MAX_ORDER = 6;
 const DIMENSION_CENTRAL_MAX_ORDER = 4;
@@ -2173,7 +2178,7 @@ class EdgeSelector extends Selector {
 		}
 	}
 
-	class LeidenSession {
+class LeidenSession {
 		constructor(module, network, ptr, options) {
 			this.options = options;
 			this._finalized = false;
@@ -2467,6 +2472,310 @@ class EdgeSelector extends Selector {
 			}
 
 		return { communityCount, modularity };
+	}
+}
+
+class ConnectedComponentsSession {
+	constructor(module, network, ptr, options = {}) {
+		this.options = options;
+		this._finalized = false;
+		const handlers = {
+			scratchBytes: 48,
+			destroy: typeof module._CXConnectedComponentsSessionDestroy === 'function'
+				? module._CXConnectedComponentsSessionDestroy.bind(module)
+				: null,
+			step: typeof module._CXConnectedComponentsSessionStep === 'function'
+				? module._CXConnectedComponentsSessionStep.bind(module)
+				: null,
+			isTerminalPhase: (phase) => phase === 3 || phase === 4,
+			isDonePhase: (phase) => phase === 3,
+			isFailedPhase: (phase) => phase === 4,
+			cancelOn: { topology: 'both' },
+			getProgress: (sessionPtr, scratchPtr) => {
+				if (typeof module._CXConnectedComponentsSessionGetProgress !== 'function') {
+					throw new Error('CXConnectedComponentsSessionGetProgress is not available in this WASM build.');
+				}
+				const base = scratchPtr;
+				const progressCurrentPtr = base + 0; // f64
+				const progressTotalPtr = base + 8; // f64
+				const phasePtr = base + 16; // u32
+				const visitedNodesPtr = base + 20; // u32
+				const activeNodesPtr = base + 24; // u32
+				const componentCountPtr = base + 28; // u32
+				const largestComponentSizePtr = base + 32; // u32
+
+				module._CXConnectedComponentsSessionGetProgress(
+					sessionPtr,
+					progressCurrentPtr,
+					progressTotalPtr,
+					phasePtr,
+					visitedNodesPtr,
+					activeNodesPtr,
+					componentCountPtr,
+					largestComponentSizePtr
+				);
+
+				return {
+					progressCurrent: module.HEAPF64[progressCurrentPtr / Float64Array.BYTES_PER_ELEMENT] ?? 0,
+					progressTotal: module.HEAPF64[progressTotalPtr / Float64Array.BYTES_PER_ELEMENT] ?? 0,
+					phase: module.HEAPU32[phasePtr / Uint32Array.BYTES_PER_ELEMENT] ?? 0,
+					visitedNodes: module.HEAPU32[visitedNodesPtr / Uint32Array.BYTES_PER_ELEMENT] ?? 0,
+					activeNodes: module.HEAPU32[activeNodesPtr / Uint32Array.BYTES_PER_ELEMENT] ?? 0,
+					componentCount: module.HEAPU32[componentCountPtr / Uint32Array.BYTES_PER_ELEMENT] ?? 0,
+					largestComponentSize: module.HEAPU32[largestComponentSizePtr / Uint32Array.BYTES_PER_ELEMENT] ?? 0,
+				};
+			},
+		};
+
+		this._base = new WasmSteppableSession(module, network, ptr, handlers);
+	}
+
+	_ensureActive() {
+		this._base._ensureActive();
+	}
+
+	dispose() {
+		this._base.dispose();
+	}
+
+	getProgress() {
+		return this._base.getProgress();
+	}
+
+	isComplete() {
+		const { phase } = this.getProgress();
+		return phase === 3;
+	}
+
+	isFinalized() {
+		return this._finalized;
+	}
+
+	step(options = {}) {
+		return this._base.step(options);
+	}
+
+	run(options = {}) {
+		return this._base.run(options);
+	}
+
+	finalize(options = {}) {
+		this._ensureActive();
+		const module = this._base.module;
+		const network = this._base.network;
+		const ptr = this._base.ptr;
+		network._assertCanAllocate('connected components finalization');
+		if (typeof module._CXConnectedComponentsSessionFinalize !== 'function') {
+			throw new Error('CXConnectedComponentsSessionFinalize is not available in this WASM build.');
+		}
+
+		const outNodeComponentAttribute = options.outNodeComponentAttribute
+			?? this.options?.outNodeComponentAttribute
+			?? null;
+		const outPtr = module._malloc(network.nodeCapacity * Uint32Array.BYTES_PER_ELEMENT);
+		const componentCountPtr = module._malloc(Uint32Array.BYTES_PER_ELEMENT);
+		const largestComponentSizePtr = module._malloc(Uint32Array.BYTES_PER_ELEMENT);
+		if (!outPtr || !componentCountPtr || !largestComponentSizePtr) {
+			if (outPtr) module._free(outPtr);
+			if (componentCountPtr) module._free(componentCountPtr);
+			if (largestComponentSizePtr) module._free(largestComponentSizePtr);
+			throw new Error('Failed to allocate connected components finalize buffers');
+		}
+		module.HEAPU32[componentCountPtr / Uint32Array.BYTES_PER_ELEMENT] = 0;
+		module.HEAPU32[largestComponentSizePtr / Uint32Array.BYTES_PER_ELEMENT] = 0;
+
+		let ok = 0;
+		let componentCount = 0;
+		let largestComponentSize = 0;
+		let valuesByNode;
+		try {
+			ok = module._CXConnectedComponentsSessionFinalize(
+				ptr,
+				outPtr,
+				network.nodeCapacity >>> 0,
+				componentCountPtr,
+				largestComponentSizePtr
+			);
+			componentCount = module.HEAPU32[componentCountPtr / Uint32Array.BYTES_PER_ELEMENT] ?? 0;
+			largestComponentSize = module.HEAPU32[largestComponentSizePtr / Uint32Array.BYTES_PER_ELEMENT] ?? 0;
+			valuesByNode = new Uint32Array(module.HEAPU32.buffer, outPtr, network.nodeCapacity).slice();
+		} finally {
+			module._free(outPtr);
+			module._free(componentCountPtr);
+			module._free(largestComponentSizePtr);
+		}
+		if (!ok) {
+			throw new Error('Connected-components session is not ready to finalize (run step() until done)');
+		}
+
+		if (outNodeComponentAttribute) {
+			if (!network._nodeAttributes.has(outNodeComponentAttribute)) {
+				network.defineNodeAttribute(outNodeComponentAttribute, AttributeType.UnsignedInteger, 1);
+			} else {
+				const meta = network._nodeAttributes.get(outNodeComponentAttribute);
+				if (meta && meta.type !== AttributeType.UnsignedInteger) {
+					throw new Error(`Node attribute "${outNodeComponentAttribute}" must be UnsignedInteger`);
+				}
+			}
+			const { view, bumpVersion } = network.getNodeAttributeBuffer(outNodeComponentAttribute);
+			view.set(valuesByNode);
+			bumpVersion();
+		}
+
+		this._finalized = true;
+		const result = network._collectNodeMetricResultUint32(valuesByNode, options.nodes ?? this.options?.nodes ?? null);
+		return { ...result, componentCount, largestComponentSize };
+	}
+}
+
+class CorenessSession {
+	constructor(module, network, ptr, options = {}) {
+		this.options = options;
+		this._finalized = false;
+		const handlers = {
+			scratchBytes: 40,
+			destroy: typeof module._CXCorenessSessionDestroy === 'function'
+				? module._CXCorenessSessionDestroy.bind(module)
+				: null,
+			step: typeof module._CXCorenessSessionStep === 'function'
+				? module._CXCorenessSessionStep.bind(module)
+				: null,
+			isTerminalPhase: (phase) => phase === 3 || phase === 4,
+			isDonePhase: (phase) => phase === 3,
+			isFailedPhase: (phase) => phase === 4,
+			cancelOn: { topology: 'both' },
+			getProgress: (sessionPtr, scratchPtr) => {
+				if (typeof module._CXCorenessSessionGetProgress !== 'function') {
+					throw new Error('CXCorenessSessionGetProgress is not available in this WASM build.');
+				}
+				const base = scratchPtr;
+				const progressCurrentPtr = base + 0; // f64
+				const progressTotalPtr = base + 8; // f64
+				const phasePtr = base + 16; // u32
+				const peeledNodesPtr = base + 20; // u32
+				const activeNodesPtr = base + 24; // u32
+				const currentCorePtr = base + 28; // u32
+				const maxCorePtr = base + 32; // u32
+
+				module._CXCorenessSessionGetProgress(
+					sessionPtr,
+					progressCurrentPtr,
+					progressTotalPtr,
+					phasePtr,
+					peeledNodesPtr,
+					activeNodesPtr,
+					currentCorePtr,
+					maxCorePtr
+				);
+
+				return {
+					progressCurrent: module.HEAPF64[progressCurrentPtr / Float64Array.BYTES_PER_ELEMENT] ?? 0,
+					progressTotal: module.HEAPF64[progressTotalPtr / Float64Array.BYTES_PER_ELEMENT] ?? 0,
+					phase: module.HEAPU32[phasePtr / Uint32Array.BYTES_PER_ELEMENT] ?? 0,
+					peeledNodes: module.HEAPU32[peeledNodesPtr / Uint32Array.BYTES_PER_ELEMENT] ?? 0,
+					activeNodes: module.HEAPU32[activeNodesPtr / Uint32Array.BYTES_PER_ELEMENT] ?? 0,
+					currentCore: module.HEAPU32[currentCorePtr / Uint32Array.BYTES_PER_ELEMENT] ?? 0,
+					maxCore: module.HEAPU32[maxCorePtr / Uint32Array.BYTES_PER_ELEMENT] ?? 0,
+				};
+			},
+		};
+
+		this._base = new WasmSteppableSession(module, network, ptr, handlers);
+	}
+
+	_ensureActive() {
+		this._base._ensureActive();
+	}
+
+	dispose() {
+		this._base.dispose();
+	}
+
+	getProgress() {
+		return this._base.getProgress();
+	}
+
+	isComplete() {
+		const { phase } = this.getProgress();
+		return phase === 3;
+	}
+
+	isFinalized() {
+		return this._finalized;
+	}
+
+	step(options = {}) {
+		return this._base.step(options);
+	}
+
+	run(options = {}) {
+		return this._base.run(options);
+	}
+
+	finalize(options = {}) {
+		this._ensureActive();
+		const module = this._base.module;
+		const network = this._base.network;
+		const ptr = this._base.ptr;
+		network._assertCanAllocate('coreness finalization');
+		if (typeof module._CXCorenessSessionFinalize !== 'function') {
+			throw new Error('CXCorenessSessionFinalize is not available in this WASM build.');
+		}
+
+		const outNodeCorenessAttribute = options.outNodeCorenessAttribute
+			?? this.options?.outNodeCorenessAttribute
+			?? null;
+		const outPtr = module._malloc(network.nodeCapacity * Uint32Array.BYTES_PER_ELEMENT);
+		const maxCorePtr = module._malloc(Uint32Array.BYTES_PER_ELEMENT);
+		if (!outPtr || !maxCorePtr) {
+			if (outPtr) module._free(outPtr);
+			if (maxCorePtr) module._free(maxCorePtr);
+			throw new Error('Failed to allocate coreness finalize buffers');
+		}
+		module.HEAPU32[maxCorePtr / Uint32Array.BYTES_PER_ELEMENT] = 0;
+
+		let ok = 0;
+		let maxCore = 0;
+		let valuesByNode;
+		try {
+			ok = module._CXCorenessSessionFinalize(
+				ptr,
+				outPtr,
+				network.nodeCapacity >>> 0,
+				maxCorePtr
+			);
+			maxCore = module.HEAPU32[maxCorePtr / Uint32Array.BYTES_PER_ELEMENT] ?? 0;
+			valuesByNode = new Uint32Array(module.HEAPU32.buffer, outPtr, network.nodeCapacity).slice();
+		} finally {
+			module._free(outPtr);
+			module._free(maxCorePtr);
+		}
+		if (!ok) {
+			throw new Error('Coreness session is not ready to finalize (run step() until done)');
+		}
+
+		if (outNodeCorenessAttribute) {
+			if (!network._nodeAttributes.has(outNodeCorenessAttribute)) {
+				network.defineNodeAttribute(outNodeCorenessAttribute, AttributeType.UnsignedInteger, 1);
+			} else {
+				const meta = network._nodeAttributes.get(outNodeCorenessAttribute);
+				if (meta && meta.type !== AttributeType.UnsignedInteger) {
+					throw new Error(`Node attribute "${outNodeCorenessAttribute}" must be UnsignedInteger`);
+				}
+			}
+			const { view, bumpVersion } = network.getNodeAttributeBuffer(outNodeCorenessAttribute);
+			view.set(valuesByNode);
+			bumpVersion();
+		}
+
+		this._finalized = true;
+		const result = network._collectNodeMetricResultUint32(valuesByNode, options.nodes ?? this.options?.nodes ?? null);
+		return {
+			...result,
+			direction: this.options?.direction ?? NeighborDirection.Both,
+			executionMode: this.options?.executionMode ?? MeasurementExecutionMode.SingleThread,
+			maxCore,
+		};
 	}
 }
 
@@ -6655,6 +6964,21 @@ export class HeliosNetwork extends BaseEventTarget {
 		return fallback;
 	}
 
+	_normalizeConnectedComponentsMode(value) {
+		if (typeof value === 'number' && Number.isFinite(value)) {
+			const n = value | 0;
+			if (n >= ConnectedComponentsMode.Weak && n <= ConnectedComponentsMode.Strong) {
+				return n;
+			}
+		}
+		if (typeof value === 'string') {
+			const normalized = value.trim().toLowerCase();
+			if (normalized === 'weak' || normalized === 'wcc') return ConnectedComponentsMode.Weak;
+			if (normalized === 'strong' || normalized === 'scc') return ConnectedComponentsMode.Strong;
+		}
+		return ConnectedComponentsMode.Weak;
+	}
+
 	_normalizeNodeSelection(nodes) {
 		if (nodes == null) {
 			return this.nodeIndices;
@@ -6679,6 +7003,15 @@ export class HeliosNetwork extends BaseEventTarget {
 		const values = new Float32Array(nodeIndices.length);
 		for (let i = 0; i < nodeIndices.length; i += 1) {
 			values[i] = valuesByNode[nodeIndices[i]] ?? 0;
+		}
+		return { nodeIndices, values, valuesByNode };
+	}
+
+	_collectNodeMetricResultUint32(valuesByNode, nodes = null) {
+		const nodeIndices = this._normalizeNodeSelection(nodes);
+		const values = new Uint32Array(nodeIndices.length);
+		for (let i = 0; i < nodeIndices.length; i += 1) {
+			values[i] = valuesByNode[nodeIndices[i]] >>> 0;
 		}
 		return { nodeIndices, values, valuesByNode };
 	}
@@ -8745,7 +9078,7 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * @param {Array<number>|TypedArray|null} [options.nodes=null] - Optional node subset.
 	 * @returns {{nodeIndices:Uint32Array, values:Float32Array, valuesByNode:Float32Array, direction:number, variant:number}}
 	 */
-	measureLocalClusteringCoefficient(options = {}) {
+		measureLocalClusteringCoefficient(options = {}) {
 		this._ensureActive();
 		this._assertCanAllocate('local clustering measurement');
 		if (typeof this.module._CXNetworkMeasureLocalClusteringCoefficient !== 'function') {
@@ -8780,12 +9113,123 @@ export class HeliosNetwork extends BaseEventTarget {
 			if (weightName) {
 				weightName.dispose();
 			}
+			}
 		}
-	}
 
-	/**
-	 * Measures eigenvector centrality.
-	 *
+		/**
+		 * Measures node coreness (k-core index).
+		 *
+		 * @param {object} [options]
+		 * @param {(number|string)} [options.direction='both'] - out/in/both
+		 * @param {(number|string)} [options.executionMode='single-thread'] - auto/single-thread/parallel
+		 * @param {Array<number>|TypedArray|null} [options.nodes=null] - Optional node subset.
+		 * @param {string|null} [options.outNodeCorenessAttribute=null] - Optional node attribute name to store coreness.
+		 * @returns {{nodeIndices:Uint32Array, values:Uint32Array, valuesByNode:Uint32Array, direction:number, executionMode:number, maxCore:number}}
+		 */
+		measureCoreness(options = {}) {
+			this._ensureActive();
+			this._assertCanAllocate('coreness measurement');
+			if (typeof this.module._CXNetworkMeasureCoreness !== 'function') {
+				throw new Error('CXNetworkMeasureCoreness is not available in this WASM build. Rebuild the module to enable measureCoreness().');
+			}
+
+			const direction = this._normalizeNeighborDirection(options.direction ?? 'both');
+			const executionMode = this._normalizeMeasurementExecutionMode(
+				options.executionMode ?? 'single-thread',
+				MeasurementExecutionMode.SingleThread
+			);
+			const outNodeCorenessAttribute = options.outNodeCorenessAttribute ?? null;
+
+			const outPtr = this.module._malloc(this.nodeCapacity * Uint32Array.BYTES_PER_ELEMENT);
+			const maxCorePtr = this.module._malloc(Uint32Array.BYTES_PER_ELEMENT);
+			if (!outPtr || !maxCorePtr) {
+				if (outPtr) this.module._free(outPtr);
+				if (maxCorePtr) this.module._free(maxCorePtr);
+				throw new Error('Failed to allocate WASM buffers for coreness measurement');
+			}
+			this.module.HEAPU32[maxCorePtr / Uint32Array.BYTES_PER_ELEMENT] = 0;
+
+			let maxCore = 0;
+			let valuesByNode;
+			try {
+				const ok = this.module._CXNetworkMeasureCoreness(
+					this.ptr,
+					direction >>> 0,
+					executionMode >>> 0,
+					outPtr,
+					maxCorePtr
+				);
+				if (!ok) {
+					throw new Error('Coreness measurement failed');
+				}
+				maxCore = this.module.HEAPU32[maxCorePtr / Uint32Array.BYTES_PER_ELEMENT] ?? 0;
+				valuesByNode = new Uint32Array(this.module.HEAPU32.buffer, outPtr, this.nodeCapacity).slice();
+			} finally {
+				this.module._free(outPtr);
+				this.module._free(maxCorePtr);
+			}
+
+			if (outNodeCorenessAttribute) {
+				if (!this._nodeAttributes.has(outNodeCorenessAttribute)) {
+					this.defineNodeAttribute(outNodeCorenessAttribute, AttributeType.UnsignedInteger, 1);
+				} else {
+					const meta = this._nodeAttributes.get(outNodeCorenessAttribute);
+					if (meta && meta.type !== AttributeType.UnsignedInteger) {
+						throw new Error(`Node attribute "${outNodeCorenessAttribute}" must be UnsignedInteger`);
+					}
+				}
+				const { view, bumpVersion } = this.getNodeAttributeBuffer(outNodeCorenessAttribute);
+				view.set(valuesByNode);
+				bumpVersion();
+			}
+
+			const result = this._collectNodeMetricResultUint32(valuesByNode, options.nodes ?? null);
+			return { ...result, direction, executionMode, maxCore };
+		}
+
+		/**
+		 * Creates a steppable coreness session for incremental execution.
+		 *
+		 * Run `session.step({budget})` in a loop until `phase` becomes `3` (done),
+		 * then call `session.finalize()` to retrieve coreness values.
+		 *
+		 * @param {object} [options]
+		 * @param {(number|string)} [options.direction='both'] - out/in/both
+		 * @param {(number|string)} [options.executionMode='single-thread'] - auto/single-thread/parallel
+		 * @param {Array<number>|TypedArray|null} [options.nodes=null] - Optional node subset for finalize() return payload.
+		 * @param {string|null} [options.outNodeCorenessAttribute=null] - Optional node attribute to write coreness in finalize().
+		 * @returns {CorenessSession} Session handle.
+		 */
+		createCorenessSession(options = {}) {
+			this._ensureActive();
+			this._assertCanAllocate('coreness session creation');
+			if (typeof this.module._CXCorenessSessionCreate !== 'function') {
+				throw new Error('CXCorenessSessionCreate is not available in this WASM build. Rebuild the module to enable createCorenessSession().');
+			}
+			const direction = this._normalizeNeighborDirection(options.direction ?? 'both');
+			const executionMode = this._normalizeMeasurementExecutionMode(
+				options.executionMode ?? 'single-thread',
+				MeasurementExecutionMode.SingleThread
+			);
+			const ptr = this.module._CXCorenessSessionCreate(
+				this.ptr,
+				direction >>> 0,
+				executionMode >>> 0
+			);
+			if (!ptr) {
+				throw new Error('Failed to create coreness session');
+			}
+			return new CorenessSession(this.module, this, ptr, {
+				direction,
+				executionMode,
+				nodes: options.nodes ?? null,
+				outNodeCorenessAttribute: options.outNodeCorenessAttribute ?? null,
+			});
+		}
+
+		/**
+		 * Measures eigenvector centrality.
+		 *
 	 * @param {object} [options]
 	 * @param {string|null} [options.edgeWeightAttribute=null] - Edge weight attribute name.
 	 * @param {(number|string)} [options.direction='both'] - out/in/both
@@ -8959,6 +9403,235 @@ export class HeliosNetwork extends BaseEventTarget {
 			sourceInfo.dispose();
 			initialInfo.dispose();
 		}
+	}
+
+	/**
+	 * Measures connected components.
+	 *
+	 * Component ids are 1-based for active nodes; inactive nodes remain 0.
+	 *
+	 * @param {object} [options]
+	 * @param {(number|string)} [options.mode='weak'] - weak/strong
+	 * @param {Array<number>|TypedArray|null} [options.nodes=null] - Optional node subset for returned vector.
+	 * @param {string|null} [options.outNodeComponentAttribute=null] - Optional node attribute name to store component ids.
+	 * @returns {{nodeIndices:Uint32Array, values:Uint32Array, valuesByNode:Uint32Array, mode:number, componentCount:number, largestComponentSize:number}}
+	 */
+	measureConnectedComponents(options = {}) {
+		this._ensureActive();
+		this._assertCanAllocate('connected components measurement');
+		if (typeof this.module._CXNetworkMeasureConnectedComponents !== 'function') {
+			throw new Error('CXNetworkMeasureConnectedComponents is not available in this WASM build. Rebuild the module to enable measureConnectedComponents().');
+		}
+
+		const mode = this._normalizeConnectedComponentsMode(options.mode ?? 'weak');
+		const outNodeComponentAttribute = options.outNodeComponentAttribute ?? null;
+		const outPtr = this.module._malloc(this.nodeCapacity * Uint32Array.BYTES_PER_ELEMENT);
+		const largestComponentSizePtr = this.module._malloc(Uint32Array.BYTES_PER_ELEMENT);
+		if (!outPtr || !largestComponentSizePtr) {
+			if (outPtr) this.module._free(outPtr);
+			if (largestComponentSizePtr) this.module._free(largestComponentSizePtr);
+			throw new Error('Failed to allocate WASM buffers for connected components measurement');
+		}
+		this.module.HEAPU32[largestComponentSizePtr / Uint32Array.BYTES_PER_ELEMENT] = 0;
+
+		let componentCount = 0;
+		let largestComponentSize = 0;
+		let valuesByNode;
+		try {
+			componentCount = this.module._CXNetworkMeasureConnectedComponents(
+				this.ptr,
+				mode >>> 0,
+				outPtr,
+				largestComponentSizePtr
+			) >>> 0;
+			largestComponentSize = this.module.HEAPU32[largestComponentSizePtr / Uint32Array.BYTES_PER_ELEMENT] ?? 0;
+			valuesByNode = new Uint32Array(this.module.HEAPU32.buffer, outPtr, this.nodeCapacity).slice();
+		} finally {
+			this.module._free(outPtr);
+			this.module._free(largestComponentSizePtr);
+		}
+
+		if (outNodeComponentAttribute) {
+			if (!this._nodeAttributes.has(outNodeComponentAttribute)) {
+				this.defineNodeAttribute(outNodeComponentAttribute, AttributeType.UnsignedInteger, 1);
+			} else {
+				const meta = this._nodeAttributes.get(outNodeComponentAttribute);
+				if (meta && meta.type !== AttributeType.UnsignedInteger) {
+					throw new Error(`Node attribute "${outNodeComponentAttribute}" must be UnsignedInteger`);
+				}
+			}
+			const { view, bumpVersion } = this.getNodeAttributeBuffer(outNodeComponentAttribute);
+			view.set(valuesByNode);
+			bumpVersion();
+		}
+
+		const result = this._collectNodeMetricResultUint32(valuesByNode, options.nodes ?? null);
+		return {
+			...result,
+			mode,
+			componentCount,
+			largestComponentSize,
+		};
+	}
+
+	/**
+	 * Creates a steppable connected-components session for incremental execution.
+	 *
+	 * Run `session.step({budget})` in a loop until `phase` becomes `3` (done),
+	 * then call `session.finalize()` to retrieve component ids.
+	 *
+	 * @param {object} [options]
+	 * @param {(number|string)} [options.mode='weak'] - weak/strong
+	 * @param {Array<number>|TypedArray|null} [options.nodes=null] - Optional node subset for finalize() return payload.
+	 * @param {string|null} [options.outNodeComponentAttribute=null] - Optional node attribute to write component ids in finalize().
+	 * @returns {ConnectedComponentsSession} Session handle.
+	 */
+	createConnectedComponentsSession(options = {}) {
+		this._ensureActive();
+		this._assertCanAllocate('connected components session creation');
+		if (typeof this.module._CXConnectedComponentsSessionCreate !== 'function') {
+			throw new Error('CXConnectedComponentsSessionCreate is not available in this WASM build. Rebuild the module to enable createConnectedComponentsSession().');
+		}
+		const mode = this._normalizeConnectedComponentsMode(options.mode ?? 'weak');
+		const ptr = this.module._CXConnectedComponentsSessionCreate(this.ptr, mode >>> 0);
+		if (!ptr) {
+			throw new Error('Failed to create connected-components session');
+		}
+		return new ConnectedComponentsSession(this.module, this, ptr, {
+			mode,
+			nodes: options.nodes ?? null,
+			outNodeComponentAttribute: options.outNodeComponentAttribute ?? null,
+		});
+	}
+
+	_extractComponentAsNetwork(nodeIndices, edgeIndices) {
+		const network = HeliosNetwork._createWithModule(
+			this.module,
+			this.directed,
+			nodeIndices.length >>> 0,
+			edgeIndices.length >>> 0
+		);
+		if (nodeIndices.length === 0) {
+			return network;
+		}
+
+		const nodeMap = new Map();
+		for (let i = 0; i < nodeIndices.length; i += 1) {
+			nodeMap.set(nodeIndices[i], i >>> 0);
+		}
+
+		const edges = [];
+		this.withBufferAccess(() => {
+			const edgesView = this.edgesView;
+			for (let i = 0; i < edgeIndices.length; i += 1) {
+				const edgeId = edgeIndices[i] >>> 0;
+				const base = edgeId * 2;
+				const from = edgesView[base];
+				const to = edgesView[base + 1];
+				const mappedFrom = nodeMap.get(from);
+				const mappedTo = nodeMap.get(to);
+				if (mappedFrom == null || mappedTo == null) {
+					continue;
+				}
+				edges.push({ from: mappedFrom, to: mappedTo });
+			}
+		});
+		if (edges.length) {
+			network.addEdges(edges);
+		}
+		return network;
+	}
+
+	/**
+	 * Extracts component partitions and optional per-component network objects.
+	 *
+	 * @param {object} [options]
+	 * @param {(number|string)} [options.mode='weak'] - weak/strong
+	 * @param {number} [options.minSize=1] - Minimum number of nodes per returned component.
+	 * @param {boolean} [options.asNetworks=false] - Build one induced HeliosNetwork per component.
+	 * @param {string|null} [options.outNodeComponentAttribute='component'] - Attribute to store component ids before extraction (set null to skip).
+	 * @returns {Array<{componentId:number,size:number,nodeIndices:Uint32Array,edgeIndices:Uint32Array,network?:HeliosNetwork}>}
+	 */
+	extractConnectedComponents(options = {}) {
+		this._ensureActive();
+		const mode = this._normalizeConnectedComponentsMode(options.mode ?? 'weak');
+		const minSize = Math.max(1, Number.isFinite(options.minSize) ? Math.trunc(options.minSize) : 1);
+		const asNetworks = options.asNetworks === true;
+		const outNodeComponentAttribute = Object.prototype.hasOwnProperty.call(options, 'outNodeComponentAttribute')
+			? options.outNodeComponentAttribute
+			: 'component';
+
+		const measured = this.measureConnectedComponents({
+			mode,
+			outNodeComponentAttribute,
+		});
+		const valuesByNode = measured.valuesByNode;
+		const activeNodes = this.nodeIndices;
+		const groups = new Map();
+		for (let i = 0; i < activeNodes.length; i += 1) {
+			const node = activeNodes[i];
+			const componentId = valuesByNode[node] >>> 0;
+			if (!componentId) {
+				continue;
+			}
+			let bucket = groups.get(componentId);
+			if (!bucket) {
+				bucket = [];
+				groups.set(componentId, bucket);
+			}
+			bucket.push(node);
+		}
+
+		const components = [];
+			for (const [componentId, nodes] of groups.entries()) {
+				if (nodes.length < minSize) {
+					continue;
+				}
+				const nodeIndices = Uint32Array.from(nodes);
+				const filtered = this.filterSubgraph({ nodeSelection: nodeIndices });
+				const edgeIndices = filtered.edgeIndices;
+				const record = {
+					componentId,
+					size: nodeIndices.length,
+					nodeIndices,
+				edgeIndices,
+			};
+			if (asNetworks) {
+				record.network = this._extractComponentAsNetwork(nodeIndices, edgeIndices);
+			}
+			components.push(record);
+		}
+		components.sort((a, b) => {
+			if (b.size !== a.size) {
+				return b.size - a.size;
+			}
+			return a.componentId - b.componentId;
+		});
+		return components;
+	}
+
+	/**
+	 * Extracts only the largest connected component.
+	 *
+	 * @param {object} [options]
+	 * @param {(number|string)} [options.mode='weak'] - weak/strong
+	 * @param {boolean} [options.asNetwork=true] - Return an induced network object when true.
+	 * @param {string|null} [options.outNodeComponentAttribute='component'] - Attribute to store component ids before extraction.
+	 * @returns {{componentId:number,size:number,nodeIndices:Uint32Array,edgeIndices:Uint32Array,network?:HeliosNetwork}|null}
+	 */
+	extractLargestConnectedComponent(options = {}) {
+		const {
+			mode = 'weak',
+			asNetwork = true,
+			outNodeComponentAttribute,
+		} = options;
+		const components = this.extractConnectedComponents({
+			mode,
+			asNetworks: asNetwork,
+			minSize: 1,
+			outNodeComponentAttribute,
+		});
+		return components.length ? components[0] : null;
 	}
 
 	/**
@@ -9852,6 +10525,7 @@ export {
 	StrengthMeasure,
 	ClusteringCoefficientVariant,
 	MeasurementExecutionMode,
+	ConnectedComponentsMode,
 	NodeSelector,
 	EdgeSelector,
 	getModule as getHeliosModule,

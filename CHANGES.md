@@ -1,5 +1,34 @@
 # CHANGES
 
+## 2026-03-03
+
+- Added connected-components support across native C, JS/WASM, and Python:
+  - weakly-connected mode
+  - strongly-connected mode for directed graphs (undirected graphs normalize to weak mode)
+- Added native one-shot measurement API:
+  - `CXNetworkMeasureConnectedComponents(...)` (per-node component ids + largest component size).
+- Added native steppable session API for progress-aware execution:
+  - `CXConnectedComponentsSessionCreate/Step/GetProgress/Finalize/Destroy`.
+- Added JS APIs:
+  - `measureConnectedComponents(...)`
+  - `createConnectedComponentsSession(...)` with progress, cancellation-on-topology-change, and finalize support (optional attribute write).
+  - `extractConnectedComponents(...)`
+  - `extractLargestConnectedComponent(...)`
+  - `ConnectedComponentsMode` export.
+- Added Python binding:
+  - `measure_connected_components(mode=...)`.
+  - `extract_connected_components(...)` wrapper helper.
+  - `extract_largest_connected_component(...)` wrapper helper.
+- Added coreness (k-core index) support across native C, JS/WASM, and Python:
+  - Native: `CXNetworkMeasureCoreness(...)` + steppable `CXCorenessSessionCreate/Step/GetProgress/Finalize/Destroy`.
+  - JS: `measureCoreness(...)` and `createCorenessSession(...)` with topology-change cancellation and optional unsigned-integer node-attribute output.
+  - Python: `measure_coreness(direction=..., execution_mode=...)`.
+- Exported the new native symbols in the WASM export list.
+- Added regression coverage in:
+  - `tests/native/test_measurements.c`
+  - `tests/network_measurements.test.js`
+  - `python/tests/test_network.py`
+
 ## 2026-02-27
 
 - Added native filtered-subgraph helpers for selectors:

@@ -310,6 +310,41 @@ static int parse_execution_mode(PyObject *obj, CXMeasurementExecutionMode *out) 
     return -1;
 }
 
+static int parse_connected_components_mode(PyObject *obj, CXConnectedComponentsMode *out) {
+    if (obj == NULL || obj == Py_None) {
+        *out = CXConnectedComponentsWeak;
+        return 0;
+    }
+    if (PyLong_Check(obj)) {
+        long value = PyLong_AsLong(obj);
+        if (value == -1 && PyErr_Occurred()) {
+            return -1;
+        }
+        if (value < CXConnectedComponentsWeak || value > CXConnectedComponentsStrong) {
+            PyErr_SetString(PyExc_ValueError, "Invalid connected-components mode");
+            return -1;
+        }
+        *out = (CXConnectedComponentsMode)value;
+        return 0;
+    }
+    if (PyUnicode_Check(obj)) {
+        const char *value = PyUnicode_AsUTF8(obj);
+        if (!value) {
+            return -1;
+        }
+        if (strcmp(value, "weak") == 0 || strcmp(value, "wcc") == 0) {
+            *out = CXConnectedComponentsWeak;
+            return 0;
+        }
+        if (strcmp(value, "strong") == 0 || strcmp(value, "scc") == 0) {
+            *out = CXConnectedComponentsStrong;
+            return 0;
+        }
+    }
+    PyErr_SetString(PyExc_ValueError, "Connected-components mode must be int or one of: weak, strong");
+    return -1;
+}
+
 static int parse_source_nodes(PyObject *obj, CXIndex **outNodes, CXSize *outCount) {
     if (!outNodes || !outCount) {
         PyErr_SetString(PyExc_RuntimeError, "Internal error while parsing source nodes");
@@ -2215,6 +2250,17 @@ static PyObject *float_buffer_to_list(const float *values, CXSize count) {
     return list;
 }
 
+static PyObject *u32_buffer_to_list(const uint32_t *values, CXSize count) {
+    PyObject *list = PyList_New((Py_ssize_t)count);
+    if (!list) {
+        return NULL;
+    }
+    for (CXSize i = 0; i < count; i++) {
+        PyList_SET_ITEM(list, (Py_ssize_t)i, PyLong_FromUnsignedLong((unsigned long)values[i]));
+    }
+    return list;
+}
+
 static PyObject *Network_measure_degree(PyHeliosNetwork *self, PyObject *args, PyObject *kwargs) {
     static const char *kwlist[] = {"direction", NULL};
     PyObject *direction_obj = NULL;
@@ -2681,6 +2727,142 @@ static PyObject *Network_measure_betweenness_centrality(PyHeliosNetwork *self, P
     return result;
 }
 
+static PyObject *Network_measure_connected_components(PyHeliosNetwork *self, PyObject *args, PyObject *kwargs) {
+    static const char *kwlist[] = {"mode", NULL};
+    PyObject *mode_obj = NULL;
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|O", (char **)kwlist, &mode_obj)) {
+        return NULL;
+    }
+    if (!self->network) {
+        PyErr_SetString(PyExc_RuntimeError, "Network is not initialized");
+        return NULL;
+    }
+    CXConnectedComponentsMode mode = CXConnectedComponentsWeak;
+    if (parse_connected_components_mode(mode_obj, &mode) != 0) {
+        return NULL;
+    }
+
+    uint32_t *values = (uint32_t *)calloc(self->network->nodeCapacity, sizeof(uint32_t));
+    if (!values) {
+        PyErr_NoMemory();
+        return NULL;
+    }
+
+    uint32_t largest_component_size = 0;
+    CXSize component_count = CXNetworkMeasureConnectedComponents(
+        self->network,
+        mode,
+        values,
+        &largest_component_size
+    );
+
+    PyObject *values_list = u32_buffer_to_list(values, self->network->nodeCapacity);
+    free(values);
+    if (!values_list) {
+        return NULL;
+    }
+
+    PyObject *result = PyDict_New();
+    if (!result) {
+        Py_DECREF(values_list);
+        return NULL;
+    }
+    PyObject *component_count_out = PyLong_FromSize_t((size_t)component_count);
+    PyObject *largest_out = PyLong_FromUnsignedLong((unsigned long)largest_component_size);
+    PyObject *mode_out = PyLong_FromLong((long)mode);
+    if (!component_count_out || !largest_out || !mode_out) {
+        Py_XDECREF(component_count_out);
+        Py_XDECREF(largest_out);
+        Py_XDECREF(mode_out);
+        Py_DECREF(values_list);
+        Py_DECREF(result);
+        return NULL;
+    }
+    PyDict_SetItemString(result, "values_by_node", values_list);
+    PyDict_SetItemString(result, "component_count", component_count_out);
+    PyDict_SetItemString(result, "largest_component_size", largest_out);
+    PyDict_SetItemString(result, "mode", mode_out);
+    Py_DECREF(values_list);
+    Py_DECREF(component_count_out);
+    Py_DECREF(largest_out);
+    Py_DECREF(mode_out);
+    return result;
+}
+
+static PyObject *Network_measure_coreness(PyHeliosNetwork *self, PyObject *args, PyObject *kwargs) {
+    static const char *kwlist[] = {"direction", "execution_mode", NULL};
+    PyObject *direction_obj = NULL;
+    PyObject *execution_mode_obj = NULL;
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "|OO", (char **)kwlist, &direction_obj, &execution_mode_obj)) {
+        return NULL;
+    }
+    if (!self->network) {
+        PyErr_SetString(PyExc_RuntimeError, "Network is not initialized");
+        return NULL;
+    }
+
+    CXNeighborDirection direction = CXNeighborDirectionBoth;
+    if (parse_neighbor_direction(direction_obj, &direction) != 0) {
+        return NULL;
+    }
+    CXMeasurementExecutionMode execution_mode = CXMeasurementExecutionParallel;
+    if (parse_execution_mode(execution_mode_obj, &execution_mode) != 0) {
+        return NULL;
+    }
+
+    uint32_t *values = (uint32_t *)calloc(self->network->nodeCapacity, sizeof(uint32_t));
+    if (!values) {
+        PyErr_NoMemory();
+        return NULL;
+    }
+
+    uint32_t max_core = 0;
+    CXBool ok = CXNetworkMeasureCoreness(
+        self->network,
+        direction,
+        execution_mode,
+        values,
+        &max_core
+    );
+    if (!ok) {
+        free(values);
+        PyErr_SetString(PyExc_RuntimeError, "Failed to measure coreness");
+        return NULL;
+    }
+
+    PyObject *values_list = u32_buffer_to_list(values, self->network->nodeCapacity);
+    free(values);
+    if (!values_list) {
+        return NULL;
+    }
+
+    PyObject *result = PyDict_New();
+    if (!result) {
+        Py_DECREF(values_list);
+        return NULL;
+    }
+    PyObject *direction_out = PyLong_FromLong((long)direction);
+    PyObject *execution_out = PyLong_FromLong((long)execution_mode);
+    PyObject *max_core_out = PyLong_FromUnsignedLong((unsigned long)max_core);
+    if (!direction_out || !execution_out || !max_core_out) {
+        Py_XDECREF(direction_out);
+        Py_XDECREF(execution_out);
+        Py_XDECREF(max_core_out);
+        Py_DECREF(values_list);
+        Py_DECREF(result);
+        return NULL;
+    }
+    PyDict_SetItemString(result, "values_by_node", values_list);
+    PyDict_SetItemString(result, "direction", direction_out);
+    PyDict_SetItemString(result, "execution_mode", execution_out);
+    PyDict_SetItemString(result, "max_core", max_core_out);
+    Py_DECREF(values_list);
+    Py_DECREF(direction_out);
+    Py_DECREF(execution_out);
+    Py_DECREF(max_core_out);
+    return result;
+}
+
 static PyMethodDef Network_methods[] = {
     {"node_count", (PyCFunction)Network_node_count, METH_NOARGS, "Return number of active nodes."},
     {"edge_count", (PyCFunction)Network_edge_count, METH_NOARGS, "Return number of active edges."},
@@ -2719,8 +2901,10 @@ static PyMethodDef Network_methods[] = {
     {"measure_degree", (PyCFunction)Network_measure_degree, METH_VARARGS | METH_KEYWORDS, "Measure node degree values."},
     {"measure_strength", (PyCFunction)Network_measure_strength, METH_VARARGS | METH_KEYWORDS, "Measure node strength values."},
     {"measure_local_clustering_coefficient", (PyCFunction)Network_measure_local_clustering_coefficient, METH_VARARGS | METH_KEYWORDS, "Measure local clustering coefficient values."},
+    {"measure_coreness", (PyCFunction)Network_measure_coreness, METH_VARARGS | METH_KEYWORDS, "Measure node coreness (k-core index) values."},
     {"measure_eigenvector_centrality", (PyCFunction)Network_measure_eigenvector_centrality, METH_VARARGS | METH_KEYWORDS, "Measure eigenvector centrality values."},
     {"measure_betweenness_centrality", (PyCFunction)Network_measure_betweenness_centrality, METH_VARARGS | METH_KEYWORDS, "Measure betweenness centrality values."},
+    {"measure_connected_components", (PyCFunction)Network_measure_connected_components, METH_VARARGS | METH_KEYWORDS, "Measure weak or strong connected components."},
     {"measure_node_dimension", (PyCFunction)Network_measure_node_dimension, METH_VARARGS | METH_KEYWORDS, "Measure local multiscale dimension for one node."},
     {"measure_dimension", (PyCFunction)Network_measure_dimension, METH_VARARGS | METH_KEYWORDS, "Measure global multiscale dimension statistics."},
     {NULL, NULL, 0, NULL}
@@ -2871,6 +3055,8 @@ PyMODINIT_FUNC PyInit__core(void) {
     PyModule_AddIntConstant(module, "MEASUREMENT_EXECUTION_AUTO", CXMeasurementExecutionAuto);
     PyModule_AddIntConstant(module, "MEASUREMENT_EXECUTION_SINGLE_THREAD", CXMeasurementExecutionSingleThread);
     PyModule_AddIntConstant(module, "MEASUREMENT_EXECUTION_PARALLEL", CXMeasurementExecutionParallel);
+    PyModule_AddIntConstant(module, "CONNECTED_COMPONENTS_WEAK", CXConnectedComponentsWeak);
+    PyModule_AddIntConstant(module, "CONNECTED_COMPONENTS_STRONG", CXConnectedComponentsStrong);
 
     return module;
 }

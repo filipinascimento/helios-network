@@ -61,6 +61,8 @@ Editable install (recommended during development):
 python -m pip install -e python --no-build-isolation
 ```
 
+`mesonpy` editable builds require `--no-build-isolation`.
+
 If editable install fails, install build tools in the active environment:
 
 ```bash

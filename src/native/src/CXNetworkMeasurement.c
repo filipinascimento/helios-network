@@ -1189,6 +1189,934 @@ static CXSize CXMeasurementCollectNeighbors(
 	return count;
 }
 
+typedef struct CXCorenessSession {
+	CXNetworkRef network;
+	CXNeighborDirection direction;
+	CXMeasurementExecutionMode executionMode;
+	CXMeasurementGraph graph;
+	CXMeasurementMinHeap heap;
+	uint32_t *nodeCoreness;
+	uint32_t *degrees;
+	uint8_t *removed;
+	CXSize activeNodes;
+	CXSize peeledNodes;
+	CXSize workDone;
+	CXSize workTotal;
+	uint32_t currentCore;
+	uint32_t maxCore;
+	CXCorenessPhase phase;
+} CXCorenessSession;
+
+static CXBool CXCorenessSessionBuildInitialDegrees(CXCorenessSession *session) {
+	if (!session) {
+		return CXFalse;
+	}
+	const CXSize nodeCount = session->graph.nodeCount;
+	if (nodeCount == 0) {
+		return CXTrue;
+	}
+
+	const CXSize workerCount = CXMeasurementResolveWorkerCount(session->executionMode, nodeCount);
+	if (workerCount <= 1) {
+		for (CXIndex u = 0; u < nodeCount; u++) {
+			uint32_t degree = 0;
+			CXIndex outDegree = session->graph.outOffsets[u + 1] - session->graph.outOffsets[u];
+			CXIndex inDegree = session->graph.inOffsets[u + 1] - session->graph.inOffsets[u];
+			if (!session->graph.directed) {
+				degree = (uint32_t)outDegree;
+			} else if (session->direction == CXNeighborDirectionOut) {
+				degree = (uint32_t)outDegree;
+			} else if (session->direction == CXNeighborDirectionIn) {
+				degree = (uint32_t)inDegree;
+			} else {
+				degree = (uint32_t)(outDegree + inDegree);
+			}
+			session->degrees[u] = degree;
+		}
+		return CXTrue;
+	}
+
+	const CXSize chunkSize = 1 + ((nodeCount - 1) / workerCount);
+	CXParallelForStart(corenessDegreeInitLoop, workerIndex, workerCount) {
+		const CXSize start = workerIndex * chunkSize;
+		const CXSize end = CXMIN(nodeCount, (workerIndex + 1) * chunkSize);
+		for (CXSize u = start; u < end; u++) {
+			uint32_t degree = 0;
+			CXIndex outDegree = session->graph.outOffsets[u + 1] - session->graph.outOffsets[u];
+			CXIndex inDegree = session->graph.inOffsets[u + 1] - session->graph.inOffsets[u];
+			if (!session->graph.directed) {
+				degree = (uint32_t)outDegree;
+			} else if (session->direction == CXNeighborDirectionOut) {
+				degree = (uint32_t)outDegree;
+			} else if (session->direction == CXNeighborDirectionIn) {
+				degree = (uint32_t)inDegree;
+			} else {
+				degree = (uint32_t)(outDegree + inDegree);
+			}
+			session->degrees[u] = degree;
+		}
+	}
+	CXParallelForEnd(corenessDegreeInitLoop);
+	return CXTrue;
+}
+
+static CXBool CXCorenessSessionInitialize(CXCorenessSession *session) {
+	if (!session) {
+		return CXFalse;
+	}
+	if (!CXCorenessSessionBuildInitialDegrees(session)) {
+		return CXFalse;
+	}
+	session->heap.size = 0;
+	for (CXIndex u = 0; u < session->graph.nodeCount; u++) {
+		if (!CXMeasurementMinHeapPush(&session->heap, u, (double)session->degrees[u])) {
+			return CXFalse;
+		}
+	}
+	return CXTrue;
+}
+
+static CXBool CXCorenessSessionDecrementNeighbors(
+	CXCorenessSession *session,
+	const CXIndex *neighbors,
+	CXIndex start,
+	CXIndex end,
+	uint32_t removedDegree
+) {
+	if (!session || !neighbors) {
+		return CXFalse;
+	}
+	for (CXIndex idx = start; idx < end; idx++) {
+		CXIndex v = neighbors[idx];
+		if (v >= session->graph.nodeCount || session->removed[v]) {
+			continue;
+		}
+		if (session->degrees[v] <= removedDegree) {
+			continue;
+		}
+		session->degrees[v] -= 1;
+		if (!CXMeasurementMinHeapPush(&session->heap, v, (double)session->degrees[v])) {
+			return CXFalse;
+		}
+	}
+	return CXTrue;
+}
+
+CXCorenessSessionRef CXCorenessSessionCreate(
+	CXNetworkRef network,
+	CXNeighborDirection direction,
+	CXMeasurementExecutionMode executionMode
+) {
+	if (!network) {
+		return NULL;
+	}
+	CXCorenessSession *session = (CXCorenessSession *)calloc(1, sizeof(CXCorenessSession));
+	if (!session) {
+		return NULL;
+	}
+	session->network = network;
+	session->direction = CXMeasurementNormalizeDirection(network, direction);
+	session->executionMode = CXMeasurementNormalizeExecutionMode(executionMode);
+
+	CXMeasurementEdgeWeights weights = {0};
+	weights.read = CXMeasurementWeightConstantOne;
+	if (!CXMeasurementGraphBuild(&session->graph, network, &weights)) {
+		free(session);
+		return NULL;
+	}
+	session->activeNodes = session->graph.nodeCount;
+	session->workTotal = session->activeNodes;
+	if (network->nodeCapacity > 0) {
+		session->nodeCoreness = (uint32_t *)calloc(network->nodeCapacity, sizeof(uint32_t));
+	}
+	if (network->nodeCapacity > 0 && !session->nodeCoreness) {
+		CXMeasurementGraphDestroy(&session->graph);
+		free(session);
+		return NULL;
+	}
+	if (session->activeNodes > 0) {
+		session->degrees = (uint32_t *)calloc(session->activeNodes, sizeof(uint32_t));
+		session->removed = (uint8_t *)calloc(session->activeNodes, sizeof(uint8_t));
+		if (!session->degrees || !session->removed || !CXMeasurementMinHeapInit(&session->heap, session->activeNodes)) {
+			CXMeasurementMinHeapDestroy(&session->heap);
+			CXMeasurementGraphDestroy(&session->graph);
+			free(session->nodeCoreness);
+			free(session->degrees);
+			free(session->removed);
+			free(session);
+			return NULL;
+		}
+		session->phase = CXCorenessPhaseInitialize;
+	} else {
+		session->phase = CXCorenessPhaseDone;
+	}
+	return session;
+}
+
+void CXCorenessSessionDestroy(CXCorenessSessionRef sessionRef) {
+	CXCorenessSession *session = (CXCorenessSession *)sessionRef;
+	if (!session) {
+		return;
+	}
+	free(session->nodeCoreness);
+	free(session->degrees);
+	free(session->removed);
+	CXMeasurementMinHeapDestroy(&session->heap);
+	CXMeasurementGraphDestroy(&session->graph);
+	free(session);
+}
+
+CXCorenessPhase CXCorenessSessionStep(
+	CXCorenessSessionRef sessionRef,
+	CXSize budget
+) {
+	CXCorenessSession *session = (CXCorenessSession *)sessionRef;
+	if (!session || !session->network) {
+		return CXCorenessPhaseInvalid;
+	}
+	if (session->phase == CXCorenessPhaseDone
+		|| session->phase == CXCorenessPhaseFailed
+		|| session->phase == CXCorenessPhaseInvalid) {
+		return session->phase;
+	}
+	if (budget == 0) {
+		budget = 1;
+	}
+
+	while (budget > 0) {
+		if (session->phase == CXCorenessPhaseInitialize) {
+			if (!CXCorenessSessionInitialize(session)) {
+				session->phase = CXCorenessPhaseFailed;
+				break;
+			}
+			session->phase = CXCorenessPhasePeel;
+			continue;
+		}
+		if (session->phase != CXCorenessPhasePeel) {
+			break;
+		}
+		if (session->peeledNodes >= session->activeNodes) {
+			session->phase = CXCorenessPhaseDone;
+			break;
+		}
+
+		CXIndex compactNode = CXIndexMAX;
+		double key = 0.0;
+		if (!CXMeasurementMinHeapPop(&session->heap, &compactNode, &key)) {
+			session->phase = (session->peeledNodes >= session->activeNodes)
+				? CXCorenessPhaseDone
+				: CXCorenessPhaseFailed;
+			break;
+		}
+		if (compactNode >= session->graph.nodeCount || session->removed[compactNode]) {
+			continue;
+		}
+		const uint32_t currentDegree = session->degrees[compactNode];
+		if ((uint32_t)key != currentDegree) {
+			continue;
+		}
+
+		session->removed[compactNode] = 1;
+		session->peeledNodes += 1;
+		session->workDone += 1;
+		session->currentCore = currentDegree;
+		if (currentDegree > session->maxCore) {
+			session->maxCore = currentDegree;
+		}
+		CXIndex node = session->graph.compactToNode[compactNode];
+		session->nodeCoreness[node] = currentDegree;
+
+		CXBool ok = CXTrue;
+		if (!session->graph.directed) {
+			ok = CXCorenessSessionDecrementNeighbors(
+				session,
+				session->graph.outNeighbors,
+				session->graph.outOffsets[compactNode],
+				session->graph.outOffsets[compactNode + 1],
+				currentDegree
+			);
+		} else if (session->direction == CXNeighborDirectionOut) {
+			ok = CXCorenessSessionDecrementNeighbors(
+				session,
+				session->graph.inNeighbors,
+				session->graph.inOffsets[compactNode],
+				session->graph.inOffsets[compactNode + 1],
+				currentDegree
+			);
+		} else if (session->direction == CXNeighborDirectionIn) {
+			ok = CXCorenessSessionDecrementNeighbors(
+				session,
+				session->graph.outNeighbors,
+				session->graph.outOffsets[compactNode],
+				session->graph.outOffsets[compactNode + 1],
+				currentDegree
+			);
+		} else {
+			ok = CXCorenessSessionDecrementNeighbors(
+				session,
+				session->graph.outNeighbors,
+				session->graph.outOffsets[compactNode],
+				session->graph.outOffsets[compactNode + 1],
+				currentDegree
+			);
+			if (ok) {
+				ok = CXCorenessSessionDecrementNeighbors(
+					session,
+					session->graph.inNeighbors,
+					session->graph.inOffsets[compactNode],
+					session->graph.inOffsets[compactNode + 1],
+					currentDegree
+				);
+			}
+		}
+		if (!ok) {
+			session->phase = CXCorenessPhaseFailed;
+			break;
+		}
+
+		budget -= 1;
+	}
+	return session->phase;
+}
+
+void CXCorenessSessionGetProgress(
+	CXCorenessSessionRef sessionRef,
+	double *outProgressCurrent,
+	double *outProgressTotal,
+	CXCorenessPhase *outPhase,
+	CXSize *outPeeledNodes,
+	CXSize *outActiveNodes,
+	uint32_t *outCurrentCore,
+	uint32_t *outMaxCore
+) {
+	CXCorenessSession *session = (CXCorenessSession *)sessionRef;
+	if (!session) {
+		if (outProgressCurrent) *outProgressCurrent = 0.0;
+		if (outProgressTotal) *outProgressTotal = 0.0;
+		if (outPhase) *outPhase = CXCorenessPhaseInvalid;
+		if (outPeeledNodes) *outPeeledNodes = 0;
+		if (outActiveNodes) *outActiveNodes = 0;
+		if (outCurrentCore) *outCurrentCore = 0;
+		if (outMaxCore) *outMaxCore = 0;
+		return;
+	}
+	if (outProgressCurrent) *outProgressCurrent = (double)session->workDone;
+	if (outProgressTotal) *outProgressTotal = (double)session->workTotal;
+	if (outPhase) *outPhase = session->phase;
+	if (outPeeledNodes) *outPeeledNodes = session->peeledNodes;
+	if (outActiveNodes) *outActiveNodes = session->activeNodes;
+	if (outCurrentCore) *outCurrentCore = session->currentCore;
+	if (outMaxCore) *outMaxCore = session->maxCore;
+}
+
+CXBool CXCorenessSessionFinalize(
+	CXCorenessSessionRef sessionRef,
+	uint32_t *outNodeCoreness,
+	CXSize outNodeCorenessCount,
+	uint32_t *outMaxCore
+) {
+	CXCorenessSession *session = (CXCorenessSession *)sessionRef;
+	if (!session || !session->network || !outNodeCoreness) {
+		return CXFalse;
+	}
+	if (session->phase != CXCorenessPhaseDone) {
+		return CXFalse;
+	}
+	if (outNodeCorenessCount < session->network->nodeCapacity) {
+		return CXFalse;
+	}
+	if (session->network->nodeCapacity > 0) {
+		memcpy(outNodeCoreness, session->nodeCoreness, session->network->nodeCapacity * sizeof(uint32_t));
+	}
+	if (outMaxCore) {
+		*outMaxCore = session->maxCore;
+	}
+	return CXTrue;
+}
+
+CXBool CXNetworkMeasureCoreness(
+	CXNetworkRef network,
+	CXNeighborDirection direction,
+	CXMeasurementExecutionMode executionMode,
+	uint32_t *outNodeCoreness,
+	uint32_t *outMaxCore
+) {
+	if (!network || !outNodeCoreness) {
+		return CXFalse;
+	}
+	memset(outNodeCoreness, 0, network->nodeCapacity * sizeof(uint32_t));
+	CXCorenessSessionRef session = CXCorenessSessionCreate(network, direction, executionMode);
+	if (!session) {
+		return CXFalse;
+	}
+
+	CXCorenessPhase phase = CXCorenessPhaseInvalid;
+	do {
+		phase = CXCorenessSessionStep(session, 4096);
+	} while (phase == CXCorenessPhaseInitialize || phase == CXCorenessPhasePeel);
+
+	CXBool ok = (phase == CXCorenessPhaseDone)
+		&& CXCorenessSessionFinalize(
+			session,
+			outNodeCoreness,
+			network->nodeCapacity,
+			outMaxCore
+		);
+	CXCorenessSessionDestroy(session);
+	if (!ok) {
+		if (outMaxCore) {
+			*outMaxCore = 0;
+		}
+		return CXFalse;
+	}
+	return CXTrue;
+}
+
+typedef struct CXConnectedComponentsSession {
+	CXNetworkRef network;
+	CXConnectedComponentsMode mode;
+	CXMeasurementGraph graph;
+	uint32_t *nodeComponent;
+	uint8_t *forwardState;
+	CXIndex *dfsNodeStack;
+	CXIndex *dfsEdgeCursor;
+	CXIndex *finishOrder;
+	CXIndex *queue;
+	CXSize activeNodes;
+	CXSize visitedNodes;
+	CXSize workDone;
+	CXSize workTotal;
+	CXIndex scanCursor;
+	CXSize queueHead;
+	CXSize queueTail;
+	CXSize dfsDepth;
+	CXSize finishCount;
+	CXSize reverseCursor;
+	uint32_t componentCount;
+	uint32_t currentComponentId;
+	uint32_t currentComponentSize;
+	uint32_t largestComponentSize;
+	CXConnectedComponentsPhase phase;
+} CXConnectedComponentsSession;
+
+static CXConnectedComponentsMode CXConnectedComponentsNormalizeMode(
+	CXNetworkRef network,
+	CXConnectedComponentsMode mode
+) {
+	if (mode != CXConnectedComponentsStrong) {
+		return CXConnectedComponentsWeak;
+	}
+	if (!network || !network->isDirected) {
+		return CXConnectedComponentsWeak;
+	}
+	return CXConnectedComponentsStrong;
+}
+
+static void CXConnectedComponentsSessionResetWeakTraversal(CXConnectedComponentsSession *session) {
+	if (!session) {
+		return;
+	}
+	session->queueHead = 0;
+	session->queueTail = 0;
+	session->currentComponentSize = 0;
+	session->currentComponentId = 0;
+}
+
+static CXBool CXConnectedComponentsAssignWeakNode(
+	CXConnectedComponentsSession *session,
+	CXIndex compactNode
+) {
+	if (!session || compactNode >= session->graph.nodeCount) {
+		return CXFalse;
+	}
+	CXIndex node = session->graph.compactToNode[compactNode];
+	if (node >= session->network->nodeCapacity || session->nodeComponent[node] != 0) {
+		return CXFalse;
+	}
+	session->nodeComponent[node] = session->currentComponentId;
+	session->currentComponentSize += 1;
+	session->visitedNodes += 1;
+	session->workDone += 1;
+	return CXTrue;
+}
+
+static void CXConnectedComponentsSessionStartWeakComponent(CXConnectedComponentsSession *session, CXIndex compactNode) {
+	if (!session || compactNode >= session->graph.nodeCount) {
+		return;
+	}
+	session->currentComponentId = session->componentCount + 1;
+	session->currentComponentSize = 0;
+	session->queueHead = 0;
+	session->queueTail = 0;
+	if (CXConnectedComponentsAssignWeakNode(session, compactNode)) {
+		session->queue[session->queueTail++] = compactNode;
+	}
+	session->phase = CXConnectedComponentsPhaseTraverse;
+}
+
+static void CXConnectedComponentsSessionVisitWeakNeighbor(
+	CXConnectedComponentsSession *session,
+	CXIndex compactNeighbor
+) {
+	if (!session || compactNeighbor >= session->graph.nodeCount) {
+		return;
+	}
+	if (session->queueTail < session->graph.nodeCount
+		&& CXConnectedComponentsAssignWeakNode(session, compactNeighbor)) {
+		session->queue[session->queueTail++] = compactNeighbor;
+	}
+}
+
+static void CXConnectedComponentsSessionTraverseWeakNode(
+	CXConnectedComponentsSession *session,
+	CXIndex compactNode
+) {
+	if (!session || compactNode >= session->graph.nodeCount) {
+		return;
+	}
+	for (CXIndex idx = session->graph.outOffsets[compactNode]; idx < session->graph.outOffsets[compactNode + 1]; idx++) {
+		CXConnectedComponentsSessionVisitWeakNeighbor(session, session->graph.outNeighbors[idx]);
+	}
+	if (session->network->isDirected) {
+		for (CXIndex idx = session->graph.inOffsets[compactNode]; idx < session->graph.inOffsets[compactNode + 1]; idx++) {
+			CXConnectedComponentsSessionVisitWeakNeighbor(session, session->graph.inNeighbors[idx]);
+		}
+	}
+}
+
+static void CXConnectedComponentsSessionFinishWeakComponent(CXConnectedComponentsSession *session) {
+	if (!session) {
+		return;
+	}
+	if (session->currentComponentSize > session->largestComponentSize) {
+		session->largestComponentSize = session->currentComponentSize;
+	}
+	session->componentCount += 1;
+	CXConnectedComponentsSessionResetWeakTraversal(session);
+	session->phase = CXConnectedComponentsPhaseScan;
+}
+
+static CXBool CXConnectedComponentsStrongPush(CXConnectedComponentsSession *session, CXIndex node) {
+	if (!session || node >= session->graph.nodeCount || !session->forwardState) {
+		return CXFalse;
+	}
+	if (session->dfsDepth >= session->graph.nodeCount) {
+		return CXFalse;
+	}
+	session->forwardState[node] = 1;
+	session->dfsNodeStack[session->dfsDepth] = node;
+	session->dfsEdgeCursor[session->dfsDepth] = 0;
+	session->dfsDepth += 1;
+	session->workDone += 1;
+	return CXTrue;
+}
+
+static CXBool CXConnectedComponentsStrongAssignNode(
+	CXConnectedComponentsSession *session,
+	CXIndex compactNode
+) {
+	if (!session || compactNode >= session->graph.nodeCount) {
+		return CXFalse;
+	}
+	CXIndex node = session->graph.compactToNode[compactNode];
+	if (node >= session->network->nodeCapacity || session->nodeComponent[node] != 0) {
+		return CXFalse;
+	}
+	session->nodeComponent[node] = session->currentComponentId;
+	session->currentComponentSize += 1;
+	session->visitedNodes += 1;
+	session->workDone += 1;
+	return CXTrue;
+}
+
+static CXConnectedComponentsPhase CXConnectedComponentsSessionStepStrong(
+	CXConnectedComponentsSession *session,
+	CXSize budget
+) {
+	while (budget > 0) {
+		if (session->phase == CXConnectedComponentsPhaseForward) {
+			if (session->dfsDepth == 0) {
+				while (session->scanCursor < session->graph.nodeCount
+					&& session->forwardState[session->scanCursor] != 0) {
+					session->scanCursor += 1;
+				}
+				if (session->scanCursor >= session->graph.nodeCount) {
+					session->phase = CXConnectedComponentsPhaseReverse;
+					session->dfsDepth = 0;
+					session->reverseCursor = session->finishCount;
+					continue;
+				}
+				CXIndex root = session->scanCursor++;
+				if (!CXConnectedComponentsStrongPush(session, root)) {
+					session->phase = CXConnectedComponentsPhaseFailed;
+					return session->phase;
+				}
+				budget -= 1;
+				continue;
+			}
+
+			CXSize top = session->dfsDepth - 1;
+			CXIndex node = session->dfsNodeStack[top];
+			CXIndex edgeCursor = session->dfsEdgeCursor[top];
+			CXIndex start = session->graph.outOffsets[node];
+			CXIndex end = session->graph.outOffsets[node + 1];
+			CXBool pushed = CXFalse;
+			while (start + edgeCursor < end) {
+				CXIndex neighbor = session->graph.outNeighbors[start + edgeCursor];
+				edgeCursor += 1;
+				session->dfsEdgeCursor[top] = edgeCursor;
+				if (session->forwardState[neighbor] != 0) {
+					continue;
+				}
+				if (!CXConnectedComponentsStrongPush(session, neighbor)) {
+					session->phase = CXConnectedComponentsPhaseFailed;
+					return session->phase;
+				}
+				pushed = CXTrue;
+				budget -= 1;
+				break;
+			}
+			if (pushed) {
+				continue;
+			}
+			session->forwardState[node] = 2;
+			session->finishOrder[session->finishCount++] = node;
+			session->dfsDepth -= 1;
+			budget -= 1;
+			continue;
+		}
+
+		if (session->phase == CXConnectedComponentsPhaseReverse) {
+			if (session->dfsDepth == 0) {
+				while (session->reverseCursor > 0) {
+					CXIndex rootCompact = session->finishOrder[session->reverseCursor - 1];
+					CXIndex rootNode = session->graph.compactToNode[rootCompact];
+					if (session->nodeComponent[rootNode] == 0) {
+						session->currentComponentId = session->componentCount + 1;
+						session->currentComponentSize = 0;
+						if (!CXConnectedComponentsStrongAssignNode(session, rootCompact)) {
+							session->phase = CXConnectedComponentsPhaseFailed;
+							return session->phase;
+						}
+						session->dfsNodeStack[0] = rootCompact;
+						session->dfsEdgeCursor[0] = 0;
+						session->dfsDepth = 1;
+						session->reverseCursor -= 1;
+						budget -= 1;
+						break;
+					}
+					session->reverseCursor -= 1;
+				}
+				if (session->dfsDepth == 0) {
+					session->phase = CXConnectedComponentsPhaseDone;
+					break;
+				}
+				continue;
+			}
+
+			CXSize top = session->dfsDepth - 1;
+			CXIndex node = session->dfsNodeStack[top];
+			CXIndex edgeCursor = session->dfsEdgeCursor[top];
+			CXIndex start = session->graph.inOffsets[node];
+			CXIndex end = session->graph.inOffsets[node + 1];
+			CXBool pushed = CXFalse;
+			while (start + edgeCursor < end) {
+				CXIndex neighbor = session->graph.inNeighbors[start + edgeCursor];
+				edgeCursor += 1;
+				session->dfsEdgeCursor[top] = edgeCursor;
+				CXIndex neighborNode = session->graph.compactToNode[neighbor];
+				if (session->nodeComponent[neighborNode] != 0) {
+					continue;
+				}
+				if (!CXConnectedComponentsStrongAssignNode(session, neighbor)) {
+					session->phase = CXConnectedComponentsPhaseFailed;
+					return session->phase;
+				}
+				if (session->dfsDepth >= session->graph.nodeCount) {
+					session->phase = CXConnectedComponentsPhaseFailed;
+					return session->phase;
+				}
+				session->dfsNodeStack[session->dfsDepth] = neighbor;
+				session->dfsEdgeCursor[session->dfsDepth] = 0;
+				session->dfsDepth += 1;
+				pushed = CXTrue;
+				budget -= 1;
+				break;
+			}
+			if (pushed) {
+				continue;
+			}
+			session->dfsDepth -= 1;
+			budget -= 1;
+			if (session->dfsDepth == 0) {
+				if (session->currentComponentSize > session->largestComponentSize) {
+					session->largestComponentSize = session->currentComponentSize;
+				}
+				session->componentCount += 1;
+				session->currentComponentSize = 0;
+				session->currentComponentId = 0;
+			}
+			continue;
+		}
+
+		break;
+	}
+	return session->phase;
+}
+
+CXConnectedComponentsSessionRef CXConnectedComponentsSessionCreate(
+	CXNetworkRef network,
+	CXConnectedComponentsMode mode
+) {
+	if (!network) {
+		return NULL;
+	}
+	CXConnectedComponentsSession *session = (CXConnectedComponentsSession *)calloc(1, sizeof(CXConnectedComponentsSession));
+	if (!session) {
+		return NULL;
+	}
+	session->network = network;
+	session->mode = CXConnectedComponentsNormalizeMode(network, mode);
+
+	CXMeasurementEdgeWeights weights = {0};
+	weights.read = CXMeasurementWeightConstantOne;
+	if (!CXMeasurementGraphBuild(&session->graph, network, &weights)) {
+		free(session);
+		return NULL;
+	}
+	session->activeNodes = session->graph.nodeCount;
+	if (network->nodeCapacity > 0) {
+		session->nodeComponent = (uint32_t *)calloc(network->nodeCapacity, sizeof(uint32_t));
+	}
+	if (network->nodeCapacity > 0 && !session->nodeComponent) {
+		CXMeasurementGraphDestroy(&session->graph);
+		free(session);
+		return NULL;
+	}
+
+	if (session->activeNodes > 0) {
+		session->queue = (CXIndex *)malloc(session->activeNodes * sizeof(CXIndex));
+		if (!session->queue) {
+			CXMeasurementGraphDestroy(&session->graph);
+			free(session->nodeComponent);
+			free(session);
+			return NULL;
+		}
+	}
+
+	if (session->mode == CXConnectedComponentsStrong && session->activeNodes > 0) {
+		session->forwardState = (uint8_t *)calloc(session->activeNodes, sizeof(uint8_t));
+		session->dfsNodeStack = (CXIndex *)malloc(session->activeNodes * sizeof(CXIndex));
+		session->dfsEdgeCursor = (CXIndex *)malloc(session->activeNodes * sizeof(CXIndex));
+		session->finishOrder = (CXIndex *)malloc(session->activeNodes * sizeof(CXIndex));
+		if (!session->forwardState || !session->dfsNodeStack || !session->dfsEdgeCursor || !session->finishOrder) {
+			CXMeasurementGraphDestroy(&session->graph);
+			free(session->nodeComponent);
+			free(session->queue);
+			free(session->forwardState);
+			free(session->dfsNodeStack);
+			free(session->dfsEdgeCursor);
+			free(session->finishOrder);
+			free(session);
+			return NULL;
+		}
+		session->workTotal = session->activeNodes * 2;
+	} else {
+		session->workTotal = session->activeNodes;
+	}
+
+	if (session->activeNodes == 0) {
+		session->phase = CXConnectedComponentsPhaseDone;
+	} else {
+		session->phase = (session->mode == CXConnectedComponentsStrong)
+			? CXConnectedComponentsPhaseForward
+			: CXConnectedComponentsPhaseScan;
+	}
+	return session;
+}
+
+void CXConnectedComponentsSessionDestroy(CXConnectedComponentsSessionRef sessionRef) {
+	CXConnectedComponentsSession *session = (CXConnectedComponentsSession *)sessionRef;
+	if (!session) {
+		return;
+	}
+	free(session->nodeComponent);
+	free(session->forwardState);
+	free(session->dfsNodeStack);
+	free(session->dfsEdgeCursor);
+	free(session->finishOrder);
+	free(session->queue);
+	CXMeasurementGraphDestroy(&session->graph);
+	free(session);
+}
+
+CXConnectedComponentsPhase CXConnectedComponentsSessionStep(
+	CXConnectedComponentsSessionRef sessionRef,
+	CXSize budget
+) {
+	CXConnectedComponentsSession *session = (CXConnectedComponentsSession *)sessionRef;
+	if (!session || !session->network) {
+		return CXConnectedComponentsPhaseInvalid;
+	}
+	if (session->phase == CXConnectedComponentsPhaseDone
+		|| session->phase == CXConnectedComponentsPhaseFailed
+		|| session->phase == CXConnectedComponentsPhaseInvalid) {
+		return session->phase;
+	}
+	if (budget == 0) {
+		budget = 1;
+	}
+	if (session->mode == CXConnectedComponentsStrong) {
+		return CXConnectedComponentsSessionStepStrong(session, budget);
+	}
+
+	while (budget > 0) {
+		if (session->phase == CXConnectedComponentsPhaseScan) {
+			while (session->scanCursor < session->graph.nodeCount) {
+				CXIndex compactNode = session->scanCursor++;
+				CXIndex node = session->graph.compactToNode[compactNode];
+				if (session->nodeComponent[node] != 0) {
+					continue;
+				}
+				CXConnectedComponentsSessionStartWeakComponent(session, compactNode);
+				break;
+			}
+			if (session->phase != CXConnectedComponentsPhaseTraverse) {
+				if (session->scanCursor >= session->graph.nodeCount) {
+					session->phase = CXConnectedComponentsPhaseDone;
+					break;
+				}
+				continue;
+			}
+		}
+
+		if (session->phase == CXConnectedComponentsPhaseTraverse) {
+			if (session->queueHead >= session->queueTail) {
+				CXConnectedComponentsSessionFinishWeakComponent(session);
+				continue;
+			}
+			CXIndex compactNode = session->queue[session->queueHead++];
+			CXConnectedComponentsSessionTraverseWeakNode(session, compactNode);
+			budget -= 1;
+			continue;
+		}
+		break;
+	}
+
+	return session->phase;
+}
+
+void CXConnectedComponentsSessionGetProgress(
+	CXConnectedComponentsSessionRef sessionRef,
+	double *outProgressCurrent,
+	double *outProgressTotal,
+	CXConnectedComponentsPhase *outPhase,
+	CXSize *outVisitedNodes,
+	CXSize *outActiveNodes,
+	uint32_t *outComponentCount,
+	uint32_t *outLargestComponentSize
+) {
+	CXConnectedComponentsSession *session = (CXConnectedComponentsSession *)sessionRef;
+	if (!session) {
+		if (outProgressCurrent) *outProgressCurrent = 0.0;
+		if (outProgressTotal) *outProgressTotal = 0.0;
+		if (outPhase) *outPhase = CXConnectedComponentsPhaseInvalid;
+		if (outVisitedNodes) *outVisitedNodes = 0;
+		if (outActiveNodes) *outActiveNodes = 0;
+		if (outComponentCount) *outComponentCount = 0;
+		if (outLargestComponentSize) *outLargestComponentSize = 0;
+		return;
+	}
+	if (outProgressCurrent) *outProgressCurrent = (double)session->workDone;
+	if (outProgressTotal) *outProgressTotal = (double)session->workTotal;
+	if (outPhase) *outPhase = session->phase;
+	if (outVisitedNodes) *outVisitedNodes = session->visitedNodes;
+	if (outActiveNodes) *outActiveNodes = session->activeNodes;
+	if (outComponentCount) *outComponentCount = session->componentCount;
+	if (outLargestComponentSize) {
+		uint32_t largest = session->largestComponentSize;
+		if ((session->phase == CXConnectedComponentsPhaseTraverse
+			|| session->phase == CXConnectedComponentsPhaseReverse)
+			&& session->currentComponentSize > largest) {
+			largest = session->currentComponentSize;
+		}
+		*outLargestComponentSize = largest;
+	}
+}
+
+CXBool CXConnectedComponentsSessionFinalize(
+	CXConnectedComponentsSessionRef sessionRef,
+	uint32_t *outNodeComponent,
+	CXSize outNodeComponentCount,
+	uint32_t *outComponentCount,
+	uint32_t *outLargestComponentSize
+) {
+	CXConnectedComponentsSession *session = (CXConnectedComponentsSession *)sessionRef;
+	if (!session || !session->network || !outNodeComponent) {
+		return CXFalse;
+	}
+	if (session->phase != CXConnectedComponentsPhaseDone) {
+		return CXFalse;
+	}
+	if (outNodeComponentCount < session->network->nodeCapacity) {
+		return CXFalse;
+	}
+	if (session->network->nodeCapacity > 0) {
+		memcpy(outNodeComponent, session->nodeComponent, session->network->nodeCapacity * sizeof(uint32_t));
+	}
+	if (outComponentCount) {
+		*outComponentCount = session->componentCount;
+	}
+	if (outLargestComponentSize) {
+		*outLargestComponentSize = session->largestComponentSize;
+	}
+	return CXTrue;
+}
+
+CXSize CXNetworkMeasureConnectedComponents(
+	CXNetworkRef network,
+	CXConnectedComponentsMode mode,
+	uint32_t *outNodeComponent,
+	uint32_t *outLargestComponentSize
+) {
+	if (!network || !outNodeComponent) {
+		return 0;
+	}
+	memset(outNodeComponent, 0, network->nodeCapacity * sizeof(uint32_t));
+
+	CXConnectedComponentsSessionRef session = CXConnectedComponentsSessionCreate(network, mode);
+	if (!session) {
+		return 0;
+	}
+
+	CXConnectedComponentsPhase phase = CXConnectedComponentsPhaseInvalid;
+	do {
+		phase = CXConnectedComponentsSessionStep(session, 4096);
+	} while (phase == CXConnectedComponentsPhaseScan
+		|| phase == CXConnectedComponentsPhaseTraverse
+		|| phase == CXConnectedComponentsPhaseForward
+		|| phase == CXConnectedComponentsPhaseReverse);
+
+	uint32_t componentCount = 0;
+	uint32_t largestComponentSize = 0;
+	CXBool ok = (phase == CXConnectedComponentsPhaseDone)
+		&& CXConnectedComponentsSessionFinalize(
+			session,
+			outNodeComponent,
+			network->nodeCapacity,
+			&componentCount,
+			&largestComponentSize
+		);
+	CXConnectedComponentsSessionDestroy(session);
+	if (!ok) {
+		return 0;
+	}
+	if (outLargestComponentSize) {
+		*outLargestComponentSize = largestComponentSize;
+	}
+	return (CXSize)componentCount;
+}
+
 static void CXMeasurementBetweennessSourceUnweighted(
 	const CXMeasurementGraph *graph,
 	CXIndex source,

@@ -676,6 +676,147 @@ CX_EXTERN CXSize CXNetworkMeasureBetweennessCentrality(
 	float *inOutNodeBetweenness
 );
 
+/**
+ * Measures node coreness (k-core index) for all node capacity indices.
+ *
+ * - Uses iterative peeling over the chosen degree policy (`direction`).
+ * - For directed graphs:
+ *   - `Out` uses outgoing degree.
+ *   - `In` uses incoming degree.
+ *   - `Both` uses incoming + outgoing degree.
+ * - For undirected graphs, direction is normalized to undirected degree.
+ *
+ * Output buffer length must be at least `CXNetworkNodeCapacity(network)`.
+ * Inactive nodes receive coreness 0.
+ */
+CX_EXTERN CXBool CXNetworkMeasureCoreness(
+	CXNetworkRef network,
+	CXNeighborDirection direction,
+	CXMeasurementExecutionMode executionMode,
+	uint32_t *outNodeCoreness,
+	uint32_t *outMaxCore
+);
+
+// Incremental coreness (steppable) ------------------------------------------
+typedef struct CXCorenessSession CXCorenessSession;
+typedef CXCorenessSession* CXCorenessSessionRef;
+
+typedef enum {
+	CXCorenessPhaseInvalid = 0,
+	CXCorenessPhaseInitialize = 1,
+	CXCorenessPhasePeel = 2,
+	CXCorenessPhaseDone = 3,
+	CXCorenessPhaseFailed = 4
+} CXCorenessPhase;
+
+/** Creates a steppable coreness session. */
+CX_EXTERN CXCorenessSessionRef CXCorenessSessionCreate(
+	CXNetworkRef network,
+	CXNeighborDirection direction,
+	CXMeasurementExecutionMode executionMode
+);
+/** Releases all resources held by a coreness session. */
+CX_EXTERN void CXCorenessSessionDestroy(CXCorenessSessionRef session);
+/** Advances the session by at most `budget` peeled nodes (best effort). */
+CX_EXTERN CXCorenessPhase CXCorenessSessionStep(
+	CXCorenessSessionRef session,
+	CXSize budget
+);
+/** Returns current progress metrics. Any output pointer may be NULL. */
+CX_EXTERN void CXCorenessSessionGetProgress(
+	CXCorenessSessionRef session,
+	double *outProgressCurrent,
+	double *outProgressTotal,
+	CXCorenessPhase *outPhase,
+	CXSize *outPeeledNodes,
+	CXSize *outActiveNodes,
+	uint32_t *outCurrentCore,
+	uint32_t *outMaxCore
+);
+/**
+ * Finalizes a completed session, copying per-node coreness values into
+ * `outNodeCoreness` (length >= nodeCapacity).
+ */
+CX_EXTERN CXBool CXCorenessSessionFinalize(
+	CXCorenessSessionRef session,
+	uint32_t *outNodeCoreness,
+	CXSize outNodeCorenessCount,
+	uint32_t *outMaxCore
+);
+
+typedef enum {
+	CXConnectedComponentsWeak = 0,
+	CXConnectedComponentsStrong = 1
+} CXConnectedComponentsMode;
+
+/**
+ * Measures connected components.
+ *
+ * - Weak mode treats directed edges as undirected (weakly-connected components).
+ * - Strong mode computes strongly-connected components on directed graphs.
+ *   Undirected graphs behave like weak mode.
+ *
+ * Component ids are written into `outNodeComponent` (length must be at least
+ * `CXNetworkNodeCapacity(network)`). Inactive nodes receive id `0`.
+ *
+ * Returns the number of detected components.
+ */
+CX_EXTERN CXSize CXNetworkMeasureConnectedComponents(
+	CXNetworkRef network,
+	CXConnectedComponentsMode mode,
+	uint32_t *outNodeComponent,
+	uint32_t *outLargestComponentSize
+);
+
+// Incremental connected components (steppable) ------------------------------
+typedef struct CXConnectedComponentsSession CXConnectedComponentsSession;
+typedef CXConnectedComponentsSession* CXConnectedComponentsSessionRef;
+
+typedef enum {
+	CXConnectedComponentsPhaseInvalid = 0,
+	CXConnectedComponentsPhaseScan = 1,     /* weak mode */
+	CXConnectedComponentsPhaseTraverse = 2, /* weak mode */
+	CXConnectedComponentsPhaseDone = 3,
+	CXConnectedComponentsPhaseFailed = 4,
+	CXConnectedComponentsPhaseForward = 5,  /* strong mode */
+	CXConnectedComponentsPhaseReverse = 6   /* strong mode */
+} CXConnectedComponentsPhase;
+
+/** Creates a steppable connected-components session. */
+CX_EXTERN CXConnectedComponentsSessionRef CXConnectedComponentsSessionCreate(
+	CXNetworkRef network,
+	CXConnectedComponentsMode mode
+);
+/** Releases all resources held by a connected-components session. */
+CX_EXTERN void CXConnectedComponentsSessionDestroy(CXConnectedComponentsSessionRef session);
+/** Advances the session by at most `budget` node-visits (best effort). */
+CX_EXTERN CXConnectedComponentsPhase CXConnectedComponentsSessionStep(
+	CXConnectedComponentsSessionRef session,
+	CXSize budget
+);
+/** Returns current progress metrics. Any output pointer may be NULL. */
+CX_EXTERN void CXConnectedComponentsSessionGetProgress(
+	CXConnectedComponentsSessionRef session,
+	double *outProgressCurrent,
+	double *outProgressTotal,
+	CXConnectedComponentsPhase *outPhase,
+	CXSize *outVisitedNodes,
+	CXSize *outActiveNodes,
+	uint32_t *outComponentCount,
+	uint32_t *outLargestComponentSize
+);
+/**
+ * Finalizes a completed session, copying per-node component ids into
+ * `outNodeComponent` (length >= nodeCapacity).
+ */
+CX_EXTERN CXBool CXConnectedComponentsSessionFinalize(
+	CXConnectedComponentsSessionRef session,
+	uint32_t *outNodeComponent,
+	CXSize outNodeComponentCount,
+	uint32_t *outComponentCount,
+	uint32_t *outLargestComponentSize
+);
+
 // Multiscale dimension measurements -----------------------------------------
 /**
  * Computes local multiscale capacity and dimension for a single node.

@@ -6,6 +6,7 @@ from helios_network import (
     AttributeScope,
     AttributeType,
     ClusteringVariant,
+    ConnectedComponentsMode,
     DimensionMethod,
     MeasurementExecutionMode,
     NeighborDirection,
@@ -134,6 +135,84 @@ def test_neighbors_and_concentric_levels():
 
     selector_up_to2 = selector.neighbors_up_to_level(2, direction=NeighborDirection.Out)
     assert set(selector_up_to2["nodes"]) == {nodes[1], nodes[2], nodes[3], nodes[4]}
+
+
+def test_measure_connected_components():
+    network = Network(directed=True)
+    nodes = network.add_nodes(6)
+    network.add_edges([
+        (nodes[0], nodes[1]),
+        (nodes[1], nodes[0]),
+        (nodes[1], nodes[2]),
+        (nodes[3], nodes[4]),
+        (nodes[4], nodes[3]),
+    ])
+
+    result = network.measure_connected_components()
+    values = result["values_by_node"]
+    assert result["component_count"] == 3
+    assert result["largest_component_size"] == 3
+    assert values[nodes[0]] == values[nodes[1]]
+    assert values[nodes[2]] == values[nodes[1]]
+    assert values[nodes[3]] == values[nodes[4]]
+    assert values[nodes[0]] != values[nodes[3]]
+    assert values[nodes[5]] > 0
+
+    strong = network.measure_connected_components(mode=ConnectedComponentsMode.Strong)
+    strong_values = strong["values_by_node"]
+    assert strong["mode"] == ConnectedComponentsMode.Strong
+    assert strong["component_count"] == 4
+    assert strong["largest_component_size"] == 2
+    assert strong_values[nodes[0]] == strong_values[nodes[1]]
+    assert strong_values[nodes[2]] != strong_values[nodes[1]]
+    assert strong_values[nodes[3]] == strong_values[nodes[4]]
+    assert strong_values[nodes[5]] != strong_values[nodes[3]]
+
+    components = network.extract_connected_components(
+        mode="strong",
+        as_networks=True,
+        out_node_component_attribute="component",
+    )
+    assert [component["size"] for component in components] == [2, 2, 1, 1]
+    assert all("network" in component for component in components)
+    assert network.get_attribute_value(AttributeScope.Node, "component", nodes[0]) > 0
+
+    largest = network.extract_largest_connected_component(mode="strong", as_network=True)
+    assert largest is not None
+    assert largest["size"] == 2
+    assert largest["network"].node_count() == 2
+    assert largest["network"].edge_count() == 2
+
+def test_measure_coreness():
+    network = Network(directed=False)
+    nodes = network.add_nodes(6)
+    network.add_edges([
+        (nodes[0], nodes[1]),
+        (nodes[1], nodes[2]),
+        (nodes[2], nodes[0]),
+        (nodes[2], nodes[3]),
+        (nodes[3], nodes[4]),
+    ])
+
+    single = network.measure_coreness(
+        direction=NeighborDirection.Both,
+        execution_mode=MeasurementExecutionMode.SingleThread,
+    )
+    values = single["values_by_node"]
+    assert single["max_core"] == 2
+    assert values[nodes[0]] == 2
+    assert values[nodes[1]] == 2
+    assert values[nodes[2]] == 2
+    assert values[nodes[3]] == 1
+    assert values[nodes[4]] == 1
+    assert values[nodes[5]] == 0
+
+    parallel = network.measure_coreness(
+        direction=NeighborDirection.Both,
+        execution_mode=MeasurementExecutionMode.Parallel,
+    )
+    assert parallel["max_core"] == single["max_core"]
+    assert parallel["values_by_node"] == single["values_by_node"]
 
 
 def test_query_select_nodes_and_edges():

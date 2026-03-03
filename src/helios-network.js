@@ -12,6 +12,7 @@ export {
 	StrengthMeasure,
 	ClusteringCoefficientVariant,
 	MeasurementExecutionMode,
+	ConnectedComponentsMode,
 	getHeliosModule,
 	NodeSelector,
 	EdgeSelector,

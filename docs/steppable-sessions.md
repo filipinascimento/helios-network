@@ -36,6 +36,8 @@ To prevent producing out-of-sync results, `WasmSteppableSession` supports **auto
 Each algorithm defines its own cancellation policy internally:
 
 - **Leiden**: always cancels on topology changes; additionally cancels on the weight edge attribute version when running weighted modularity.
+- **Connected Components**: cancels on topology changes.
+- **Coreness (k-core)**: cancels on topology changes.
 - **Betweenness (future)**: would likely cancel on topology changes.
 - **Assortativity (future)**: would cancel on topology + the attribute used in the calculation.
 

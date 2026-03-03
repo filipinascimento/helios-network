@@ -392,10 +392,199 @@ static void test_betweenness_centrality_modes_and_chunks(void) {
 	CXFreeNetwork(weighted);
 }
 
+static void test_connected_components_measurement_and_session(void) {
+		const CXEdge edges[] = {
+			{ .from = 0, .to = 1 },
+			{ .from = 1, .to = 0 },
+			{ .from = 1, .to = 2 },
+			{ .from = 3, .to = 4 },
+			{ .from = 4, .to = 3 }
+		};
+		CXIndex nodeIndices[6] = {0};
+		CXNetworkRef network = build_network(CXTrue, 6, edges, 5, NULL, NULL, nodeIndices, NULL);
+	assert(network);
+
+	CXSize capacity = CXNetworkNodeCapacity(network);
+	uint32_t *components = (uint32_t *)calloc(capacity, sizeof(uint32_t));
+	uint32_t *sessionComponents = (uint32_t *)calloc(capacity, sizeof(uint32_t));
+	assert(components);
+	assert(sessionComponents);
+
+	uint32_t largest = 0;
+	CXSize componentCount = CXNetworkMeasureConnectedComponents(network, CXConnectedComponentsWeak, components, &largest);
+	assert(componentCount == 3);
+	assert(largest == 3);
+	assert(components[nodeIndices[0]] == components[nodeIndices[1]]);
+	assert(components[nodeIndices[1]] == components[nodeIndices[2]]);
+	assert(components[nodeIndices[3]] == components[nodeIndices[4]]);
+	assert(components[nodeIndices[0]] != components[nodeIndices[3]]);
+	assert(components[nodeIndices[5]] != 0);
+
+	CXConnectedComponentsSessionRef session = CXConnectedComponentsSessionCreate(network, CXConnectedComponentsWeak);
+	assert(session);
+	CXConnectedComponentsPhase phase = CXConnectedComponentsPhaseInvalid;
+	CXSize guard = 0;
+	do {
+		phase = CXConnectedComponentsSessionStep(session, 1);
+		guard += 1;
+		assert(guard < 100000);
+	} while (phase == CXConnectedComponentsPhaseScan || phase == CXConnectedComponentsPhaseTraverse);
+	assert(phase == CXConnectedComponentsPhaseDone);
+
+	uint32_t sessionComponentCount = 0;
+	uint32_t sessionLargest = 0;
+	assert(CXConnectedComponentsSessionFinalize(
+		session,
+		sessionComponents,
+		capacity,
+		&sessionComponentCount,
+		&sessionLargest
+	) == CXTrue);
+	assert(sessionComponentCount == componentCount);
+	assert(sessionLargest == largest);
+	for (CXSize i = 0; i < capacity; i++) {
+		assert(sessionComponents[i] == components[i]);
+	}
+	CXConnectedComponentsSessionDestroy(session);
+
+	uint32_t *strongComponents = (uint32_t *)calloc(capacity, sizeof(uint32_t));
+	uint32_t *strongSessionComponents = (uint32_t *)calloc(capacity, sizeof(uint32_t));
+	assert(strongComponents);
+	assert(strongSessionComponents);
+	uint32_t strongLargest = 0;
+	CXSize strongCount = CXNetworkMeasureConnectedComponents(network, CXConnectedComponentsStrong, strongComponents, &strongLargest);
+	assert(strongCount == 4);
+	assert(strongLargest == 2);
+	assert(strongComponents[nodeIndices[0]] != 0);
+	assert(strongComponents[nodeIndices[1]] != 0);
+	assert(strongComponents[nodeIndices[2]] != 0);
+	assert(strongComponents[nodeIndices[0]] == strongComponents[nodeIndices[1]]);
+	assert(strongComponents[nodeIndices[2]] != strongComponents[nodeIndices[1]]);
+	assert(strongComponents[nodeIndices[3]] == strongComponents[nodeIndices[4]]);
+	assert(strongComponents[nodeIndices[5]] != strongComponents[nodeIndices[3]]);
+
+	CXConnectedComponentsSessionRef strongSession = CXConnectedComponentsSessionCreate(network, CXConnectedComponentsStrong);
+	assert(strongSession);
+	CXConnectedComponentsPhase strongPhase = CXConnectedComponentsPhaseInvalid;
+	CXSize strongGuard = 0;
+	do {
+		strongPhase = CXConnectedComponentsSessionStep(strongSession, 1);
+		strongGuard += 1;
+		assert(strongGuard < 200000);
+	} while (strongPhase == CXConnectedComponentsPhaseForward || strongPhase == CXConnectedComponentsPhaseReverse);
+	assert(strongPhase == CXConnectedComponentsPhaseDone);
+	uint32_t strongSessionCount = 0;
+	uint32_t strongSessionLargest = 0;
+	assert(CXConnectedComponentsSessionFinalize(
+		strongSession,
+		strongSessionComponents,
+		capacity,
+		&strongSessionCount,
+		&strongSessionLargest
+	) == CXTrue);
+	assert(strongSessionCount == strongCount);
+	assert(strongSessionLargest == strongLargest);
+	for (CXSize i = 0; i < capacity; i++) {
+		assert(strongSessionComponents[i] == strongComponents[i]);
+	}
+	CXConnectedComponentsSessionDestroy(strongSession);
+
+	free(strongSessionComponents);
+	free(strongComponents);
+
+	free(components);
+	free(sessionComponents);
+	CXFreeNetwork(network);
+}
+
+static void test_coreness_measurement_and_session(void) {
+	const CXEdge edges[] = {
+		{ .from = 0, .to = 1 },
+		{ .from = 1, .to = 2 },
+		{ .from = 2, .to = 0 },
+		{ .from = 2, .to = 3 },
+		{ .from = 3, .to = 4 }
+	};
+	CXIndex nodeIndices[6] = {0};
+	CXNetworkRef network = build_network(CXFalse, 6, edges, 5, NULL, NULL, nodeIndices, NULL);
+	assert(network);
+
+	CXSize capacity = CXNetworkNodeCapacity(network);
+	uint32_t *single = (uint32_t *)calloc(capacity, sizeof(uint32_t));
+	uint32_t *parallel = (uint32_t *)calloc(capacity, sizeof(uint32_t));
+	uint32_t *sessionValues = (uint32_t *)calloc(capacity, sizeof(uint32_t));
+	assert(single);
+	assert(parallel);
+	assert(sessionValues);
+
+	uint32_t singleMaxCore = 0;
+	uint32_t parallelMaxCore = 0;
+	assert(CXNetworkMeasureCoreness(
+		network,
+		CXNeighborDirectionBoth,
+		CXMeasurementExecutionSingleThread,
+		single,
+		&singleMaxCore
+	) == CXTrue);
+	assert(CXNetworkMeasureCoreness(
+		network,
+		CXNeighborDirectionBoth,
+		CXMeasurementExecutionParallel,
+		parallel,
+		&parallelMaxCore
+	) == CXTrue);
+	assert(singleMaxCore == 2);
+	assert(parallelMaxCore == singleMaxCore);
+	for (CXSize i = 0; i < capacity; i++) {
+		assert(parallel[i] == single[i]);
+	}
+	assert(single[nodeIndices[0]] == 2);
+	assert(single[nodeIndices[1]] == 2);
+	assert(single[nodeIndices[2]] == 2);
+	assert(single[nodeIndices[3]] == 1);
+	assert(single[nodeIndices[4]] == 1);
+	assert(single[nodeIndices[5]] == 0);
+
+	CXCorenessSessionRef session = CXCorenessSessionCreate(
+		network,
+		CXNeighborDirectionBoth,
+		CXMeasurementExecutionSingleThread
+	);
+	assert(session);
+	CXCorenessPhase phase = CXCorenessPhaseInvalid;
+	CXSize guard = 0;
+	do {
+		phase = CXCorenessSessionStep(session, 1);
+		guard += 1;
+		assert(guard < 100000);
+	} while (phase == CXCorenessPhaseInitialize || phase == CXCorenessPhasePeel);
+	assert(phase == CXCorenessPhaseDone);
+
+	uint32_t sessionMaxCore = 0;
+	assert(CXCorenessSessionFinalize(
+		session,
+		sessionValues,
+		capacity,
+		&sessionMaxCore
+	) == CXTrue);
+	assert(sessionMaxCore == singleMaxCore);
+	for (CXSize i = 0; i < capacity; i++) {
+		assert(sessionValues[i] == single[i]);
+	}
+	CXCorenessSessionDestroy(session);
+
+	free(single);
+	free(parallel);
+	free(sessionValues);
+	CXFreeNetwork(network);
+}
+
 int main(void) {
 	test_degree_and_strength();
 	test_clustering_variants();
 	test_eigenvector_centrality_modes();
 	test_betweenness_centrality_modes_and_chunks();
+	test_connected_components_measurement_and_session();
+	test_coreness_measurement_and_session();
 	return 0;
 }

@@ -112,6 +112,130 @@ class Network:
         """
         return self.edges.pairs()
 
+    def _extract_component_network(self, node_indices: Sequence[int], edge_indices: Sequence[int]) -> "Network":
+        subgraph = Network(
+            directed=bool(self.is_directed),
+            node_capacity=max(1, len(node_indices)),
+            edge_capacity=max(1, len(edge_indices)),
+        )
+        if not node_indices:
+            return subgraph
+
+        new_nodes = subgraph.add_nodes(len(node_indices))
+        node_map = {int(source): int(target) for source, target in zip(node_indices, new_nodes)}
+        edge_payload = []
+        for edge_id in edge_indices:
+            source, target = self._core.edge_endpoints(int(edge_id))
+            mapped_source = node_map.get(int(source))
+            mapped_target = node_map.get(int(target))
+            if mapped_source is None or mapped_target is None:
+                continue
+            edge_payload.append((mapped_source, mapped_target))
+        if edge_payload:
+            subgraph.add_edges(edge_payload)
+        return subgraph
+
+    def extract_connected_components(
+        self,
+        mode="weak",
+        min_size: int = 1,
+        as_networks: bool = False,
+        out_node_component_attribute: str | None = "component",
+    ):
+        """
+        Extract connected components as explicit partitions.
+
+        Parameters:
+        -----------
+        mode: str | int
+            Connected-components mode ("weak" or "strong").
+        min_size: int
+            Minimum number of nodes per returned component.
+        as_networks: bool
+            If True, include an induced `Network` object per component.
+        out_node_component_attribute: str | None
+            Optional node attribute name to store component ids.
+
+        Returns:
+        --------
+        list[dict]
+            Each record has: component_id, size, node_indices, edge_indices,
+            and optionally network.
+        """
+        minimum = max(1, int(min_size))
+        measured = self._core.measure_connected_components(mode=mode)
+        values = measured["values_by_node"]
+        active_nodes = self._core.node_indices()
+
+        if out_node_component_attribute:
+            node_attributes = self._core.list_attributes(_core.SCOPE_NODE)
+            if out_node_component_attribute not in node_attributes:
+                self.nodes.define_attribute(out_node_component_attribute, _core.ATTR_UNSIGNED_INTEGER, 1)
+            else:
+                info = self._core.attribute_info(_core.SCOPE_NODE, out_node_component_attribute)
+                if int(info["type"]) != int(_core.ATTR_UNSIGNED_INTEGER):
+                    raise TypeError(f'Node attribute "{out_node_component_attribute}" must be UnsignedInteger')
+            for node_id in active_nodes:
+                self._core.set_attribute_value(
+                    _core.SCOPE_NODE,
+                    out_node_component_attribute,
+                    int(node_id),
+                    int(values[int(node_id)]),
+                )
+
+        grouped_nodes = {}
+        for node_id in active_nodes:
+            component_id = int(values[int(node_id)])
+            if component_id <= 0:
+                continue
+            grouped_nodes.setdefault(component_id, []).append(int(node_id))
+
+        grouped_edges = {component_id: [] for component_id in grouped_nodes}
+        for edge_id, (source, target) in self._core.edges_with_indices():
+            component_id = int(values[int(source)])
+            if component_id <= 0 or component_id != int(values[int(target)]):
+                continue
+            bucket = grouped_edges.get(component_id)
+            if bucket is not None:
+                bucket.append(int(edge_id))
+
+        components = []
+        for component_id, node_ids in grouped_nodes.items():
+            if len(node_ids) < minimum:
+                continue
+            edge_ids = grouped_edges.get(component_id, [])
+            record = {
+                "component_id": int(component_id),
+                "size": len(node_ids),
+                "node_indices": list(node_ids),
+                "edge_indices": list(edge_ids),
+            }
+            if as_networks:
+                record["network"] = self._extract_component_network(node_ids, edge_ids)
+            components.append(record)
+
+        components.sort(key=lambda item: (-int(item["size"]), int(item["component_id"])))
+        return components
+
+    def extract_largest_connected_component(
+        self,
+        mode="weak",
+        as_network: bool = True,
+        out_node_component_attribute: str | None = "component",
+    ):
+        """
+        Extract the largest connected component.
+        """
+        components = self.extract_connected_components(
+            mode=mode,
+            min_size=1,
+            as_networks=bool(as_network),
+            out_node_component_attribute=out_node_component_attribute,
+        )
+        if not components:
+            return None
+        return components[0]
+
     def out_neighbors(self, node: int):
         """
         Return outgoing neighbors for a node.

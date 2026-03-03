@@ -5,6 +5,7 @@ import HeliosNetwork, {
 	StrengthMeasure,
 	ClusteringCoefficientVariant,
 	MeasurementExecutionMode,
+	ConnectedComponentsMode,
 } from '../src/helios-network.js';
 
 function expectNear(actual, expected, epsilon = 1e-4) {
@@ -172,6 +173,60 @@ test('betweenness centrality matches known values on a path graph', async () => 
 	}
 });
 
+test('coreness measurement and steppable session match known k-core values', async () => {
+	const network = await buildNetwork({
+		directed: false,
+		nodeCount: 6,
+		edges: [[0, 1], [1, 2], [2, 0], [2, 3], [3, 4]],
+	});
+	try {
+		const measured = network.measureCoreness({
+			executionMode: MeasurementExecutionMode.SingleThread,
+			outNodeCorenessAttribute: 'coreness_one_shot',
+		});
+		expect(measured.maxCore).toBe(2);
+		expect(measured.valuesByNode[0]).toBe(2);
+		expect(measured.valuesByNode[1]).toBe(2);
+		expect(measured.valuesByNode[2]).toBe(2);
+		expect(measured.valuesByNode[3]).toBe(1);
+		expect(measured.valuesByNode[4]).toBe(1);
+		expect(measured.valuesByNode[5]).toBe(0);
+		expect(network.getNodeAttributeBuffer('coreness_one_shot').view[2]).toBe(2);
+
+		const parallel = network.measureCoreness({
+			executionMode: MeasurementExecutionMode.Parallel,
+		});
+		expect(parallel.maxCore).toBe(measured.maxCore);
+		for (let i = 0; i < network.nodeCapacity; i += 1) {
+			expect(parallel.valuesByNode[i]).toBe(measured.valuesByNode[i]);
+		}
+
+		const session = network.createCorenessSession({
+			executionMode: MeasurementExecutionMode.SingleThread,
+			outNodeCorenessAttribute: 'coreness_session',
+		});
+		let iterations = 0;
+		let progressCurrentPrev = -1;
+		while (!session.isComplete()) {
+			const progress = session.step({ budget: 1, timeoutMs: null });
+			expect(progress.progressCurrent).toBeGreaterThanOrEqual(progressCurrentPrev);
+			progressCurrentPrev = progress.progressCurrent;
+			iterations += 1;
+			expect(iterations).toBeLessThan(10000);
+		}
+
+		const sessionResult = session.finalize();
+		expect(sessionResult.maxCore).toBe(measured.maxCore);
+		for (let i = 0; i < network.nodeCapacity; i += 1) {
+			expect(sessionResult.valuesByNode[i]).toBe(measured.valuesByNode[i]);
+		}
+		expect(network.getNodeAttributeBuffer('coreness_session').view[4]).toBe(1);
+		session.dispose();
+	} finally {
+		network.dispose();
+	}
+});
+
 test('weighted betweenness supports source chunk accumulation decomposition', async () => {
 	const network = await buildNetwork({
 		directed: false,
@@ -210,6 +265,99 @@ test('weighted betweenness supports source chunk accumulation decomposition', as
 		network.dispose();
 	}
 });
+
+test('connected components supports weak/strong modes, sessions, and extraction helpers', async () => {
+	const network = await buildNetwork({
+		directed: true,
+		nodeCount: 6,
+		edges: [[0, 1], [1, 0], [1, 2], [3, 4], [4, 3]],
+	});
+	try {
+		const measured = network.measureConnectedComponents({
+			outNodeComponentAttribute: 'component_one_shot',
+		});
+		expect(measured.componentCount).toBe(3);
+		expect(measured.largestComponentSize).toBe(3);
+		const oneShot = measured.valuesByNode;
+			expect(oneShot[0]).toBe(oneShot[1]);
+			expect(oneShot[2]).toBe(oneShot[1]);
+			expect(oneShot[3]).toBe(oneShot[4]);
+			expect(oneShot[0]).not.toBe(oneShot[3]);
+			expect(oneShot[5]).toBeGreaterThan(0);
+			expect(network.getNodeAttributeBuffer('component_one_shot').view[5]).toBe(oneShot[5]);
+
+		const session = network.createConnectedComponentsSession({
+			outNodeComponentAttribute: 'component_session',
+		});
+		let iterations = 0;
+		let progressCurrentPrev = -1;
+		while (!session.isComplete()) {
+			const progress = session.step({ budget: 1, timeoutMs: null });
+			expect(progress.progressCurrent).toBeGreaterThanOrEqual(progressCurrentPrev);
+			progressCurrentPrev = progress.progressCurrent;
+			iterations += 1;
+			expect(iterations).toBeLessThan(10000);
+		}
+
+		const sessionResult = session.finalize();
+		expect(sessionResult.componentCount).toBe(measured.componentCount);
+		expect(sessionResult.largestComponentSize).toBe(measured.largestComponentSize);
+		for (let i = 0; i < network.nodeCapacity; i += 1) {
+			expect(sessionResult.valuesByNode[i]).toBe(oneShot[i]);
+			}
+			expect(network.getNodeAttributeBuffer('component_session').view[0]).toBe(oneShot[0]);
+			session.dispose();
+
+			const strong = network.measureConnectedComponents({
+				mode: ConnectedComponentsMode.Strong,
+				outNodeComponentAttribute: 'component_strong',
+			});
+			expect(strong.componentCount).toBe(4);
+			expect(strong.largestComponentSize).toBe(2);
+			expect(strong.valuesByNode[0]).toBe(strong.valuesByNode[1]);
+			expect(strong.valuesByNode[2]).not.toBe(strong.valuesByNode[1]);
+			expect(strong.valuesByNode[3]).toBe(strong.valuesByNode[4]);
+			expect(strong.valuesByNode[5]).not.toBe(strong.valuesByNode[3]);
+			expect(network.getNodeAttributeBuffer('component_strong').view[4]).toBe(strong.valuesByNode[4]);
+
+			const strongSession = network.createConnectedComponentsSession({
+				mode: ConnectedComponentsMode.Strong,
+				outNodeComponentAttribute: 'component_strong_session',
+			});
+			let strongIterations = 0;
+			let strongPrevProgress = -1;
+			while (!strongSession.isComplete()) {
+				const progress = strongSession.step({ budget: 1, timeoutMs: null });
+				expect(progress.progressCurrent).toBeGreaterThanOrEqual(strongPrevProgress);
+				strongPrevProgress = progress.progressCurrent;
+				strongIterations += 1;
+				expect(strongIterations).toBeLessThan(10000);
+			}
+			const strongSessionResult = strongSession.finalize();
+			expect(strongSessionResult.componentCount).toBe(strong.componentCount);
+			expect(strongSessionResult.largestComponentSize).toBe(strong.largestComponentSize);
+			for (let i = 0; i < network.nodeCapacity; i += 1) {
+				expect(strongSessionResult.valuesByNode[i]).toBe(strong.valuesByNode[i]);
+			}
+			strongSession.dispose();
+
+			const extracted = network.extractConnectedComponents({ mode: 'strong' });
+			expect(extracted.length).toBe(4);
+			expect(extracted[0].size).toBe(2);
+			expect(extracted[1].size).toBe(2);
+			expect(extracted[2].size).toBe(1);
+			expect(extracted[3].size).toBe(1);
+
+			const largest = network.extractLargestConnectedComponent({ mode: 'strong', asNetwork: true });
+			expect(largest).not.toBeNull();
+			expect(largest.size).toBe(2);
+			expect(largest.network.nodeCount).toBe(2);
+			expect(largest.network.edgeCount).toBe(2);
+			largest.network.dispose();
+		} finally {
+			network.dispose();
+		}
+	});
 
 test('eigenvector centrality supports iterative stepping via initialValues', async () => {
 	const network = await buildNetwork({

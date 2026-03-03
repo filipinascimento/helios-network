@@ -72,6 +72,10 @@ class MeasurementExecutionMode(enum.IntEnum):
     SingleThread = _core.MEASUREMENT_EXECUTION_SINGLE_THREAD
     Parallel = _core.MEASUREMENT_EXECUTION_PARALLEL
 
+class ConnectedComponentsMode(enum.IntEnum):
+    Weak = _core.CONNECTED_COMPONENTS_WEAK
+    Strong = _core.CONNECTED_COMPONENTS_STRONG
+
 
 def read_bxnet(path: str) -> Network:
     return Network(_core_network=_core.read_bxnet(path))
@@ -96,6 +100,7 @@ __all__ = [
     "StrengthMeasure",
     "ClusteringVariant",
     "MeasurementExecutionMode",
+    "ConnectedComponentsMode",
     "read_bxnet",
     "read_zxnet",
     "read_xnet",
