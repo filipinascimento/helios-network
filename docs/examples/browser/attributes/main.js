@@ -24,19 +24,27 @@ async function run() {
 		network.defineEdgeAttribute('capacity', AttributeType.Double, 1);
 		network.defineNetworkAttribute('meta', AttributeType.Javascript, 1);
 
-		const weights = network.getNodeAttributeBuffer('weight').view;
-		weights[nodes[0]] = 5.5;
-		weights[nodes[1]] = 7.25;
+		const snapshot = network.withBufferAccess(() => {
+			const weights = network.getNodeAttributeBuffer('weight').view;
+			weights[nodes[0]] = 5.5;
+			weights[nodes[1]] = 7.25;
 
-		const capacity = network.getEdgeAttributeBuffer('capacity').view;
-		capacity[edges[0]] = 42;
+			const capacity = network.getEdgeAttributeBuffer('capacity').view;
+			capacity[edges[0]] = 42;
 
-		const meta = network.getNetworkAttributeBuffer('meta');
-		meta.set(0, { name: 'Browser attribute demo', createdAt: new Date().toISOString() });
+			const meta = network.getNetworkAttributeBuffer('meta');
+			meta.set(0, { name: 'Browser attribute demo', createdAt: new Date().toISOString() });
 
-		log('node weights', Array.from(weights.slice(0, network.nodeCount)));
-		log('edge capacities', Array.from(capacity.slice(0, network.edgeCount)));
-		log('network meta', meta.get(0));
+			return {
+				weights: Array.from(weights.slice(0, network.nodeCount)),
+				capacity: Array.from(capacity.slice(0, network.edgeCount)),
+				meta: meta.get(0),
+			};
+		});
+
+		log('node weights', snapshot.weights);
+		log('edge capacities', snapshot.capacity);
+		log('network meta', snapshot.meta);
 	} finally {
 		network.dispose();
 		log('teardown', 'Network disposed');

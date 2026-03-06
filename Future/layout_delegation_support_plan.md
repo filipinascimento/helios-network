@@ -5,7 +5,7 @@
 ## Status update (implemented)
 - Native interpolation helper: `CXAttributeInterpolateFloatBuffer(...)`
 - WASM export and JS wrapper: `HeliosNetwork.interpolateNodeAttribute(...)`
-- Network-backed interpolation flow in helios-web-next (layout target captured into WASM, positions interpolated in-place, dense buffers dirtied without emitting events by default)
+- Network-backed interpolation flow in helios-web-next (layout target captured into WASM, positions interpolated in-place, derived buffers refreshed without emitting events by default)
 
 ## Status update (still needed)
 - Explicit position ownership flags for external vs network control
@@ -33,7 +33,7 @@
 - Audit current event emission points in native + JS glue.
 - Add missing events where required.
 - Document payload formats for use by external delegates.
-- Add a safe query helper (or document best practice) so renderers can skip dense updates when an attribute is not defined.
+- Add a safe query helper (or document best practice) so renderers can skip attribute refresh work when an attribute is not defined.
 
 ---
 

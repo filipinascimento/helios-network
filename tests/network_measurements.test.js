@@ -7,6 +7,7 @@ import HeliosNetwork, {
 	MeasurementExecutionMode,
 	ConnectedComponentsMode,
 } from '../src/helios-network.js';
+import { withEdgeBuffer, withNodeBuffer } from './helpers/bufferAccess.js';
 
 function expectNear(actual, expected, epsilon = 1e-4) {
 	expect(Math.abs(actual - expected)).toBeLessThanOrEqual(epsilon);
@@ -18,11 +19,12 @@ async function buildNetwork({ directed = false, nodeCount = 0, edges = [], weigh
 	const edgeIds = network.addEdges(edges.map(([from, to]) => ({ from, to })));
 	if (weightName) {
 		network.defineEdgeAttribute(weightName, AttributeType.Float, 1);
-		const { view, bumpVersion } = network.getEdgeAttributeBuffer(weightName);
-		for (let i = 0; i < edgeIds.length; i += 1) {
-			view[edgeIds[i]] = Number(weights?.[i] ?? 1);
-		}
-		bumpVersion();
+		withEdgeBuffer(network, weightName, ({ view, bumpVersion }) => {
+			for (let i = 0; i < edgeIds.length; i += 1) {
+				view[edgeIds[i]] = Number(weights?.[i] ?? 1);
+			}
+			bumpVersion();
+		});
 	}
 	return network;
 }
@@ -44,20 +46,29 @@ test('degree and strength metrics match known directed/undirected values', async
 	});
 
 	try {
-		const degree = undirected.measureDegree();
+		const degree = undirected.measureDegree({ outNodeAttribute: 'degree_attr' });
 		expect(degree.valuesByNode[0]).toBe(3);
 		expect(degree.valuesByNode[1]).toBe(1);
 		expect(degree.valuesByNode[2]).toBe(1);
 		expect(degree.valuesByNode[3]).toBe(1);
+		withNodeBuffer(undirected, 'degree_attr', ({ view }) => {
+			expect(view[0]).toBe(3);
+			expect(view[3]).toBe(1);
+		});
 
 		const strength = undirected.measureStrength({
 			edgeWeightAttribute: 'w',
 			measure: StrengthMeasure.Sum,
+			outNodeAttribute: 'strength_attr',
 		});
 		expect(strength.valuesByNode[0]).toBe(9);
 		expect(strength.valuesByNode[1]).toBe(2);
 		expect(strength.valuesByNode[2]).toBe(3);
 		expect(strength.valuesByNode[3]).toBe(4);
+		withNodeBuffer(undirected, 'strength_attr', ({ view }) => {
+			expect(view[0]).toBe(9);
+			expect(view[2]).toBe(3);
+		});
 
 		const avgStrength = undirected.measureStrength({
 			edgeWeightAttribute: 'w',
@@ -104,6 +115,7 @@ test('local clustering coefficient variants match known triangle/path values', a
 	try {
 		const unweighted = triangle.measureLocalClusteringCoefficient({
 			variant: ClusteringCoefficientVariant.Unweighted,
+			outNodeAttribute: 'clustering_attr',
 		});
 		const onnela = triangle.measureLocalClusteringCoefficient({
 			variant: ClusteringCoefficientVariant.Onnela,
@@ -118,6 +130,10 @@ test('local clustering coefficient variants match known triangle/path values', a
 			expectNear(onnela.valuesByNode[i], 1);
 			expectNear(newman.valuesByNode[i], 1);
 		}
+		withNodeBuffer(triangle, 'clustering_attr', ({ view }) => {
+			expectNear(view[0], 1);
+			expectNear(view[2], 1);
+		});
 
 		const pathClustering = path.measureLocalClusteringCoefficient({
 			variant: ClusteringCoefficientVariant.Unweighted,
@@ -142,12 +158,16 @@ test('eigenvector centrality on star graph has expected center/leaf ratio', asyn
 			maxIterations: 256,
 			tolerance: 1e-8,
 			executionMode: MeasurementExecutionMode.SingleThread,
+			outNodeAttribute: 'eigen_attr',
 		});
 		expect(result.iterations).toBeGreaterThan(0);
 		const center = result.valuesByNode[0];
 		const leaf = result.valuesByNode[1];
 		expect(center).toBeGreaterThan(leaf);
 		expectNear(center / leaf, 2, 0.05);
+		withNodeBuffer(network, 'eigen_attr', ({ view }) => {
+			expectNear(view[0], center, 1e-4);
+		});
 	} finally {
 		network.dispose();
 	}
@@ -163,11 +183,16 @@ test('betweenness centrality matches known values on a path graph', async () => 
 		const result = network.measureBetweennessCentrality({
 			normalize: true,
 			executionMode: MeasurementExecutionMode.SingleThread,
+			outNodeAttribute: 'betweenness_attr',
 		});
 		expectNear(result.valuesByNode[1], 2 / 3, 0.03);
 		expectNear(result.valuesByNode[2], 2 / 3, 0.03);
 		expectNear(result.valuesByNode[0], 0, 1e-6);
 		expectNear(result.valuesByNode[3], 0, 1e-6);
+		withNodeBuffer(network, 'betweenness_attr', ({ view }) => {
+			expectNear(view[1], 2 / 3, 0.03);
+			expectNear(view[3], 0, 1e-6);
+		});
 	} finally {
 		network.dispose();
 	}
@@ -191,7 +216,9 @@ test('coreness measurement and steppable session match known k-core values', asy
 		expect(measured.valuesByNode[3]).toBe(1);
 		expect(measured.valuesByNode[4]).toBe(1);
 		expect(measured.valuesByNode[5]).toBe(0);
-		expect(network.getNodeAttributeBuffer('coreness_one_shot').view[2]).toBe(2);
+		withNodeBuffer(network, 'coreness_one_shot', ({ view }) => {
+			expect(view[2]).toBe(2);
+		});
 
 		const parallel = network.measureCoreness({
 			executionMode: MeasurementExecutionMode.Parallel,
@@ -220,7 +247,9 @@ test('coreness measurement and steppable session match known k-core values', asy
 		for (let i = 0; i < network.nodeCapacity; i += 1) {
 			expect(sessionResult.valuesByNode[i]).toBe(measured.valuesByNode[i]);
 		}
-		expect(network.getNodeAttributeBuffer('coreness_session').view[4]).toBe(1);
+		withNodeBuffer(network, 'coreness_session', ({ view }) => {
+			expect(view[4]).toBe(1);
+		});
 		session.dispose();
 	} finally {
 		network.dispose();
@@ -284,7 +313,9 @@ test('connected components supports weak/strong modes, sessions, and extraction 
 			expect(oneShot[3]).toBe(oneShot[4]);
 			expect(oneShot[0]).not.toBe(oneShot[3]);
 			expect(oneShot[5]).toBeGreaterThan(0);
-			expect(network.getNodeAttributeBuffer('component_one_shot').view[5]).toBe(oneShot[5]);
+			withNodeBuffer(network, 'component_one_shot', ({ view }) => {
+				expect(view[5]).toBe(oneShot[5]);
+			});
 
 		const session = network.createConnectedComponentsSession({
 			outNodeComponentAttribute: 'component_session',
@@ -305,7 +336,9 @@ test('connected components supports weak/strong modes, sessions, and extraction 
 		for (let i = 0; i < network.nodeCapacity; i += 1) {
 			expect(sessionResult.valuesByNode[i]).toBe(oneShot[i]);
 			}
-			expect(network.getNodeAttributeBuffer('component_session').view[0]).toBe(oneShot[0]);
+			withNodeBuffer(network, 'component_session', ({ view }) => {
+				expect(view[0]).toBe(oneShot[0]);
+			});
 			session.dispose();
 
 			const strong = network.measureConnectedComponents({
@@ -318,7 +351,9 @@ test('connected components supports weak/strong modes, sessions, and extraction 
 			expect(strong.valuesByNode[2]).not.toBe(strong.valuesByNode[1]);
 			expect(strong.valuesByNode[3]).toBe(strong.valuesByNode[4]);
 			expect(strong.valuesByNode[5]).not.toBe(strong.valuesByNode[3]);
-			expect(network.getNodeAttributeBuffer('component_strong').view[4]).toBe(strong.valuesByNode[4]);
+			withNodeBuffer(network, 'component_strong', ({ view }) => {
+				expect(view[4]).toBe(strong.valuesByNode[4]);
+			});
 
 			const strongSession = network.createConnectedComponentsSession({
 				mode: ConnectedComponentsMode.Strong,

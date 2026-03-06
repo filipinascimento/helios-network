@@ -149,7 +149,7 @@ Use versioning to track the things your algorithm depends on:
 
 - Topology-dependent algorithms: track `topology: 'both'` unless truly node-only or edge-only.
 - Attribute-dependent algorithms: track the attribute versions you read during the computation.
-  - If an algorithm reads an attribute buffer directly (dense/sparse), it must ensure a version bump happens when that buffer changes (manual bump APIs exist for direct buffer writes).
+  - If an algorithm reads an attribute buffer directly, it must ensure a version bump happens when that buffer changes (manual bump APIs exist for direct buffer writes).
 
 See `docs/versioning.md` for details on how versions behave and how to bump them when needed.
 

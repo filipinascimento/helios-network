@@ -6,7 +6,6 @@ export {
 	default,
 	AttributeType,
 	CategorySortOrder,
-	DenseColorEncodingFormat,
 	DimensionDifferenceMethod,
 	NeighborDirection,
 	StrengthMeasure,

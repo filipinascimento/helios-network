@@ -23,11 +23,6 @@ const AttributeType = Object.freeze({
 	Unknown: 255,
 });
 
-const DenseColorEncodingFormat = Object.freeze({
-	Uint8x4: 0,
-	Uint32x4: 1,
-});
-
 const CategorySortOrder = Object.freeze({
 	None: 0,
 	Frequency: 1,
@@ -167,44 +162,11 @@ const DIMENSION_FORWARD_COEFFICIENTS = Object.freeze([
 /**
  * Options for buffer memory usage reports.
  * @typedef {object} BufferMemoryUsageOptions
- * @property {boolean=} refreshDense - Whether to repack dense buffers before reporting.
- * @property {boolean=} includeJs - Whether to include JS-side allocations.
  */
 
 /**
  * Options for buffer version queries.
  * @typedef {object} BufferVersionOptions
- * @property {boolean=} refreshDense - Whether to repack dense buffers before reporting.
- */
-
-/**
- * Options for color-encoding dense buffers.
- * @typedef {object} DenseColorEncodingOptions
- * @property {(DenseColorEncodingFormat|string)=} format
- */
-
-/**
- * One dense buffer request represented as [scope, name].
- * @typedef {Array.<string>} DenseBufferRequest
- */
-
-/**
- * List of dense buffer requests.
- * @typedef {Array.<DenseBufferRequest>} DenseBufferRequestList
- */
-
-/**
- * Dense buffer views grouped by scope.
- * @typedef {object} DenseBufferViews
- * @property {Object.<string, any>} node
- * @property {Object.<string, any>} edge
- */
-
-/**
- * Callback invoked with dense buffer views.
- * @callback DenseBufferViewCallback
- * @param {DenseBufferViews} buffers
- * @returns {*}
  */
 
 /**
@@ -338,13 +300,6 @@ const TypedArrayForType = {
 	[AttributeType.Category]: Int32Array,
 	[AttributeType.BigInteger]: BigInt64Array,
 	[AttributeType.UnsignedBigInteger]: BigUint64Array,
-};
-
-const DenseTypedArrayForType = {
-	...TypedArrayForType,
-	[AttributeType.String]: Uint32Array,
-	[AttributeType.Data]: Uint8Array,
-	[AttributeType.Javascript]: Uint32Array,
 };
 
 /**
@@ -725,67 +680,69 @@ function uint8ToBase64(bytes) {
  */
 function projectAttributeValues(network, scope, name, indices, options = {}) {
 	const { raw = false } = options;
-	const buffer = scope === 'node'
-		? network.getNodeAttributeBuffer(name)
-		: network.getEdgeAttributeBuffer(name);
+	return network.withBufferAccess(() => {
+		const buffer = scope === 'node'
+			? network.getNodeAttributeBuffer(name)
+			: network.getEdgeAttributeBuffer(name);
 
-	if ('get' in buffer && typeof buffer.get === 'function') {
-		const result = new Array(indices.length);
-		for (let i = 0; i < indices.length; i += 1) {
-			const index = indices[i];
-			result[i] = buffer.get(index) ?? null;
+		if ('get' in buffer && typeof buffer.get === 'function') {
+			const result = new Array(indices.length);
+			for (let i = 0; i < indices.length; i += 1) {
+				const index = indices[i];
+				result[i] = buffer.get(index) ?? null;
+			}
+			return result;
 		}
-		return result;
-	}
 
-	if (buffer.type === AttributeType.String) {
-		const reader = scope === 'node'
-			? network.getNodeStringAttribute.bind(network)
-			: network.getEdgeStringAttribute.bind(network);
+		if (buffer.type === AttributeType.String) {
+			const reader = scope === 'node'
+				? network.getNodeStringAttribute.bind(network)
+				: network.getEdgeStringAttribute.bind(network);
+			if (!indices.length) {
+				return [];
+			}
+			const result = new Array(indices.length);
+			for (let i = 0; i < indices.length; i += 1) {
+				result[i] = reader(name, indices[i]);
+			}
+			return result;
+		}
+
+		if (!('view' in buffer) || !buffer.view) {
+			throw new Error(`Attribute "${name}" on ${scope} is not a numeric attribute`);
+		}
+
+		const { view, dimension } = buffer;
+		const TypedCtor = view.constructor;
+
 		if (!indices.length) {
-			return [];
+			return raw && dimension === 1 ? new TypedCtor(0) : [];
 		}
-		const result = new Array(indices.length);
-		for (let i = 0; i < indices.length; i += 1) {
-			result[i] = reader(name, indices[i]);
-		}
-		return result;
-	}
 
-	if (!('view' in buffer) || !buffer.view) {
-		throw new Error(`Attribute "${name}" on ${scope} is not a numeric attribute`);
-	}
-
-	const { view, dimension } = buffer;
-	const TypedCtor = view.constructor;
-
-	if (!indices.length) {
-		return raw && dimension === 1 ? new TypedCtor(0) : [];
-	}
-
-	if (dimension === 1) {
-		if (raw) {
-			const result = new TypedCtor(indices.length);
+		if (dimension === 1) {
+			if (raw) {
+				const result = new TypedCtor(indices.length);
+				for (let i = 0; i < indices.length; i += 1) {
+					result[i] = view[indices[i]];
+				}
+				return result;
+			}
+			const result = new Array(indices.length);
 			for (let i = 0; i < indices.length; i += 1) {
 				result[i] = view[indices[i]];
 			}
 			return result;
 		}
+
 		const result = new Array(indices.length);
 		for (let i = 0; i < indices.length; i += 1) {
-			result[i] = view[indices[i]];
+			const index = indices[i];
+			const start = index * dimension;
+			const slice = view.slice(start, start + dimension);
+			result[i] = raw ? slice : Array.from(slice);
 		}
 		return result;
-	}
-
-	const result = new Array(indices.length);
-	for (let i = 0; i < indices.length; i += 1) {
-		const index = indices[i];
-		const start = index * dimension;
-		const slice = view.slice(start, start + dimension);
-		result[i] = raw ? slice : Array.from(slice);
-	}
-	return result;
+	});
 }
 
 /**
@@ -1037,10 +994,10 @@ class Selector {
 			return new Uint32Array();
 		}
 		if (this._scope === 'node') {
-			return this.network.nodeIndices;
+			return this.network.withBufferAccess(() => this.network.nodeIndices.slice(), { nodeIndices: true });
 		}
 		if (this._scope === 'edge') {
-			return this.network.edgeIndices;
+			return this.network.withBufferAccess(() => this.network.edgeIndices.slice(), { edgeIndices: true });
 		}
 		return new Uint32Array();
 	}
@@ -1129,6 +1086,7 @@ class NodeSelector extends Selector {
 	 * @throws {Error} When memory allocation fails.
 	 */
 	fillFromArray(network, indices) {
+		network?._assertCanAllocate?.('node selector materialization');
 		const array = Array.isArray(indices) ? Uint32Array.from(indices) : new Uint32Array(indices);
 		if (array.length === 0) {
 			if (typeof this.module._CXNodeSelectorClear === 'function') {
@@ -1456,6 +1414,7 @@ class EdgeSelector extends Selector {
 	 * @throws {Error} When memory allocation fails.
 	 */
 	fillFromArray(network, indices) {
+		network?._assertCanAllocate?.('edge selector materialization');
 		const array = Array.isArray(indices) ? Uint32Array.from(indices) : new Uint32Array(indices);
 		if (array.length === 0) {
 			if (typeof this.module._CXEdgeSelectorClear === 'function') {
@@ -1607,13 +1566,15 @@ class EdgeSelector extends Selector {
 	 * console.log(selector.endpoints()); // [[0, 1]]
 	 */
 	endpoints() {
-		const pairs = [];
-		const edgesView = this.network.edgesView;
-		for (const edge of this) {
-			const base = edge * 2;
-			pairs.push([edgesView[base], edgesView[base + 1]]);
-		}
-		return pairs;
+		return this.network.withBufferAccess(() => {
+			const pairs = [];
+			const edgesView = this.network.edgesView;
+			for (const edge of this) {
+				const base = edge * 2;
+				pairs.push([edgesView[base], edgesView[base + 1]]);
+			}
+			return pairs;
+		}, { edgesView: true });
 	}
 
 	/**
@@ -1636,14 +1597,16 @@ class EdgeSelector extends Selector {
 	 */
 	nodes(options = {}) {
 		const { asSelector = false } = options;
-		const nodeSet = new Set();
-		const edgesView = this.network.edgesView;
-		for (const edge of this) {
-			const base = edge * 2;
-			nodeSet.add(edgesView[base]);
-			nodeSet.add(edgesView[base + 1]);
-		}
-		const indices = setToUint32Array(nodeSet);
+		const indices = this.network.withBufferAccess(() => {
+			const nodeSet = new Set();
+			const edgesView = this.network.edgesView;
+			for (const edge of this) {
+				const base = edge * 2;
+				nodeSet.add(edgesView[base]);
+				nodeSet.add(edgesView[base + 1]);
+			}
+			return setToUint32Array(nodeSet);
+		}, { edgesView: true });
 		return asSelector ? NodeSelector.fromIndices(this.network, indices) : indices;
 	}
 
@@ -1659,22 +1622,24 @@ class EdgeSelector extends Selector {
 	 */
 	_projectEndpoint(offset, options) {
 		const { asSelector, unique } = options;
-		const edgesView = this.network.edgesView;
-		if (unique) {
-			const nodeSet = new Set();
-			for (const edge of this) {
-				nodeSet.add(edgesView[edge * 2 + offset]);
+		const indices = this.network.withBufferAccess(() => {
+			const edgesView = this.network.edgesView;
+			if (unique) {
+				const nodeSet = new Set();
+				for (const edge of this) {
+					nodeSet.add(edgesView[edge * 2 + offset]);
+				}
+				return setToUint32Array(nodeSet);
 			}
-			const indices = setToUint32Array(nodeSet);
-			return asSelector ? NodeSelector.fromIndices(this.network, indices) : indices;
-		}
 
-		const indices = new Uint32Array(this.count);
-		let position = 0;
-		for (const edge of this) {
-			indices[position] = edgesView[edge * 2 + offset];
-			position += 1;
-		}
+			const indices = new Uint32Array(this.count);
+			let position = 0;
+			for (const edge of this) {
+				indices[position] = edgesView[edge * 2 + offset];
+				position += 1;
+			}
+			return indices;
+		}, { edgesView: true });
 		return asSelector ? NodeSelector.fromIndices(this.network, indices) : indices;
 	}
 	}
@@ -1722,7 +1687,7 @@ class EdgeSelector extends Selector {
 
 		static _collectSelectedNodes(network, nodes) {
 			if (!nodes) {
-				return network.nodeIndices;
+				return network.withBufferAccess(() => network.nodeIndices.slice(), { nodeIndices: true });
 			}
 
 			const source = ArrayBuffer.isView(nodes) ? nodes : Array.from(nodes);
@@ -2048,11 +2013,13 @@ class EdgeSelector extends Selector {
 
 		_writeNodeMaxDimensionAttribute(name) {
 			this._ensureNodeFloatAttribute(name, 1);
-			const { view, bumpVersion } = this.network.getNodeAttributeBuffer(name);
-			for (let i = 0; i < this._selectedNodes.length; i += 1) {
-				view[this._selectedNodes[i]] = this._nodeMaxDimension[i];
-			}
-			bumpVersion();
+			this.network.withBufferAccess(() => {
+				const { view, bumpVersion } = this.network.getNodeAttributeBuffer(name);
+				for (let i = 0; i < this._selectedNodes.length; i += 1) {
+					view[this._selectedNodes[i]] = this._nodeMaxDimension[i];
+				}
+				bumpVersion();
+			});
 		}
 
 		_writeNodeDimensionLevelsVectorAttribute(name) {
@@ -2060,15 +2027,17 @@ class EdgeSelector extends Selector {
 				throw new Error('Session did not capture per-level dimensions. Set captureNodeDimensionProfiles: true when creating the session.');
 			}
 			this._ensureNodeFloatAttribute(name, this._levels);
-			const { view, bumpVersion } = this.network.getNodeAttributeBuffer(name);
-			for (let i = 0; i < this._selectedNodes.length; i += 1) {
-				const nodeBase = this._selectedNodes[i] * this._levels;
-				const localBase = i * this._levels;
-				for (let r = 0; r < this._levels; r += 1) {
-					view[nodeBase + r] = this._nodeDimensionLevels[localBase + r];
+			this.network.withBufferAccess(() => {
+				const { view, bumpVersion } = this.network.getNodeAttributeBuffer(name);
+				for (let i = 0; i < this._selectedNodes.length; i += 1) {
+					const nodeBase = this._selectedNodes[i] * this._levels;
+					const localBase = i * this._levels;
+					for (let r = 0; r < this._levels; r += 1) {
+						view[nodeBase + r] = this._nodeDimensionLevels[localBase + r];
+					}
 				}
-			}
-			bumpVersion();
+				bumpVersion();
+			});
 		}
 
 		_writeNodeDimensionLevelsStringAttribute(name, precision) {
@@ -2192,20 +2161,19 @@ class LeidenSession {
 				kind: 'leiden',
 				buildSnapshot: () => {
 					const sessionOptions = this.options ?? {};
-					const activeNodes = network.nodeIndices;
-					const nodeToCompact = new Map();
-					for (let i = 0; i < activeNodes.length; i += 1) {
-						nodeToCompact.set(activeNodes[i], i);
-					}
+					return network.withBufferAccess(() => {
+						const activeNodes = network.nodeIndices;
+						const nodeToCompact = new Map();
+						for (let i = 0; i < activeNodes.length; i += 1) {
+							nodeToCompact.set(activeNodes[i], i);
+						}
 
-					const edgeIds = network.edgeIndices;
-					const edgePairs = new Uint32Array(edgeIds.length * 2);
-					const edgeWeightAttribute = sessionOptions.edgeWeightAttribute ?? null;
-					const edgeWeights = edgeWeightAttribute ? new Float64Array(edgeIds.length) : null;
-
-					network.withBufferAccess(() => {
-						const edgesView = network.edgesView;
+						const edgeIds = network.edgeIndices;
+						const edgePairs = new Uint32Array(edgeIds.length * 2);
+						const edgeWeightAttribute = sessionOptions.edgeWeightAttribute ?? null;
+						const edgeWeights = edgeWeightAttribute ? new Float64Array(edgeIds.length) : null;
 						const weightView = edgeWeightAttribute ? network.getEdgeAttributeBuffer(edgeWeightAttribute).view : null;
+						const edgesView = network.edgesView;
 						for (let i = 0; i < edgeIds.length; i += 1) {
 							const edgeId = edgeIds[i];
 							const base = edgeId * 2;
@@ -2223,21 +2191,20 @@ class LeidenSession {
 								edgeWeights[i] = typeof raw === 'bigint' ? Number(raw) : Number(raw ?? 0);
 							}
 						}
-					});
-
-					return {
-						directed: Boolean(network.directed),
-						activeNodes,
-						edgePairs,
-						edgeWeights,
-						edgeWeightAttribute,
-						resolution: sessionOptions.resolution ?? 1,
-						seed: sessionOptions.seed ?? 0,
-						maxLevels: sessionOptions.maxLevels ?? 32,
-						maxPasses: sessionOptions.passes ?? sessionOptions.maxPasses ?? 8,
-						outNodeCommunityAttribute: sessionOptions.outNodeCommunityAttribute ?? 'community',
-						categoricalCommunities: sessionOptions.categoricalCommunities !== false,
-					};
+						return {
+							directed: Boolean(network.directed),
+							activeNodes: activeNodes.slice(),
+							edgePairs,
+							edgeWeights,
+							edgeWeightAttribute,
+							resolution: sessionOptions.resolution ?? 1,
+							seed: sessionOptions.seed ?? 0,
+							maxLevels: sessionOptions.maxLevels ?? 32,
+							maxPasses: sessionOptions.passes ?? sessionOptions.maxPasses ?? 8,
+							outNodeCommunityAttribute: sessionOptions.outNodeCommunityAttribute ?? 'community',
+							categoricalCommunities: sessionOptions.categoricalCommunities !== false,
+						};
+					}, { nodeIndices: true, edgeIndices: true, edgesView: true });
 				},
 				buildPayload: (snapshot) => {
 					const payload = {
@@ -2280,12 +2247,14 @@ class LeidenSession {
 					if (communities.length !== snapshot.activeNodes.length) {
 						throw new Error('Worker community payload does not match snapshot node count');
 					}
-					const { view, bumpVersion } = network.getNodeAttributeBuffer(outName);
-					view.fill(0);
-					for (let i = 0; i < snapshot.activeNodes.length; i += 1) {
-						view[snapshot.activeNodes[i]] = communities[i];
-					}
-					bumpVersion();
+					network.withBufferAccess(() => {
+						const { view, bumpVersion } = network.getNodeAttributeBuffer(outName);
+						view.fill(0);
+						for (let i = 0; i < snapshot.activeNodes.length; i += 1) {
+							view[snapshot.activeNodes[i]] = communities[i];
+						}
+						bumpVersion();
+					});
 					this._finalized = true;
 				},
 			};
@@ -2572,11 +2541,16 @@ class ConnectedComponentsSession {
 		const outNodeComponentAttribute = options.outNodeComponentAttribute
 			?? this.options?.outNodeComponentAttribute
 			?? null;
-		const outPtr = module._malloc(network.nodeCapacity * Uint32Array.BYTES_PER_ELEMENT);
+		const output = network._resolveNodeMetricOutputAttribute(
+			outNodeComponentAttribute,
+			AttributeType.UnsignedInteger,
+			'UnsignedInteger'
+		);
+		const outPtr = output?.pointer ?? module._malloc(network.nodeCapacity * Uint32Array.BYTES_PER_ELEMENT);
 		const componentCountPtr = module._malloc(Uint32Array.BYTES_PER_ELEMENT);
 		const largestComponentSizePtr = module._malloc(Uint32Array.BYTES_PER_ELEMENT);
 		if (!outPtr || !componentCountPtr || !largestComponentSizePtr) {
-			if (outPtr) module._free(outPtr);
+			if (!output && outPtr) module._free(outPtr);
 			if (componentCountPtr) module._free(componentCountPtr);
 			if (largestComponentSizePtr) module._free(largestComponentSizePtr);
 			throw new Error('Failed to allocate connected components finalize buffers');
@@ -2598,9 +2572,11 @@ class ConnectedComponentsSession {
 			);
 			componentCount = module.HEAPU32[componentCountPtr / Uint32Array.BYTES_PER_ELEMENT] ?? 0;
 			largestComponentSize = module.HEAPU32[largestComponentSizePtr / Uint32Array.BYTES_PER_ELEMENT] ?? 0;
-			valuesByNode = new Uint32Array(module.HEAPU32.buffer, outPtr, network.nodeCapacity).slice();
+			valuesByNode = network._copyUint32NodeValuesFromPointer(outPtr);
 		} finally {
-			module._free(outPtr);
+			if (!output) {
+				module._free(outPtr);
+			}
 			module._free(componentCountPtr);
 			module._free(largestComponentSizePtr);
 		}
@@ -2608,18 +2584,8 @@ class ConnectedComponentsSession {
 			throw new Error('Connected-components session is not ready to finalize (run step() until done)');
 		}
 
-		if (outNodeComponentAttribute) {
-			if (!network._nodeAttributes.has(outNodeComponentAttribute)) {
-				network.defineNodeAttribute(outNodeComponentAttribute, AttributeType.UnsignedInteger, 1);
-			} else {
-				const meta = network._nodeAttributes.get(outNodeComponentAttribute);
-				if (meta && meta.type !== AttributeType.UnsignedInteger) {
-					throw new Error(`Node attribute "${outNodeComponentAttribute}" must be UnsignedInteger`);
-				}
-			}
-			const { view, bumpVersion } = network.getNodeAttributeBuffer(outNodeComponentAttribute);
-			view.set(valuesByNode);
-			bumpVersion();
+		if (output) {
+			network._bumpAttributeVersion('node', output.name, { op: 'set' });
 		}
 
 		this._finalized = true;
@@ -2725,10 +2691,15 @@ class CorenessSession {
 		const outNodeCorenessAttribute = options.outNodeCorenessAttribute
 			?? this.options?.outNodeCorenessAttribute
 			?? null;
-		const outPtr = module._malloc(network.nodeCapacity * Uint32Array.BYTES_PER_ELEMENT);
+		const output = network._resolveNodeMetricOutputAttribute(
+			outNodeCorenessAttribute,
+			AttributeType.UnsignedInteger,
+			'UnsignedInteger'
+		);
+		const outPtr = output?.pointer ?? module._malloc(network.nodeCapacity * Uint32Array.BYTES_PER_ELEMENT);
 		const maxCorePtr = module._malloc(Uint32Array.BYTES_PER_ELEMENT);
 		if (!outPtr || !maxCorePtr) {
-			if (outPtr) module._free(outPtr);
+			if (!output && outPtr) module._free(outPtr);
 			if (maxCorePtr) module._free(maxCorePtr);
 			throw new Error('Failed to allocate coreness finalize buffers');
 		}
@@ -2745,27 +2716,19 @@ class CorenessSession {
 				maxCorePtr
 			);
 			maxCore = module.HEAPU32[maxCorePtr / Uint32Array.BYTES_PER_ELEMENT] ?? 0;
-			valuesByNode = new Uint32Array(module.HEAPU32.buffer, outPtr, network.nodeCapacity).slice();
+			valuesByNode = network._copyUint32NodeValuesFromPointer(outPtr);
 		} finally {
-			module._free(outPtr);
+			if (!output) {
+				module._free(outPtr);
+			}
 			module._free(maxCorePtr);
 		}
 		if (!ok) {
 			throw new Error('Coreness session is not ready to finalize (run step() until done)');
 		}
 
-		if (outNodeCorenessAttribute) {
-			if (!network._nodeAttributes.has(outNodeCorenessAttribute)) {
-				network.defineNodeAttribute(outNodeCorenessAttribute, AttributeType.UnsignedInteger, 1);
-			} else {
-				const meta = network._nodeAttributes.get(outNodeCorenessAttribute);
-				if (meta && meta.type !== AttributeType.UnsignedInteger) {
-					throw new Error(`Node attribute "${outNodeCorenessAttribute}" must be UnsignedInteger`);
-				}
-			}
-			const { view, bumpVersion } = network.getNodeAttributeBuffer(outNodeCorenessAttribute);
-			view.set(valuesByNode);
-			bumpVersion();
+		if (output) {
+			network._bumpAttributeVersion('node', output.name, { op: 'set' });
 		}
 
 		this._finalized = true;
@@ -2925,28 +2888,13 @@ export class HeliosNetwork extends BaseEventTarget {
 		this._nodeAttributes = new Map();
 		this._edgeAttributes = new Map();
 		this._networkAttributes = new Map();
-		this._registeredDenseNodeAttributes = new Set();
-		this._registeredDenseEdgeAttributes = new Set();
-		this._denseNodeOrderActive = false;
-		this._denseEdgeOrderActive = false;
-		this._denseNodeAttributeDescriptors = new Map();
-		this._denseEdgeAttributeDescriptors = new Map();
-		this._denseNodeIndexDescriptor = null;
-		this._denseEdgeIndexDescriptor = null;
-		this._denseNodeIndexVirtualCache = null;
-		this._denseEdgeIndexVirtualCache = null;
-		this._denseColorNodeAttributes = new Map();
-		this._denseColorEdgeAttributes = new Map();
-		this._denseColorNodeDescriptors = new Map();
-		this._denseColorEdgeDescriptors = new Map();
 		this._bufferSessionDepth = 0;
 		this._nodeToEdgePassthrough = new Map();
 		this._nodeAttributeDependents = new Map();
 		this._nodeTopologyVersion = 0;
 		this._edgeTopologyVersion = 0;
-		this._nodeIndexCache = null;
-		this._edgeIndexCache = null;
-		this._dirtyWarningKeys = new Set();
+		this._activeNodeIndexBuffer = { ptr: 0, capacity: 0, count: 0, version: 0, dirty: true };
+		this._activeEdgeIndexBuffer = { ptr: 0, capacity: 0, count: 0, version: 0, dirty: true };
 		this._localVersions = new Map();
 
 		this._nodeValidRangeCache = null;
@@ -3126,6 +3074,8 @@ export class HeliosNetwork extends BaseEventTarget {
 				this._allEdgesSelector.dispose();
 				this._allEdgesSelector = null;
 			}
+			this._disposeActiveIndexBuffer('node');
+			this._disposeActiveIndexBuffer('edge');
 			this.module._CXFreeNetwork(this.ptr);
 			this.ptr = 0;
 			this._disposed = true;
@@ -3174,9 +3124,12 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * @param {function(): T} fn - Callback to execute.
 	 * @returns {T} Callback result.
 	 */
-	withBufferAccess(fn) {
+	withBufferAccess(fn, options = null) {
 		this.startBufferAccess();
 		try {
+			if (options) {
+				this._prepareBufferAccess(options);
+			}
 			return fn();
 		} finally {
 			this.endBufferAccess();
@@ -3191,6 +3144,25 @@ export class HeliosNetwork extends BaseEventTarget {
 	_assertCanAllocate(operation) {
 		if (this._bufferSessionDepth > 0) {
 			throw new Error(`Cannot perform ${operation} during buffer access (run it before calling startBufferAccess)`);
+		}
+	}
+
+	_assertInsideBufferAccess(operation) {
+		if (this._bufferSessionDepth <= 0) {
+			throw new Error(`Cannot access ${operation} outside buffer access (wrap it in withBufferAccess(...))`);
+		}
+	}
+
+	_prepareBufferAccess(options = {}) {
+		if (options.nodeIndices) {
+			this._ensureActiveIndexBuffer('node');
+		}
+		if (options.edgeIndices) {
+			this._ensureActiveIndexBuffer('edge');
+		}
+		if (options.edgesView) {
+			this._ensureActive();
+			this.module._CXNetworkEdgesBuffer(this.ptr);
 		}
 	}
 
@@ -3261,19 +3233,13 @@ export class HeliosNetwork extends BaseEventTarget {
 			}
 		}
 		if (scope === 'node') {
-			this._nodeIndexCache = null;
-			this._denseNodeIndexVirtualCache = null;
-			this._markAllColorEncodedDirty('node');
+			this._activeNodeIndexBuffer.dirty = true;
 			if (cascadeEdges) {
-				this._edgeIndexCache = null;
-				this._denseEdgeIndexVirtualCache = null;
-				this._markAllColorEncodedDirty('edge');
+				this._activeEdgeIndexBuffer.dirty = true;
 				this._refreshTopologyVersions('edge');
 			}
 		} else if (scope === 'edge') {
-			this._edgeIndexCache = null;
-			this._denseEdgeIndexVirtualCache = null;
-			this._markAllColorEncodedDirty('edge');
+			this._activeEdgeIndexBuffer.dirty = true;
 		}
 	}
 
@@ -3377,14 +3343,13 @@ export class HeliosNetwork extends BaseEventTarget {
 	}
 
 	/**
-	 * Returns a copy of active node indices (native order, independent of dense order).
-	 * Not allowed during buffer access because it may allocate.
+	 * Returns a stable WASM-backed view of active node indices in native order.
 	 *
 	 * @returns {Uint32Array}
 	 */
 	get nodeIndices() {
-		this._assertCanAllocate('nodeIndices');
-		return this._materializeActiveIndexCopy('node');
+		this._assertInsideBufferAccess('active node indices');
+		return this._getActiveIndexView('node');
 	}
 
 	/**
@@ -3415,20 +3380,20 @@ export class HeliosNetwork extends BaseEventTarget {
 	}
 
 	/**
-	 * Returns a copy of active edge indices (native order, independent of dense order).
-	 * Not allowed during buffer access because it may allocate.
+	 * Returns a stable WASM-backed view of active edge indices in native order.
 	 *
 	 * @returns {Uint32Array}
 	 */
 	get edgeIndices() {
-		this._assertCanAllocate('edgeIndices');
-		return this._materializeActiveIndexCopy('edge');
+		this._assertInsideBufferAccess('active edge indices');
+		return this._getActiveIndexView('edge');
 	}
 
 	/**
 	 * @returns {Uint32Array} Flattened `[from, to]` edge pairs.
 	 */
 	get edgesView() {
+		this._assertInsideBufferAccess('edge endpoints');
 		this._ensureActive();
 		const ptr = this.module._CXNetworkEdgesBuffer(this.ptr);
 		return new Uint32Array(this.module.HEAPU32.buffer, ptr, this.edgeCapacity * 2);
@@ -3438,36 +3403,12 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * Returns a dictionary describing memory usage (in bytes) of the network's buffers.
 	 * Sizes are derived from buffer capacities (not current active counts).
 	 *
-	 * Notes:
-	 * - Sparse attribute buffers are computed as `capacity * strideBytes` using the native stride.
-	 * - Dense buffers use the last known descriptor capacity. Pass `refreshDense:true` to repack
-	 *   all registered dense buffers before reading sizes (may allocate and must not run during buffer access).
-	 * - When dense buffers are aliased into sparse storage, `bytes` is reported as 0 (because no extra memory
-	 *   is owned by the dense buffer). `viewBytes` still reports the logical span of the dense view.
-	 *
 	 * @param {BufferMemoryUsageOptions} [options]
 	 * @returns {object}
 	 */
 	getBufferMemoryUsage(options = {}) {
 		this._ensureActive();
-		const { refreshDense = false, includeJs = true } = options;
-		if (refreshDense) {
-			this._assertCanAllocate('getBufferMemoryUsage(refreshDense)');
-			this.updateDenseNodeIndexBuffer();
-			this.updateDenseEdgeIndexBuffer();
-			for (const name of this._registeredDenseNodeAttributes) {
-				this.updateDenseNodeAttributeBuffer(name);
-			}
-			for (const name of this._registeredDenseEdgeAttributes) {
-				this.updateDenseEdgeAttributeBuffer(name);
-			}
-			for (const encodedName of this._denseColorNodeAttributes.keys()) {
-				this.updateDenseColorEncodedNodeAttribute(encodedName);
-			}
-			for (const encodedName of this._denseColorEdgeAttributes.keys()) {
-				this.updateDenseColorEncodedEdgeAttribute(encodedName);
-			}
-		}
+		void options;
 
 		const buffers = Object.create(null);
 		const byAttribute = {
@@ -3481,8 +3422,6 @@ export class HeliosNetwork extends BaseEventTarget {
 				activityBytes: 0,
 				freeListBytes: 0,
 				sparseAttributeBytes: 0,
-				denseAttributeBytes: 0,
-				colorEncodedDenseBytes: 0,
 				totalBytes: 0,
 			},
 			edges: {
@@ -3490,17 +3429,10 @@ export class HeliosNetwork extends BaseEventTarget {
 				freeListBytes: 0,
 				fromToBytes: 0,
 				sparseAttributeBytes: 0,
-				denseAttributeBytes: 0,
-				colorEncodedDenseBytes: 0,
 				totalBytes: 0,
 			},
 			network: {
 				sparseAttributeBytes: 0,
-				totalBytes: 0,
-			},
-			denseIndex: {
-				wasmBytes: 0,
-				jsBytes: 0,
 				totalBytes: 0,
 			},
 			wasmHeapBytes: this.module?.HEAPU8?.buffer?.byteLength ?? 0,
@@ -3523,44 +3455,6 @@ export class HeliosNetwork extends BaseEventTarget {
 			const { stride } = this._attributePointers(scope, name, meta);
 			const capacity = this._capacityForScope(scope);
 			return capacity * stride;
-		};
-
-		const isDenseDescriptorAliased = (scope, name, desc) => {
-			if (!desc?.pointer || (scope !== 'node' && scope !== 'edge')) {
-				return false;
-			}
-			let meta;
-			try {
-				meta = this._ensureAttributeMetadata(scope, name);
-			} catch (_) {
-				return false;
-			}
-			if (!meta) {
-				return false;
-			}
-			let pointers;
-			try {
-				pointers = this._attributePointers(scope, name, meta);
-			} catch (_) {
-				return false;
-			}
-			const expected = (pointers.pointer + (Math.max(0, desc.validStart || 0) * pointers.stride)) >>> 0;
-			const countMatchesRange = desc.validEnd != null && desc.validStart != null
-				? desc.count === Math.max(0, desc.validEnd - desc.validStart)
-				: true;
-			return (
-				(desc.pointer >>> 0) === expected
-				&& desc.stride === pointers.stride
-				&& countMatchesRange
-				&& desc.capacity === desc.count * desc.stride
-			);
-		};
-
-		const collectDenseAttribute = (scope, name, desc, kind) => {
-			const viewBytes = desc?.capacity ?? 0;
-			const aliased = kind === 'attribute' ? isDenseDescriptorAliased(scope, name, desc) : false;
-			const bytes = aliased ? 0 : (desc?.pointer ? viewBytes : 0);
-			return bytes;
 		};
 
 		const nodeActivityBytes = bitsetBytesForCapacity(this.nodeCapacity);
@@ -3604,8 +3498,6 @@ export class HeliosNetwork extends BaseEventTarget {
 				addBuffer(`sparse.${scope}.attribute.${name}`, sparseBytes);
 				byAttribute[scope][name] = {
 					sparseBytes,
-					denseBytes: 0,
-					colorEncodedDenseBytes: 0,
 					totalBytes: sparseBytes,
 				};
 				if (scope === 'node') {
@@ -3617,147 +3509,24 @@ export class HeliosNetwork extends BaseEventTarget {
 				}
 			}
 		}
-
-		const denseNodeNames = new Set([
-			...this._registeredDenseNodeAttributes,
-			...this._denseNodeAttributeDescriptors.keys(),
-		]);
-		for (const name of denseNodeNames) {
-			const desc = this._denseNodeAttributeDescriptors.get(name) ?? this._readDenseBufferDescriptor(0);
-			const bytes = collectDenseAttribute('node', name, desc, 'attribute');
-			addBuffer(`dense.node.attribute.${name}`, bytes);
-			totals.nodes.denseAttributeBytes += bytes;
-			if (byAttribute.node[name]) {
-				byAttribute.node[name].denseBytes = bytes;
-				byAttribute.node[name].totalBytes += bytes;
-			} else {
-				byAttribute.node[name] = {
-					sparseBytes: 0,
-					denseBytes: bytes,
-					colorEncodedDenseBytes: 0,
-					totalBytes: bytes,
-				};
-			}
-		}
-
-		const denseEdgeNames = new Set([
-			...this._registeredDenseEdgeAttributes,
-			...this._denseEdgeAttributeDescriptors.keys(),
-		]);
-		for (const name of denseEdgeNames) {
-			const desc = this._denseEdgeAttributeDescriptors.get(name) ?? this._readDenseBufferDescriptor(0);
-			const bytes = collectDenseAttribute('edge', name, desc, 'attribute');
-			addBuffer(`dense.edge.attribute.${name}`, bytes);
-			totals.edges.denseAttributeBytes += bytes;
-			if (byAttribute.edge[name]) {
-				byAttribute.edge[name].denseBytes = bytes;
-				byAttribute.edge[name].totalBytes += bytes;
-			} else {
-				byAttribute.edge[name] = {
-					sparseBytes: 0,
-					denseBytes: bytes,
-					colorEncodedDenseBytes: 0,
-					totalBytes: bytes,
-				};
-			}
-		}
-
-		const denseNodeIndexDesc = this._denseNodeIndexDescriptor ?? this._readDenseBufferDescriptor(0);
-		const denseEdgeIndexDesc = this._denseEdgeIndexDescriptor ?? this._readDenseBufferDescriptor(0);
-		const nodeIndexWasmBytes = denseNodeIndexDesc.pointer ? denseNodeIndexDesc.capacity : 0;
-		const edgeIndexWasmBytes = denseEdgeIndexDesc.pointer ? denseEdgeIndexDesc.capacity : 0;
-		const nodeIndexJsBytes = includeJs && denseNodeIndexDesc?.jsView instanceof Uint32Array ? denseNodeIndexDesc.jsView.byteLength : 0;
-		const edgeIndexJsBytes = includeJs && denseEdgeIndexDesc?.jsView instanceof Uint32Array ? denseEdgeIndexDesc.jsView.byteLength : 0;
-		totals.denseIndex.wasmBytes += nodeIndexWasmBytes + edgeIndexWasmBytes;
-		totals.denseIndex.jsBytes += nodeIndexJsBytes + edgeIndexJsBytes;
-		addBuffer('dense.node.index.wasm', nodeIndexWasmBytes);
-		addBuffer('dense.node.index.js', nodeIndexJsBytes);
-		addBuffer('dense.edge.index.wasm', edgeIndexWasmBytes);
-		addBuffer('dense.edge.index.js', edgeIndexJsBytes);
-
-		const denseColorNodeNames = new Set([
-			...this._denseColorNodeAttributes.keys(),
-			...this._denseColorNodeDescriptors.keys(),
-		]);
-		for (const encodedName of denseColorNodeNames) {
-			const desc = this._denseColorNodeDescriptors.get(encodedName) ?? this._readDenseBufferDescriptor(0);
-			const bytes = collectDenseAttribute('node', encodedName, desc, 'colorEncoded');
-			addBuffer(`denseColor.node.${encodedName}`, bytes);
-			totals.nodes.colorEncodedDenseBytes += bytes;
-		}
-
-		const denseColorEdgeNames = new Set([
-			...this._denseColorEdgeAttributes.keys(),
-			...this._denseColorEdgeDescriptors.keys(),
-		]);
-		for (const encodedName of denseColorEdgeNames) {
-			const desc = this._denseColorEdgeDescriptors.get(encodedName) ?? this._readDenseBufferDescriptor(0);
-			const bytes = collectDenseAttribute('edge', encodedName, desc, 'colorEncoded');
-			addBuffer(`denseColor.edge.${encodedName}`, bytes);
-			totals.edges.colorEncodedDenseBytes += bytes;
-		}
-
-		for (const [encodedName, meta] of this._denseColorNodeAttributes.entries()) {
-			const sourceName = meta?.sourceName;
-			if (typeof sourceName !== 'string' || sourceName === '$index') {
-				continue;
-			}
-			if (!byAttribute.node[sourceName]) {
-				continue;
-			}
-			const desc = this._denseColorNodeDescriptors.get(encodedName);
-			if (!desc) {
-				continue;
-			}
-			const bytes = collectDenseAttribute('node', encodedName, desc, 'colorEncoded');
-			byAttribute.node[sourceName].colorEncodedDenseBytes += bytes;
-			byAttribute.node[sourceName].totalBytes += bytes;
-		}
-
-		for (const [encodedName, meta] of this._denseColorEdgeAttributes.entries()) {
-			const sourceName = meta?.sourceName;
-			if (typeof sourceName !== 'string' || sourceName === '$index') {
-				continue;
-			}
-			if (!byAttribute.edge[sourceName]) {
-				continue;
-			}
-			const desc = this._denseColorEdgeDescriptors.get(encodedName);
-			if (!desc) {
-				continue;
-			}
-			const bytes = collectDenseAttribute('edge', encodedName, desc, 'colorEncoded');
-			byAttribute.edge[sourceName].colorEncodedDenseBytes += bytes;
-			byAttribute.edge[sourceName].totalBytes += bytes;
-		}
-
-		totals.denseIndex.totalBytes = totals.denseIndex.wasmBytes + totals.denseIndex.jsBytes;
 		totals.nodes.totalBytes = totals.nodes.activityBytes
 			+ totals.nodes.freeListBytes
-			+ totals.nodes.sparseAttributeBytes
-			+ totals.nodes.denseAttributeBytes
-			+ totals.nodes.colorEncodedDenseBytes;
+			+ totals.nodes.sparseAttributeBytes;
 		totals.edges.totalBytes = totals.edges.activityBytes
 			+ totals.edges.freeListBytes
 			+ totals.edges.fromToBytes
-			+ totals.edges.sparseAttributeBytes
-			+ totals.edges.denseAttributeBytes
-			+ totals.edges.colorEncodedDenseBytes;
+			+ totals.edges.sparseAttributeBytes;
 		totals.network.totalBytes = totals.network.sparseAttributeBytes;
 
 		const attributes = {
 			node: {
 				sparseBytes: totals.nodes.sparseAttributeBytes,
-				denseBytes: totals.nodes.denseAttributeBytes,
-				colorEncodedDenseBytes: totals.nodes.colorEncodedDenseBytes,
-				totalBytes: totals.nodes.sparseAttributeBytes + totals.nodes.denseAttributeBytes + totals.nodes.colorEncodedDenseBytes,
+				totalBytes: totals.nodes.sparseAttributeBytes,
 			},
 			edge: {
 				fromToBytes: totals.edges.fromToBytes,
 				sparseBytes: totals.edges.sparseAttributeBytes,
-				denseBytes: totals.edges.denseAttributeBytes,
-				colorEncodedDenseBytes: totals.edges.colorEncodedDenseBytes,
-				totalBytes: totals.edges.fromToBytes + totals.edges.sparseAttributeBytes + totals.edges.denseAttributeBytes + totals.edges.colorEncodedDenseBytes,
+				totalBytes: totals.edges.fromToBytes + totals.edges.sparseAttributeBytes,
 			},
 			network: {
 				sparseBytes: totals.network.sparseAttributeBytes,
@@ -3788,25 +3557,7 @@ export class HeliosNetwork extends BaseEventTarget {
 	getBufferVersions(options = {}) {
 		this._ensureActive();
 		this._assertCanAllocate('getBufferVersions');
-		const { refreshDense = false } = options;
-
-		if (refreshDense) {
-			this._assertCanAllocate('getBufferVersions(refreshDense)');
-			this.updateDenseNodeIndexBuffer();
-			this.updateDenseEdgeIndexBuffer();
-			for (const name of this._registeredDenseNodeAttributes) {
-				this.updateDenseNodeAttributeBuffer(name);
-			}
-			for (const name of this._registeredDenseEdgeAttributes) {
-				this.updateDenseEdgeAttributeBuffer(name);
-			}
-			for (const encodedName of this._denseColorNodeAttributes.keys()) {
-				this.updateDenseColorEncodedNodeAttribute(encodedName);
-			}
-			for (const encodedName of this._denseColorEdgeAttributes.keys()) {
-				this.updateDenseColorEncodedEdgeAttribute(encodedName);
-			}
-		}
+		void options;
 
 		const topology = this.getTopologyVersions();
 
@@ -3825,87 +3576,22 @@ export class HeliosNetwork extends BaseEventTarget {
 			attributes.network[name] = this.getNetworkAttributeVersion(name);
 		}
 
-		const dense = {
-			node: {
-				index: (this._denseNodeIndexDescriptor?.version ?? 0) >>> 0,
-				attributes: Object.create(null),
-			},
-			edge: {
-				index: (this._denseEdgeIndexDescriptor?.version ?? 0) >>> 0,
-				attributes: Object.create(null),
-			},
-		};
-		for (const name of new Set([...this._registeredDenseNodeAttributes, ...this._denseNodeAttributeDescriptors.keys()])) {
-			dense.node.attributes[name] = (this._denseNodeAttributeDescriptors.get(name)?.version ?? 0) >>> 0;
-		}
-		for (const name of new Set([...this._registeredDenseEdgeAttributes, ...this._denseEdgeAttributeDescriptors.keys()])) {
-			dense.edge.attributes[name] = (this._denseEdgeAttributeDescriptors.get(name)?.version ?? 0) >>> 0;
-		}
-
-		const colorEncodedDense = {
-			node: Object.create(null),
-			edge: Object.create(null),
-		};
-		for (const name of new Set([...this._denseColorNodeAttributes.keys(), ...this._denseColorNodeDescriptors.keys()])) {
-			colorEncodedDense.node[name] = (this._denseColorNodeDescriptors.get(name)?.version ?? 0) >>> 0;
-		}
-		for (const name of new Set([...this._denseColorEdgeAttributes.keys(), ...this._denseColorEdgeDescriptors.keys()])) {
-			colorEncodedDense.edge[name] = (this._denseColorEdgeDescriptors.get(name)?.version ?? 0) >>> 0;
-		}
-
 		return {
 			topology,
 			attributes,
-			dense,
-			colorEncodedDense,
 		};
-	}
-
-	/**
-	 * Registers a dense node attribute buffer that can be refreshed on demand.
-	 *
-	 * @param {string} name - Attribute identifier.
-	 * @param {number} [initialCapacityBytes=0] - Optional initial dense buffer capacity in bytes.
-	 */
-	addDenseNodeAttributeBuffer(name, initialCapacityBytes = 0) {
-		this._assertCanAllocate('addDenseNodeAttributeBuffer');
-		this._ensureActive();
-		const cstr = new CString(this.module, name);
-		try {
-			this.module._CXNetworkAddDenseNodeAttribute(this.ptr, cstr.ptr, initialCapacityBytes);
-		} finally {
-			cstr.dispose();
-		}
-		this._registeredDenseNodeAttributes.add(name);
-	}
-
-	/**
-	/**
-	 * Registers a dense edge attribute buffer.
-	 */
-	addDenseEdgeAttributeBuffer(name, initialCapacityBytes = 0) {
-		this._assertCanAllocate('addDenseEdgeAttributeBuffer');
-		this._ensureActive();
-		const cstr = new CString(this.module, name);
-		try {
-			this.module._CXNetworkAddDenseEdgeAttribute(this.ptr, cstr.ptr, initialCapacityBytes);
-		} finally {
-			cstr.dispose();
-		}
-		this._registeredDenseEdgeAttributes.add(name);
 	}
 
 	/**
 	 * Registers an edge attribute that is derived from a node attribute.
-	 * The edge sparse buffer remains empty until packed; dense packing is done via
-	 * {@link updateDenseEdgeAttributeBuffer}, which will pull from the source node attribute.
+	 * The derived values are copied directly into the sparse edge buffer.
 	 *
 	 * @param {string} sourceName - Node attribute identifier.
 	 * @param {string} edgeName - Edge attribute identifier that will expose the derived values.
 	 * @param {EndpointSelection} [endpoints='both'] - Which endpoint to propagate (0/1/-1).
 	 * @param {boolean} [doubleWidth=true] - When copying a single endpoint, duplicate it to fill a double-width layout.
 	 */
-	defineNodeToEdgeAttribute(sourceName, edgeName, endpoints = 'both', doubleWidth = true) {
+		defineNodeToEdgeAttribute(sourceName, edgeName, endpoints = 'both', doubleWidth = true) {
 		if (!this.hasNodeAttribute(sourceName)) {
 			throw new Error(`Unknown node attribute "${sourceName}"`);
 		}
@@ -3922,21 +3608,18 @@ export class HeliosNetwork extends BaseEventTarget {
 		const targetComponents = endpointMode === -1
 			? sourceComponents * 2
 			: (doubleWidth ? sourceComponents * 2 : sourceComponents);
-		if (this._edgeAttributes.has(edgeName)) {
-			throw new Error(`Edge attribute "${edgeName}" already exists; remove it before registering a node-to-edge passthrough`);
+			if (this._edgeAttributes.has(edgeName)) {
+				throw new Error(`Edge attribute "${edgeName}" already exists; remove it before registering a node-to-edge passthrough`);
+			}
+			this.defineEdgeAttribute(edgeName, sourceMeta.type, targetComponents);
+			this._nodeToEdgePassthrough.set(edgeName, {
+				sourceName,
+				endpointMode,
+				doubleWidth,
+			});
+			this._registerNodeToEdgeDependency(sourceName, edgeName);
+			this._copyNodeToEdgeAttribute(sourceName, edgeName, endpointMode, doubleWidth);
 		}
-		this.defineEdgeAttribute(edgeName, sourceMeta.type, targetComponents);
-		this.addDenseEdgeAttributeBuffer(edgeName);
-		this._nodeToEdgePassthrough.set(edgeName, {
-			sourceName,
-			endpointMode,
-			doubleWidth,
-			dirty: false,
-			sourceVersion: null,
-			edgeTopologyVersion: null,
-		});
-		this._registerNodeToEdgeDependency(sourceName, edgeName);
-	}
 
 	/**
 	 * Returns a snapshot of node-to-edge passthrough registrations.
@@ -3970,48 +3653,17 @@ export class HeliosNetwork extends BaseEventTarget {
 		}
 		this._nodeToEdgePassthrough.delete(edgeName);
 		this._unregisterNodeToEdgeDependency(entry.sourceName, edgeName);
-		this._markDenseAttributeDirtySilently('edge', edgeName);
 	}
 
 	/**
-	 * Removes a dense node attribute buffer.
-	 */
-	removeDenseNodeAttributeBuffer(name) {
-		this._ensureActive();
-		const cstr = new CString(this.module, name);
-		try {
-			this.module._CXNetworkRemoveDenseNodeAttribute(this.ptr, cstr.ptr);
-		} finally {
-			cstr.dispose();
-		}
-		this._registeredDenseNodeAttributes.delete(name);
-		this._denseNodeAttributeDescriptors.delete(name);
-	}
-
-	/**
-	 * Removes a dense edge attribute buffer.
-	 */
-	removeDenseEdgeAttributeBuffer(name) {
-		this._ensureActive();
-		const cstr = new CString(this.module, name);
-		try {
-			this.module._CXNetworkRemoveDenseEdgeAttribute(this.ptr, cstr.ptr);
-		} finally {
-			cstr.dispose();
-		}
-		this._registeredDenseEdgeAttributes.delete(name);
-		this._denseEdgeAttributeDescriptors.delete(name);
-	}
-
-	/**
-	 * Removes a node attribute and its storage (sparse + dense buffers).
+	 * Removes a node attribute and its storage.
 	 */
 	removeNodeAttribute(name) {
 		this._removeAttribute('node', name);
 	}
 
 	/**
-	 * Removes an edge attribute and its storage (sparse + dense buffers).
+	 * Removes an edge attribute and its storage.
 	 */
 	removeEdgeAttribute(name) {
 		this._removeAttribute('edge', name);
@@ -4022,503 +3674,6 @@ export class HeliosNetwork extends BaseEventTarget {
 	 */
 	removeNetworkAttribute(name) {
 		this._removeAttribute('network', name);
-	}
-
-	/**
-	 * Marks a dense node attribute buffer dirty, forcing a repack on next update.
-	 */
-	markDenseNodeAttributeDirty(name) {
-		this._warnDirtyDeprecated('markDenseNodeAttributeDirty');
-		this._ensureActive();
-		this._markDenseAttributeDirtySilently('node', name);
-		this._markPassthroughEdgesDirtyForNode(name);
-		this._markColorEncodedDirtyForSource('node', name);
-	}
-
-	/**
-	 * Marks a dense edge attribute buffer dirty.
-	 */
-	markDenseEdgeAttributeDirty(name) {
-		this._warnDirtyDeprecated('markDenseEdgeAttributeDirty');
-		this._ensureActive();
-		this._markDenseAttributeDirtySilently('edge', name);
-		this._markColorEncodedDirtyForSource('edge', name);
-	}
-
-	/**
-	 * Refreshes a dense node attribute buffer and returns its view metadata.
-	 *
-	 * @param {string} name - Attribute identifier.
-	 * @returns {{view:Uint8Array,count:number,capacity:number,stride:number,validStart:number,validEnd:number,pointer:number}}
-	 */
-	updateDenseNodeAttributeBuffer(name) {
-		if (!this.hasNodeAttribute(name)) {
-			throw new Error(`Unknown node attribute "${name}"`);
-		}
-		this._assertCanAllocate('updateDenseNodeAttributeBuffer');
-		this._ensureActive();
-		if (this._registeredDenseNodeAttributes.has(name) && this._canAliasDenseAttributeBuffer('node')) {
-			this._refreshAliasedDenseAttributeDescriptor('node', name);
-			return;
-		}
-		const cstr = new CString(this.module, name);
-		let ptr = 0;
-		try {
-			// console.log('TRYING: updateDenseNodeAttributeBuffer', name, ptr);
-			ptr = this.module._CXNetworkUpdateDenseNodeAttribute(this.ptr, cstr.ptr);
-			// console.log('SUCCESS: updateDenseNodeAttributeBuffer', name, ptr);
-		} finally {
-			cstr.dispose();
-		}
-		const desc = this._readDenseBufferDescriptor(ptr);
-		const version = (desc.sourceVersion ?? desc.version) ?? this._nextLocalVersion(`dense:node:${name}`);
-		this._denseNodeAttributeDescriptors.set(name, { ...desc, version });
-	}
-
-	/**
-	 * Refreshes a dense edge attribute buffer.
-	 */
-	updateDenseEdgeAttributeBuffer(name) {
-		if (!this.hasEdgeAttribute(name)) {
-			throw new Error(`Unknown edge attribute "${name}"`);
-		}
-		this._assertCanAllocate('updateDenseEdgeAttributeBuffer');
-		this._ensureActive();
-		const passthrough = this._nodeToEdgePassthrough.get(name);
-		if (passthrough) {
-			const sourceVersion = this.getNodeAttributeVersion(passthrough.sourceName);
-			const edgeTopologyVersion = this._getTopologyVersion('edge');
-			const needsCopy = passthrough.dirty
-				|| passthrough.sourceVersion !== sourceVersion
-				|| passthrough.edgeTopologyVersion !== edgeTopologyVersion;
-			if (needsCopy) {
-				this._copyNodeToEdgeAttribute(passthrough.sourceName, name, passthrough.endpointMode, passthrough.doubleWidth);
-				this._markDenseAttributeDirtySilently('edge', name);
-				passthrough.dirty = false;
-				passthrough.sourceVersion = sourceVersion;
-				passthrough.edgeTopologyVersion = edgeTopologyVersion;
-			}
-		}
-		if (this._registeredDenseEdgeAttributes.has(name) && this._canAliasDenseAttributeBuffer('edge')) {
-			this._refreshAliasedDenseAttributeDescriptor('edge', name);
-			return;
-		}
-		const cstr = new CString(this.module, name);
-		let ptr = 0;
-		try {
-			ptr = this.module._CXNetworkUpdateDenseEdgeAttribute(this.ptr, cstr.ptr);
-		} finally {
-			cstr.dispose();
-		}
-		const desc = this._readDenseBufferDescriptor(ptr);
-		const version = (desc.sourceVersion ?? desc.version) ?? this._nextLocalVersion(`dense:edge:${name}`);
-		this._denseEdgeAttributeDescriptors.set(name, { ...desc, version });
-	}
-
-	/**
-	 * Returns a dense buffer of active node indices using the stored dense node order.
-	 */
-	updateDenseNodeIndexBuffer() {
-		this._assertCanAllocate('updateDenseNodeIndexBuffer');
-		this._ensureActive();
-		this._refreshTopologyVersions('node');
-		if (!this._denseNodeOrderActive) {
-			const { start, end } = this.nodeValidRange;
-			const count = Math.max(0, end - start);
-			if (count && this.nodeCount === count) {
-				const version = this._nodeTopologyVersion;
-				const cached = this._denseNodeIndexVirtualCache;
-				if (!cached || cached.version !== version || cached.start !== start || cached.end !== end) {
-					const view = new Uint32Array(count);
-					for (let i = 0; i < count; i += 1) {
-						view[i] = (start + i) >>> 0;
-					}
-					this._denseNodeIndexVirtualCache = { version, start, end, view };
-				}
-				this._denseNodeIndexDescriptor = {
-					pointer: 0,
-					count,
-					capacity: count * Uint32Array.BYTES_PER_ELEMENT,
-					stride: Uint32Array.BYTES_PER_ELEMENT,
-					validStart: start,
-					validEnd: end,
-					dirty: false,
-					version,
-					topologyVersion: version,
-					jsView: this._denseNodeIndexVirtualCache.view,
-				};
-				return;
-			}
-		}
-		let ptr = 0;
-		try {
-			ptr = this.module._CXNetworkUpdateDenseNodeIndexBuffer(this.ptr);
-		} finally {
-		}
-		this._refreshTopologyVersions('node');
-		const desc = this._readDenseBufferDescriptor(ptr);
-		const topologyVersion = this._nodeTopologyVersion;
-		let version = (desc.sourceVersion ?? topologyVersion ?? desc.version);
-		if (version === null || version === undefined) {
-			version = this._nextLocalVersion('dense:index:node');
-		}
-		this._denseNodeIndexDescriptor = { ...desc, version, topologyVersion };
-	}
-
-	/**
-	 * Returns a dense buffer of active edge indices using the stored dense edge order.
-	 */
-	updateDenseEdgeIndexBuffer() {
-		this._assertCanAllocate('updateDenseEdgeIndexBuffer');
-		this._ensureActive();
-		this._refreshTopologyVersions('edge');
-		if (!this._denseEdgeOrderActive) {
-			const { start, end } = this.edgeValidRange;
-			const count = Math.max(0, end - start);
-			if (count && this.edgeCount === count) {
-				const version = this._edgeTopologyVersion;
-				const cached = this._denseEdgeIndexVirtualCache;
-				if (!cached || cached.version !== version || cached.start !== start || cached.end !== end) {
-					const view = new Uint32Array(count);
-					for (let i = 0; i < count; i += 1) {
-						view[i] = (start + i) >>> 0;
-					}
-					this._denseEdgeIndexVirtualCache = { version, start, end, view };
-				}
-				this._denseEdgeIndexDescriptor = {
-					pointer: 0,
-					count,
-					capacity: count * Uint32Array.BYTES_PER_ELEMENT,
-					stride: Uint32Array.BYTES_PER_ELEMENT,
-					validStart: start,
-					validEnd: end,
-					dirty: false,
-					version,
-					topologyVersion: version,
-					jsView: this._denseEdgeIndexVirtualCache.view,
-				};
-				return;
-			}
-		}
-		let ptr = 0;
-		try {
-			ptr = this.module._CXNetworkUpdateDenseEdgeIndexBuffer(this.ptr);
-		} finally {
-		}
-		this._refreshTopologyVersions('edge');
-		const desc = this._readDenseBufferDescriptor(ptr);
-		const topologyVersion = this._edgeTopologyVersion;
-		let version = (desc.sourceVersion ?? topologyVersion ?? desc.version);
-		if (version === null || version === undefined) {
-			version = this._nextLocalVersion('dense:index:edge');
-		}
-		this._denseEdgeIndexDescriptor = { ...desc, version, topologyVersion };
-	}
-
-	/**
-	 * Returns a typed view over the last packed dense node attribute buffer.
-	 */
-	getDenseNodeAttributeView(name) {
-		this._ensureActive();
-		const meta = this._ensureAttributeMetadata('node', name);
-		const desc = this._denseNodeAttributeDescriptors.get(name) ?? this._readDenseBufferDescriptor(0);
-		return this._materializeDenseAttributeView(desc, meta);
-	}
-
-	/**
-	 * Returns a typed view over the last packed dense edge attribute buffer.
-	 */
-	getDenseEdgeAttributeView(name) {
-		this._ensureActive();
-		const meta = this._ensureAttributeMetadata('edge', name);
-		const desc = this._denseEdgeAttributeDescriptors.get(name) ?? this._readDenseBufferDescriptor(0);
-		return this._materializeDenseAttributeView(desc, meta);
-	}
-
-	/**
-	 * Returns a typed view over the last packed dense node index buffer.
-	 */
-	getDenseNodeIndexView() {
-		this._ensureActive();
-		const desc = this._denseNodeIndexDescriptor ?? this._readDenseBufferDescriptor(0);
-		return this._materializeDenseIndexView(desc);
-	}
-
-	/**
-	 * Returns a typed view over the last packed dense edge index buffer.
-	 */
-	getDenseEdgeIndexView() {
-		this._ensureActive();
-		const desc = this._denseEdgeIndexDescriptor ?? this._readDenseBufferDescriptor(0);
-		return this._materializeDenseIndexView(desc);
-	}
-
-	/**
-	 * Registers a color-encoded dense node attribute derived from an integer attribute or the node index.
-	 *
-	 * @param {string} sourceName - Source attribute identifier or "index".
-	 * @param {string} encodedName - Name of the packed buffer to register.
-	 * @param {DenseColorEncodingOptions} [options] - Encoding options.
-	 */
-	defineDenseColorEncodedNodeAttribute(sourceName, encodedName, options = {}) {
-		this._defineDenseColorEncodedAttribute('node', sourceName, encodedName, options);
-	}
-
-	/**
-	 * Registers a color-encoded dense edge attribute derived from an integer attribute or edge index.
-	 *
-	 * @param {string} sourceName - Source attribute identifier or "index".
-	 * @param {string} encodedName - Name of the packed buffer to register.
-	 * @param {DenseColorEncodingOptions} [options] - Encoding options.
-	 */
-	defineDenseColorEncodedEdgeAttribute(sourceName, encodedName, options = {}) {
-		this._defineDenseColorEncodedAttribute('edge', sourceName, encodedName, options);
-	}
-
-	/**
-	 * Removes a color-encoded dense node attribute registration.
-	 *
-	 * @param {string} encodedName - Encoded buffer identifier.
-	 */
-	removeDenseColorEncodedNodeAttribute(encodedName) {
-		this._removeDenseColorEncodedAttribute('node', encodedName);
-	}
-
-	/**
-	 * Removes a color-encoded dense edge attribute registration.
-	 *
-	 * @param {string} encodedName - Encoded buffer identifier.
-	 */
-	removeDenseColorEncodedEdgeAttribute(encodedName) {
-		this._removeDenseColorEncodedAttribute('edge', encodedName);
-	}
-
-	/**
-	 * Marks a color-encoded dense node buffer dirty.
-	 *
-	 * @param {string} encodedName - Encoded buffer identifier.
-	 */
-	markDenseColorEncodedNodeAttributeDirty(encodedName) {
-		this._warnDirtyDeprecated('markDenseColorEncodedNodeAttributeDirty');
-		this._markDenseColorEncodedAttributeDirty('node', encodedName);
-	}
-
-	/**
-	 * Marks a color-encoded dense edge buffer dirty.
-	 *
-	 * @param {string} encodedName - Encoded buffer identifier.
-	 */
-	markDenseColorEncodedEdgeAttributeDirty(encodedName) {
-		this._warnDirtyDeprecated('markDenseColorEncodedEdgeAttributeDirty');
-		this._markDenseColorEncodedAttributeDirty('edge', encodedName);
-	}
-
-	/**
-	 * Refreshes a color-encoded dense node buffer if dirty and returns its typed view.
-	 *
-	 * @param {string} encodedName - Encoded buffer identifier.
-	 * @returns {{view: TypedArray, count: number, dimension: number, type: Function}}
-	 */
-	updateDenseColorEncodedNodeAttribute(encodedName) {
-		this._assertCanAllocate('updateDenseColorEncodedNodeAttribute');
-		this._ensureActive();
-		this._ensureColorEncodedMetadata('node', encodedName);
-		const updateFn = this.module._CXNetworkUpdateDenseColorEncodedNodeAttribute;
-		if (typeof updateFn !== 'function') {
-			throw new Error('Dense color-encoded attributes are unavailable in this WASM build');
-		}
-		const cstr = new CString(this.module, encodedName);
-		let ptr = 0;
-		try {
-			ptr = updateFn.call(this.module, this.ptr, cstr.ptr);
-		} finally {
-			cstr.dispose();
-		}
-		const desc = this._readDenseBufferDescriptor(ptr);
-		const version = (desc.sourceVersion ?? desc.version) ?? this._nextLocalVersion(`dense:nodeColor:${encodedName}`);
-		this._denseColorNodeDescriptors.set(encodedName, { ...desc, version });
-		return this.getDenseColorEncodedNodeAttributeView(encodedName);
-	}
-
-	/**
-	 * Refreshes a color-encoded dense edge buffer if dirty and returns its typed view.
-	 *
-	 * @param {string} encodedName - Encoded buffer identifier.
-	 * @returns {{view: TypedArray, count: number, dimension: number, type: Function}}
-	 */
-	updateDenseColorEncodedEdgeAttribute(encodedName) {
-		this._assertCanAllocate('updateDenseColorEncodedEdgeAttribute');
-		this._ensureActive();
-		this._ensureColorEncodedMetadata('edge', encodedName);
-		const updateFn = this.module._CXNetworkUpdateDenseColorEncodedEdgeAttribute;
-		if (typeof updateFn !== 'function') {
-			throw new Error('Dense color-encoded attributes are unavailable in this WASM build');
-		}
-		const cstr = new CString(this.module, encodedName);
-		let ptr = 0;
-		try {
-			ptr = updateFn.call(this.module, this.ptr, cstr.ptr);
-		} finally {
-			cstr.dispose();
-		}
-		const desc = this._readDenseBufferDescriptor(ptr);
-		const version = (desc.sourceVersion ?? desc.version) ?? this._nextLocalVersion(`dense:edgeColor:${encodedName}`);
-		this._denseColorEdgeDescriptors.set(encodedName, { ...desc, version });
-		return this.getDenseColorEncodedEdgeAttributeView(encodedName);
-	}
-
-	/**
-	 * Returns a typed view over the last packed color-encoded dense node buffer.
-	 *
-	 * @param {string} encodedName - Encoded buffer identifier.
-	 * @returns {{view: TypedArray, count: number, dimension: number, type: Function}}
-	 */
-	getDenseColorEncodedNodeAttributeView(encodedName) {
-		this._ensureActive();
-		const meta = this._ensureColorEncodedMetadata('node', encodedName);
-		const desc = this._denseColorNodeDescriptors.get(encodedName) ?? this._readDenseBufferDescriptor(0);
-		return this._materializeColorEncodedView(desc, meta);
-	}
-
-	/**
-	 * Returns a typed view over the last packed color-encoded dense edge buffer.
-	 *
-	 * @param {string} encodedName - Encoded buffer identifier.
-	 * @returns {{view: TypedArray, count: number, dimension: number, type: Function}}
-	 */
-	getDenseColorEncodedEdgeAttributeView(encodedName) {
-		this._ensureActive();
-		const meta = this._ensureColorEncodedMetadata('edge', encodedName);
-		const desc = this._denseColorEdgeDescriptors.get(encodedName) ?? this._readDenseBufferDescriptor(0);
-		return this._materializeColorEncodedView(desc, meta);
-	}
-
-	/**
-	 * Provides typed dense views inside a buffer access session.
-	 *
-	 * @param {DenseBufferRequestList} requests - List of scope/name pairs; use name "index" to request the index buffer (scope must be "node" or "edge").
-	 * @param {DenseBufferViewCallback} fn - Callback receiving typed views.
-	 * @returns {*} Callback return value.
-	 */
-	withDenseBufferViews(requests, fn) {
-		return this.withBufferAccess(() => {
-			const result = { node: Object.create(null), edge: Object.create(null) };
-			for (const [scope, name] of requests || []) {
-				if (scope !== 'node' && scope !== 'edge') {
-					throw new Error(`Unknown dense buffer scope "${scope}"`);
-				}
-				if (name === 'index') {
-					result[scope].index = scope === 'node'
-						? this.getDenseNodeIndexView()
-						: this.getDenseEdgeIndexView();
-					continue;
-				}
-				result[scope][name] = scope === 'node'
-					? this.getDenseNodeAttributeView(name)
-					: this.getDenseEdgeAttributeView(name);
-			}
-			return fn(result);
-		});
-	}
-
-	/**
-	 * Updates all requested dense buffers (may allocate) and returns typed views in one call.
-	 *
-	 * @param {DenseBufferRequestList} requests - List of scope/name pairs; use name "index" for the index buffer.
-	 * @returns {DenseBufferViews} Typed dense views grouped by scope.
-	 */
-	updateAndGetDenseBufferViews(requests) {
-		this._ensureActive();
-		const pending = requests || [];
-		for (const [scope, name] of pending) {
-			if (scope !== 'node' && scope !== 'edge') {
-				throw new Error(`Unknown dense buffer scope "${scope}"`);
-			}
-			if (name === 'index') {
-				if (scope === 'node') {
-					this.updateDenseNodeIndexBuffer();
-				} else {
-					this.updateDenseEdgeIndexBuffer();
-				}
-			} else {
-				if (scope === 'node') {
-					this.updateDenseNodeAttributeBuffer(name);
-				} else {
-					this.updateDenseEdgeAttributeBuffer(name);
-				}
-			}
-		}
-		return this.withDenseBufferViews(pending, (views) => views);
-	}
-
-	/**
-	 * Sets the default dense order for nodes. All dense node buffers and the node index buffer
-	 * will use this order when none is provided explicitly.
-	 *
-	 * @param {Uint32Array|number[]} order - Desired node order.
-	 */
-	setDenseNodeOrder(order) {
-		this._assertCanAllocate('setDenseNodeOrder');
-		this._ensureActive();
-		const orderInfo = this._copyIndicesToWasm(order);
-		try {
-			this.module._CXNetworkSetDenseNodeOrder(this.ptr, orderInfo.ptr, orderInfo.count);
-		} finally {
-			orderInfo.dispose();
-		}
-		this._denseNodeOrderActive = orderInfo.count > 0;
-		this._markAllColorEncodedDirty('node');
-	}
-
-	/**
-	 * Sets the default dense order for edges (applies to edge attributes and edge index buffer).
-	 */
-	setDenseEdgeOrder(order) {
-		this._assertCanAllocate('setDenseEdgeOrder');
-		this._ensureActive();
-		const orderInfo = this._copyIndicesToWasm(order);
-		try {
-			this.module._CXNetworkSetDenseEdgeOrder(this.ptr, orderInfo.ptr, orderInfo.count);
-		} finally {
-			orderInfo.dispose();
-		}
-		this._denseEdgeOrderActive = orderInfo.count > 0;
-		this._markAllColorEncodedDirty('edge');
-	}
-
-	/**
-	 * Returns information about whether dense node buffers can be treated as contiguous/identity-mapped.
-	 * Useful for renderers that want to skip index indirection when possible.
-	 *
-	 * @returns {{orderActive:boolean,contiguousActive:boolean,canAliasDenseAttributes:boolean,indicesAreIdentity:boolean,validStart:number,validEnd:number,count:number}}
-	 */
-	getDenseNodePackingInfo() {
-		this._assertCanAllocate('getDenseNodePackingInfo');
-		this._ensureActive();
-		const orderActive = Boolean(this._denseNodeOrderActive);
-		const { start: validStart, end: validEnd } = this.nodeValidRange;
-		const count = this.nodeCount;
-		const contiguousActive = count === Math.max(0, validEnd - validStart);
-		const canAliasDenseAttributes = !orderActive && contiguousActive;
-		const indicesAreIdentity = canAliasDenseAttributes && validStart === 0;
-		return { orderActive, contiguousActive, canAliasDenseAttributes, indicesAreIdentity, validStart, validEnd, count };
-	}
-
-	/**
-	 * Returns information about whether dense edge buffers can be treated as contiguous/identity-mapped.
-	 *
-	 * @returns {{orderActive:boolean,contiguousActive:boolean,canAliasDenseAttributes:boolean,indicesAreIdentity:boolean,validStart:number,validEnd:number,count:number}}
-	 */
-	getDenseEdgePackingInfo() {
-		this._assertCanAllocate('getDenseEdgePackingInfo');
-		this._ensureActive();
-		const orderActive = Boolean(this._denseEdgeOrderActive);
-		const { start: validStart, end: validEnd } = this.edgeValidRange;
-		const count = this.edgeCount;
-		const contiguousActive = count === Math.max(0, validEnd - validStart);
-		const canAliasDenseAttributes = !orderActive && contiguousActive;
-		const indicesAreIdentity = canAliasDenseAttributes && validStart === 0;
-		return { orderActive, contiguousActive, canAliasDenseAttributes, indicesAreIdentity, validStart, validEnd, count };
 	}
 
 	/**
@@ -4831,13 +3986,6 @@ export class HeliosNetwork extends BaseEventTarget {
 			emitEvent: options.emitEvent === true,
 		});
 		return shouldContinue;
-	}
-
-	/**
-	 * Legacy node-to-edge dense packing has been removed.
-	 */
-	updateDenseNodeToEdgeAttributeBuffer() {
-		throw new Error('updateDenseNodeToEdgeAttributeBuffer has been removed; use defineNodeToEdgeAttribute + updateDenseEdgeAttributeBuffer or copyNodeAttributeToEdgeAttribute.');
 	}
 
 	/**
@@ -5432,6 +4580,7 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * @returns {{nodes: Uint32Array, edges: Uint32Array}} Neighbor information.
 	 */
 	_readNeighborContainer(containerPtr) {
+		this._assertCanAllocate('neighbor container hydration');
 		const count = this.module._CXNeighborContainerCount(containerPtr);
 		if (!count) {
 			return { nodes: new Uint32Array(), edges: new Uint32Array() };
@@ -5891,6 +5040,7 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * attribute.view[nodes[0]] = 1;
 	 */
 	getNodeAttributeBuffer(name) {
+		this._assertInsideBufferAccess(`node attribute buffer ${name}`);
 		return this._getAttributeBuffer('node', name);
 	}
 
@@ -5908,6 +5058,7 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * attribute.view[edges[0]] = 12.5;
 	 */
 	getEdgeAttributeBuffer(name) {
+		this._assertInsideBufferAccess(`edge attribute buffer ${name}`);
 		return this._getAttributeBuffer('edge', name);
 	}
 
@@ -5923,6 +5074,7 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * attribute.view[0] = 1n;
 	 */
 	getNetworkAttributeBuffer(name) {
+		this._assertInsideBufferAccess(`network attribute buffer ${name}`);
 		return this._getAttributeBuffer('network', name);
 	}
 
@@ -6227,14 +5379,8 @@ export class HeliosNetwork extends BaseEventTarget {
 				: this.module._CXNetworkBumpNetworkAttributeVersion;
 		this._ensureActive();
 		if (typeof bumpFn !== 'function') {
-			if (scope === 'node' || scope === 'edge') {
-				this._markDenseAttributeDirtySilently(scope, name);
-			}
 			if (scope === 'node') {
 				this._markPassthroughEdgesDirtyForNode(name);
-				this._markColorEncodedDirtyForSource('node', name);
-			} else if (scope === 'edge') {
-				this._markColorEncodedDirtyForSource('edge', name);
 			}
 			const version = this._nextLocalVersion(`attr:${scope}:${name}`);
 			this._emitAttributeEvent(HELIOS_NETWORK_EVENTS.attributeChanged, {
@@ -6262,9 +5408,6 @@ export class HeliosNetwork extends BaseEventTarget {
 		this._localVersions.set(`attr:${scope}:${name}`, bumped);
 		if (scope === 'node') {
 			this._markPassthroughEdgesDirtyForNode(name);
-			this._markColorEncodedDirtyForSource('node', name);
-		} else if (scope === 'edge') {
-			this._markColorEncodedDirtyForSource('edge', name);
 		}
 		this._emitAttributeEvent(HELIOS_NETWORK_EVENTS.attributeChanged, {
 			scope,
@@ -6287,9 +5430,6 @@ export class HeliosNetwork extends BaseEventTarget {
 		this._localVersions.set(`attr:${scope}:${name}`, version);
 		if (scope === 'node') {
 			this._markPassthroughEdgesDirtyForNode(name);
-			this._markColorEncodedDirtyForSource('node', name);
-		} else if (scope === 'edge') {
-			this._markColorEncodedDirtyForSource('edge', name);
 		}
 		this._emitAttributeEvent(HELIOS_NETWORK_EVENTS.attributeChanged, {
 			scope,
@@ -6312,9 +5452,6 @@ export class HeliosNetwork extends BaseEventTarget {
 		this._localVersions.set(`attr:${scope}:${name}`, version);
 		if (scope === 'node') {
 			this._markPassthroughEdgesDirtyForNode(name);
-			this._markColorEncodedDirtyForSource('node', name);
-		} else if (scope === 'edge') {
-			this._markColorEncodedDirtyForSource('edge', name);
 		}
 		if (change?.emitEvent) {
 			this._emitAttributeEvent(HELIOS_NETWORK_EVENTS.attributeChanged, {
@@ -6637,6 +5774,7 @@ export class HeliosNetwork extends BaseEventTarget {
 				: scope === 'edge'
 					? this.module._CXNetworkGetEdgeAttribute
 					: this.module._CXNetworkGetNetworkAttribute;
+			this._assertCanAllocate(`attribute metadata lookup for ${scope}:${name}`);
 			const cstr = new CString(this.module, name);
 			try {
 				attributePtr = getter.call(this.module, this.ptr, cstr.ptr) >>> 0;
@@ -6651,7 +5789,9 @@ export class HeliosNetwork extends BaseEventTarget {
 		const directDataFn = this.module._CXAttributeData;
 		if (typeof directDataFn === 'function' && attributePtr) {
 			bufferPtr = directDataFn.call(this.module, attributePtr) >>> 0;
-		} else {
+		}
+		if (!bufferPtr) {
+			this._assertCanAllocate(`attribute buffer lookup for ${scope}:${name}`);
 			const cstr = new CString(this.module, name);
 			try {
 				bufferPtr = bufferGetter.call(this.module, this.ptr, cstr.ptr) >>> 0;
@@ -6817,37 +5957,6 @@ export class HeliosNetwork extends BaseEventTarget {
 		throw new Error(`Unknown attribute scope "${scope}"`);
 	}
 
-	_colorEncodedRegistry(scope) {
-		if (scope === 'node') return this._denseColorNodeAttributes;
-		if (scope === 'edge') return this._denseColorEdgeAttributes;
-		throw new Error(`Unknown color-encoded scope "${scope}"`);
-	}
-
-	_colorEncodedDescriptors(scope) {
-		if (scope === 'node') return this._denseColorNodeDescriptors;
-		if (scope === 'edge') return this._denseColorEdgeDescriptors;
-		throw new Error(`Unknown color-encoded scope "${scope}"`);
-	}
-
-	_ensureColorEncodedMetadata(scope, encodedName) {
-		const registry = this._colorEncodedRegistry(scope);
-		const meta = registry.get(encodedName);
-		if (!meta) {
-			throw new Error(`Color-encoded ${scope} attribute "${encodedName}" is not defined`);
-		}
-		return meta;
-	}
-
-	_normalizeColorEncodingFormat(format) {
-		if (format === DenseColorEncodingFormat.Uint32x4 || format === 'u32' || format === 'u32x4' || format === 'uint32' || format === 'rgba32') {
-			return DenseColorEncodingFormat.Uint32x4;
-		}
-		if (format === DenseColorEncodingFormat.Uint8x4 || format === 'u8' || format === 'u8x4' || format === 'uint8' || format === 'rgba8') {
-			return DenseColorEncodingFormat.Uint8x4;
-		}
-		return DenseColorEncodingFormat.Uint8x4;
-	}
-
 	_normalizeDimensionMethod(value) {
 		if (typeof value === 'number' && Number.isFinite(value)) {
 			const n = value | 0;
@@ -6981,7 +6090,7 @@ export class HeliosNetwork extends BaseEventTarget {
 
 	_normalizeNodeSelection(nodes) {
 		if (nodes == null) {
-			return this.nodeIndices;
+			return this.withBufferAccess(() => this.nodeIndices.slice(), { nodeIndices: true });
 		}
 		const source = ArrayBuffer.isView(nodes) ? nodes : Array.from(nodes);
 		const out = [];
@@ -7014,6 +6123,43 @@ export class HeliosNetwork extends BaseEventTarget {
 			values[i] = valuesByNode[nodeIndices[i]] >>> 0;
 		}
 		return { nodeIndices, values, valuesByNode };
+	}
+
+	_resolveNodeMetricOutputAttribute(name, type, label) {
+		if (!name) {
+			return null;
+		}
+		const attrName = String(name);
+		if (!this._nodeAttributes.has(attrName)) {
+			this.defineNodeAttribute(attrName, type, 1);
+		}
+		const meta = this._nodeAttributes.get(attrName) ?? this._ensureAttributeMetadata('node', attrName);
+		if (!meta) {
+			throw new Error(`Node attribute "${attrName}" is not defined`);
+		}
+		if (meta.type !== type) {
+			throw new Error(`Node attribute "${attrName}" must be ${label}`);
+		}
+		if ((meta.dimension ?? 1) !== 1) {
+			throw new Error(`Node attribute "${attrName}" must have dimension 1`);
+		}
+		const pointers = this._attributePointers('node', attrName, meta);
+		return {
+			name: attrName,
+			pointer: pointers.pointer >>> 0,
+		};
+	}
+
+	_copyFloat32NodeValuesFromPointer(pointer) {
+		return this.withBufferAccess(
+			() => new Float32Array(this.module.HEAPF32.buffer, pointer, this.nodeCapacity).slice()
+		);
+	}
+
+	_copyUint32NodeValuesFromPointer(pointer) {
+		return this.withBufferAccess(
+			() => new Uint32Array(this.module.HEAPU32.buffer, pointer, this.nodeCapacity).slice()
+		);
 	}
 
 	_copyFloat32NodeValuesToWasm(values) {
@@ -7237,172 +6383,6 @@ export class HeliosNetwork extends BaseEventTarget {
 		this._bumpAttributeVersion(scope, name, { op: 'decategorize' });
 	}
 
-	_defineDenseColorEncodedAttribute(scope, sourceName, encodedName, options) {
-		this._assertCanAllocate(`define dense color-encoded ${scope} attribute`);
-		this._ensureActive();
-		const registry = this._colorEncodedRegistry(scope);
-		const format = this._normalizeColorEncodingFormat(options?.format);
-		const existing = registry.get(encodedName);
-		if (existing) {
-			if (existing.sourceName !== sourceName || existing.format !== format) {
-				throw new Error(`Color-encoded ${scope} attribute "${encodedName}" already exists with a different configuration`);
-			}
-			return;
-		}
-		const useIndex = sourceName === '$index';
-		if (!useIndex) {
-			const meta = this._ensureAttributeMetadata(scope, sourceName);
-			if (meta.type !== AttributeType.Integer && meta.type !== AttributeType.UnsignedInteger) {
-				throw new Error('Color encoding only supports 32-bit integer attributes');
-			}
-			const dimension = Math.max(1, meta.dimension || 1);
-			if (dimension !== 1) {
-				throw new Error('Color encoding only supports scalar attributes');
-			}
-		}
-		const defineFn = scope === 'node'
-			? this.module._CXNetworkDefineDenseColorEncodedNodeAttribute
-			: this.module._CXNetworkDefineDenseColorEncodedEdgeAttribute;
-		if (typeof defineFn !== 'function') {
-			throw new Error('Dense color-encoded attributes are unavailable in this WASM build');
-		}
-		const sourceCstr = new CString(this.module, sourceName);
-		const encodedCstr = new CString(this.module, encodedName);
-		let ok = false;
-		try {
-			ok = defineFn.call(this.module, this.ptr, sourceCstr.ptr, encodedCstr.ptr, format);
-		} finally {
-			sourceCstr.dispose();
-			encodedCstr.dispose();
-		}
-		if (!ok) {
-			throw new Error(`Failed to define color-encoded ${scope} attribute "${encodedName}"`);
-		}
-		registry.set(encodedName, { sourceName, format, useIndex });
-	}
-
-	_removeDenseColorEncodedAttribute(scope, encodedName) {
-		this._assertCanAllocate(`remove dense color-encoded ${scope} attribute`);
-		this._ensureActive();
-		const registry = this._colorEncodedRegistry(scope);
-		if (!registry.has(encodedName)) {
-			return;
-		}
-		const removeFn = scope === 'node'
-			? this.module._CXNetworkRemoveDenseColorEncodedNodeAttribute
-			: this.module._CXNetworkRemoveDenseColorEncodedEdgeAttribute;
-		if (typeof removeFn !== 'function') {
-			throw new Error('Dense color-encoded attributes are unavailable in this WASM build');
-		}
-		const cstr = new CString(this.module, encodedName);
-		let ok = false;
-		try {
-			ok = removeFn.call(this.module, this.ptr, cstr.ptr);
-		} finally {
-			cstr.dispose();
-		}
-		if (!ok) {
-			throw new Error(`Failed to remove color-encoded ${scope} attribute "${encodedName}"`);
-		}
-		registry.delete(encodedName);
-		this._colorEncodedDescriptors(scope).delete(encodedName);
-	}
-
-	_markDenseColorEncodedAttributeDirty(scope, encodedName) {
-		this._ensureActive();
-		const registry = this._colorEncodedRegistry(scope);
-		if (!registry.has(encodedName)) {
-			throw new Error(`Color-encoded ${scope} attribute "${encodedName}" is not defined`);
-		}
-		const markFn = scope === 'node'
-			? this.module._CXNetworkMarkDenseColorEncodedNodeAttributeDirty
-			: this.module._CXNetworkMarkDenseColorEncodedEdgeAttributeDirty;
-		if (typeof markFn !== 'function') {
-			throw new Error('Dense color-encoded attributes are unavailable in this WASM build');
-		}
-		const cstr = new CString(this.module, encodedName);
-		try {
-			markFn.call(this.module, this.ptr, cstr.ptr);
-		} finally {
-			cstr.dispose();
-		}
-		const descriptors = this._colorEncodedDescriptors(scope);
-		const desc = descriptors.get(encodedName);
-		if (desc) {
-			descriptors.set(encodedName, { ...desc, dirty: true });
-		}
-	}
-
-	_markColorEncodedDirtyForSource(scope, sourceName) {
-		const registry = this._colorEncodedRegistry(scope);
-		const descriptors = this._colorEncodedDescriptors(scope);
-		for (const [name, meta] of registry.entries()) {
-			if (meta.sourceName !== sourceName) {
-				continue;
-			}
-			const markFn = scope === 'node'
-				? this.module._CXNetworkMarkDenseColorEncodedNodeAttributeDirty
-				: this.module._CXNetworkMarkDenseColorEncodedEdgeAttributeDirty;
-			if (typeof markFn === 'function') {
-				const cstr = new CString(this.module, name);
-				try {
-					markFn.call(this.module, this.ptr, cstr.ptr);
-				} finally {
-					cstr.dispose();
-				}
-			}
-			const desc = descriptors.get(name);
-			if (desc) {
-				descriptors.set(name, { ...desc, dirty: true, sourceVersion: 0 });
-			}
-		}
-	}
-
-	_markDenseAttributeDirtySilently(scope, name) {
-		this._ensureActive();
-		const fn = scope === 'node'
-			? this.module._CXNetworkMarkDenseNodeAttributeDirty
-			: this.module._CXNetworkMarkDenseEdgeAttributeDirty;
-		if (typeof fn !== 'function') {
-			return;
-		}
-		const cstr = new CString(this.module, name);
-		try {
-			fn.call(this.module, this.ptr, cstr.ptr);
-		} finally {
-			cstr.dispose();
-		}
-	}
-
-	_markAllColorEncodedDirty(scope) {
-		const descriptors = this._colorEncodedDescriptors(scope);
-		for (const [name, desc] of descriptors.entries()) {
-			descriptors.set(name, { ...desc, dirty: true, sourceVersion: 0 });
-		}
-	}
-
-	_warnDirtyDeprecated(method) {
-		if (this._dirtyWarningKeys.has(method)) {
-			return;
-		}
-		this._dirtyWarningKeys.add(method);
-		// eslint-disable-next-line no-console
-		console.warn(`[HeliosNetwork] ${method} is deprecated: rely on versioned buffers instead of dirty flags.`);
-	}
-
-	_removeColorEncodedAttributesForSource(scope, sourceName) {
-		const registry = this._colorEncodedRegistry(scope);
-		const names = [];
-		for (const [name, meta] of registry.entries()) {
-			if (meta.sourceName === sourceName) {
-				names.push(name);
-			}
-		}
-		for (const name of names) {
-			this._removeDenseColorEncodedAttribute(scope, name);
-		}
-	}
-
 	_copyIndicesToWasm(indices) {
 		this._assertCanAllocate('copy indices to WASM memory');
 		if (!indices) {
@@ -7485,257 +6465,48 @@ export class HeliosNetwork extends BaseEventTarget {
 		return { name: targetName, meta: targetMeta };
 	}
 
-	_canAliasDenseAttributeBuffer(scope) {
+	_disposeActiveIndexBuffer(scope) {
 		if (scope === 'node') {
-			if (this._denseNodeOrderActive) {
-				return false;
-			}
-			const { start, end } = this.nodeValidRange;
-			return this.nodeCount === (end - start);
+			this._activeNodeIndexBuffer = { ptr: 0, capacity: 0, count: 0, version: 0, dirty: true };
+		} else {
+			this._activeEdgeIndexBuffer = { ptr: 0, capacity: 0, count: 0, version: 0, dirty: true };
 		}
-		if (scope === 'edge') {
-			if (this._denseEdgeOrderActive) {
-				return false;
-			}
-			const { start, end } = this.edgeValidRange;
-			return this.edgeCount === (end - start);
-		}
-		return false;
 	}
 
-	_refreshAliasedDenseAttributeDescriptor(scope, name) {
-		const descriptors = scope === 'node' ? this._denseNodeAttributeDescriptors : this._denseEdgeAttributeDescriptors;
-		const meta = this._ensureAttributeMetadata(scope, name);
-		if (!meta) {
-			descriptors.set(name, this._readDenseBufferDescriptor(0));
-			return;
-		}
-		const version = this._getAttributeVersion(scope, name);
-		const { start, end } = scope === 'node' ? this.nodeValidRange : this.edgeValidRange;
-		const count = Math.max(0, end - start);
-		const stride = meta.stride || (meta.attributePtr ? this.module._CXAttributeStride(meta.attributePtr) : 0);
-		const previous = descriptors.get(name);
-
-		if (
-			previous
-			&& previous.version === version
-			&& previous.count === count
-			&& previous.stride === stride
-			&& previous.capacity === (count * stride)
-			&& (count === 0 || previous.pointer)
-			&& (count === 0 || (previous.validStart === start && previous.validEnd === end))
-		) {
-			return;
-		}
-
-		if (!count) {
-			descriptors.set(name, {
-				pointer: 0,
-				count: 0,
-				capacity: 0,
-				stride,
-				validStart: 0,
-				validEnd: 0,
-				dirty: false,
-				version,
-			});
-			return;
-		}
-
-		let pointers = null;
-		try {
-			pointers = this._attributePointers(scope, name, meta);
-		} catch (_) {
-			descriptors.set(name, this._readDenseBufferDescriptor(0));
-			return;
-		}
-		descriptors.set(name, {
-			pointer: (pointers.pointer + (start * pointers.stride)) >>> 0,
-			count,
-			capacity: count * pointers.stride,
-			stride: pointers.stride,
-			validStart: start,
-			validEnd: end,
-			dirty: false,
-			version,
-		});
-	}
-
-	_buildAliasedDenseAttributeDescriptor(scope, name) {
-		const meta = this._ensureAttributeMetadata(scope, name);
-		if (!meta) {
-			return this._readDenseBufferDescriptor(0);
-		}
-		let pointers = null;
-		try {
-			pointers = this._attributePointers(scope, name, meta);
-		} catch (_) {
-			return this._readDenseBufferDescriptor(0);
-		}
-		const { start, end } = scope === 'node' ? this.nodeValidRange : this.edgeValidRange;
-		const count = Math.max(0, end - start);
-		if (!count) {
-			return {
-				pointer: 0,
-				count: 0,
-				capacity: 0,
-				stride: pointers.stride,
-				validStart: 0,
-				validEnd: 0,
-				dirty: false,
-				version: this._getAttributeVersion(scope, name),
-			};
-		}
-		const pointer = (pointers.pointer + (start * pointers.stride)) >>> 0;
-		return {
-			pointer,
-			count,
-			capacity: count * pointers.stride,
-			stride: pointers.stride,
-			validStart: start,
-			validEnd: end,
-			dirty: false,
-			version: this._getAttributeVersion(scope, name),
-		};
-	}
-
-	_readDenseBufferDescriptor(ptr) {
-		if (!ptr) {
-			return {
-				pointer: 0,
-				count: 0,
-				capacity: 0,
-				stride: 0,
-				validStart: 0,
-				validEnd: 0,
-				dirty: false,
-				version: 0,
-				topologyVersion: 0,
-				sourceVersion: 0,
-			};
-		}
-		const base = ptr >>> 2;
-		const dataPtr = this.module.HEAPU32[base + 1];
-		const count = this.module.HEAPU32[base + 2];
-		const capacityBytes = this.module.HEAPU32[base + 3];
-		const stride = this.module.HEAPU32[base + 4];
-		const validStart = this.module.HEAPU32[base + 5];
-		const validEnd = this.module.HEAPU32[base + 6];
-		const dirty = !!this.module.HEAPU8[(base + 7) * 4];
-		const versionFn = this.module._CXDenseAttributeBufferVersion;
-		const sourceVersionFn = this.module._CXDenseAttributeBufferSourceVersion;
-		const version = typeof versionFn === 'function' ? (this._normalizeVersion(versionFn.call(this.module, ptr)) ?? 0) : 0;
-		const sourceVersion = typeof sourceVersionFn === 'function' ? (this._normalizeVersion(sourceVersionFn.call(this.module, ptr)) ?? 0) : 0;
-		return {
-			pointer: dataPtr,
-			count,
-			capacity: capacityBytes,
-			stride,
-			validStart,
-			validEnd,
-			dirty,
-			version,
-			topologyVersion: 0,
-			sourceVersion,
-		};
-	}
-
-	_materializeColorEncodedView(descriptor, meta) {
-		const TypedArrayCtor = meta.format === DenseColorEncodingFormat.Uint32x4 ? Uint32Array : Uint8Array;
-		const length = descriptor.count * 4;
-		const view = descriptor.pointer
-			? new TypedArrayCtor(this.module.HEAPU8.buffer, descriptor.pointer, length)
-			: new TypedArrayCtor(0);
-		return { ...descriptor, view, count: descriptor.count, dimension: 4, type: TypedArrayCtor };
-	}
-
-	_materializeDenseAttributeView(descriptor, meta) {
-		const TypedArrayCtor = DenseTypedArrayForType[meta.type] || Uint8Array;
-		const strideElements = descriptor.stride && TypedArrayCtor.BYTES_PER_ELEMENT
-			? descriptor.stride / TypedArrayCtor.BYTES_PER_ELEMENT
-			: 0;
-		const perEntry = strideElements || Math.max(1, Math.floor((meta.dimension * TYPE_ELEMENT_SIZE[meta.type]) / TypedArrayCtor.BYTES_PER_ELEMENT));
-		const length = descriptor.count * perEntry;
-		const view = descriptor.pointer
-			? new TypedArrayCtor(this.module.HEAPU8.buffer, descriptor.pointer, length)
-			: new TypedArrayCtor(0);
-		return {
-			...descriptor,
-			view,
-		};
-	}
-
-	_materializeDenseIndexView(descriptor) {
-		if (descriptor?.jsView && descriptor.jsView instanceof Uint32Array) {
-			return { ...descriptor, view: descriptor.jsView };
-		}
-		const view = descriptor.pointer
-			? new Uint32Array(this.module.HEAPU8.buffer, descriptor.pointer, descriptor.count)
-			: EMPTY_UINT32;
-		return { ...descriptor, view };
-	}
-
-	_materializeActiveIndexCopy(scope) {
-		this._refreshTopologyVersions(scope);
-		const cache = scope === 'node' ? this._nodeIndexCache : this._edgeIndexCache;
-		const version = scope === 'node' ? this._nodeTopologyVersion : this._edgeTopologyVersion;
-		if (cache && cache.version === version) {
-			return cache.data;
-		}
-
+	_ensureActiveIndexBuffer(scope) {
 		this._ensureActive();
-		const count = scope === 'node' ? this.nodeCount : this.edgeCount;
-		if (count === 0) {
-			const empty = new Uint32Array();
-			if (scope === 'node') {
-				this._nodeIndexCache = { version, data: empty };
-			} else {
-				this._edgeIndexCache = { version, data: empty };
-			}
-			return empty;
+		this._refreshTopologyVersions(scope);
+		const pointerReader = scope === 'node'
+			? this.module._CXNetworkActiveNodeIndices
+			: this.module._CXNetworkActiveEdgeIndices;
+		const countReader = scope === 'node'
+			? this.module._CXNetworkActiveNodeIndexCount
+			: this.module._CXNetworkActiveEdgeIndexCount;
+		const version = scope === 'node' ? this._nodeTopologyVersion : this._edgeTopologyVersion;
+		const buffer = scope === 'node' ? this._activeNodeIndexBuffer : this._activeEdgeIndexBuffer;
+
+		if (typeof pointerReader !== 'function' || typeof countReader !== 'function') {
+			throw new Error(`This WASM build does not expose stable active ${scope} index buffers`);
 		}
-		const bytes = count * Uint32Array.BYTES_PER_ELEMENT;
-		const ptr = this.module._malloc(bytes);
-		if (!ptr) {
-			throw new Error('Failed to allocate WASM memory for indices');
-		}
-		try {
-			const view = new Uint32Array(this.module.HEAPU32.buffer, ptr, count);
-			const writer = scope === 'node' ? this.writeActiveNodes.bind(this) : this.writeActiveEdges.bind(this);
-			let written = writer(view);
-			if (written > count) {
-				// structure changed between count and write; retry with larger buffer
-				this.module._free(ptr);
-				const retryPtr = this.module._malloc(written * Uint32Array.BYTES_PER_ELEMENT);
-				if (!retryPtr) {
-					throw new Error('Failed to allocate WASM memory for indices');
-				}
-				try {
-					const retryView = new Uint32Array(this.module.HEAPU32.buffer, retryPtr, written);
-					written = writer(retryView);
-					const data = retryView.slice(0, written);
-					if (scope === 'node') {
-						this._nodeIndexCache = { version: this._nodeTopologyVersion, data };
-					} else {
-						this._edgeIndexCache = { version: this._edgeTopologyVersion, data };
-					}
-					return data;
-				} finally {
-					this.module._free(retryPtr);
-				}
-			}
-			const data = view.slice(0, written);
-			if (scope === 'node') {
-				this._nodeIndexCache = { version: this._nodeTopologyVersion, data };
-			} else {
-				this._edgeIndexCache = { version: this._edgeTopologyVersion, data };
-			}
-			return data;
-		} finally {
-			if (ptr) {
-				this.module._free(ptr);
-			}
-		}
+
+		buffer.ptr = pointerReader.call(this.module, this.ptr) >>> 0;
+		buffer.count = countReader.call(this.module, this.ptr) >>> 0;
+		buffer.capacity = buffer.count;
+		buffer.version = version;
+		buffer.dirty = false;
+		return buffer;
+	}
+
+	_getActiveIndexView(scope) {
+		const buffer = this._ensureActiveIndexBuffer(scope);
+		const view = buffer.ptr
+			? new Uint32Array(this.module.HEAPU8.buffer, buffer.ptr, buffer.count)
+			: EMPTY_UINT32;
+		Object.defineProperty(view, 'version', {
+			value: buffer.version,
+			configurable: true,
+		});
+		return view;
 	}
 
 	_ensureAttributeMetadata(scope, name) {
@@ -7750,6 +6521,7 @@ export class HeliosNetwork extends BaseEventTarget {
 				: scope === 'edge'
 					? this.module._CXNetworkGetEdgeAttribute
 					: this.module._CXNetworkGetNetworkAttribute;
+			this._assertCanAllocate(`attribute metadata lookup for ${scope}:${name}`);
 			const cstr = new CString(this.module, name);
 			let attributePtr = 0;
 			try {
@@ -7771,6 +6543,7 @@ export class HeliosNetwork extends BaseEventTarget {
 				? this.module._CXNetworkGetEdgeAttribute
 				: this.module._CXNetworkGetNetworkAttribute;
 
+		this._assertCanAllocate(`attribute metadata lookup for ${scope}:${name}`);
 		const cstr = new CString(this.module, name);
 		let attributePtr = 0;
 		try {
@@ -8084,30 +6857,34 @@ export class HeliosNetwork extends BaseEventTarget {
 						const dict = scope === 'edge'
 							? this.getEdgeAttributeCategoryDictionary(name)
 							: this.getNodeAttributeCategoryDictionary(name);
-						for (let i = 0; i < resolvedIds.length; i += 1) {
-							const label = attrValues[i];
-							const id = dict[label];
-							if (id == null) {
-								throw new Error(`Category label "${label}" not found`);
-							}
+						this.withBufferAccess(() => {
 							const buffer = scope === 'edge'
 								? this.getEdgeAttributeBuffer(name)
 								: this.getNodeAttributeBuffer(name);
-							buffer.view[resolvedIds[i]] = id;
-						}
+							for (let i = 0; i < resolvedIds.length; i += 1) {
+								const label = attrValues[i];
+								const id = dict[label];
+								if (id == null) {
+									throw new Error(`Category label "${label}" not found`);
+								}
+								buffer.view[resolvedIds[i]] = id;
+							}
+						});
 					} else {
-						const buffer = scope === 'edge'
-							? this.getEdgeAttributeBuffer(name)
-							: this.getNodeAttributeBuffer(name);
-						if (buffer.type === AttributeType.Data || buffer.type === AttributeType.Javascript || buffer.type === AttributeType.MultiCategory) {
-							throw new Error('Unsupported attribute type for text batches');
-						}
 						if (parsedValues.type !== 'number') {
 							throw new Error('Numeric attributes require numeric values');
 						}
-						for (let i = 0; i < resolvedIds.length; i += 1) {
-							buffer.view[resolvedIds[i]] = attrValues[i];
-						}
+						this.withBufferAccess(() => {
+							const buffer = scope === 'edge'
+								? this.getEdgeAttributeBuffer(name)
+								: this.getNodeAttributeBuffer(name);
+							if (buffer.type === AttributeType.Data || buffer.type === AttributeType.Javascript || buffer.type === AttributeType.MultiCategory) {
+								throw new Error('Unsupported attribute type for text batches');
+							}
+							for (let i = 0; i < resolvedIds.length; i += 1) {
+								buffer.view[resolvedIds[i]] = attrValues[i];
+							}
+						});
 					}
 					result.ok = true;
 				} else {
@@ -8296,30 +7073,34 @@ export class HeliosNetwork extends BaseEventTarget {
 						const dict = scope === 'edge'
 							? this.getEdgeAttributeCategoryDictionary(name)
 							: this.getNodeAttributeCategoryDictionary(name);
-						const buffer = scope === 'edge'
-							? this.getEdgeAttributeBuffer(name)
-							: this.getNodeAttributeBuffer(name);
-						for (let i = 0; i < resolvedIds.length; i += 1) {
-							const label = attrValues[i];
-							const id = dict[label];
-							if (id == null) {
-								throw new Error(`Category label \"${label}\" not found`);
+						this.withBufferAccess(() => {
+							const buffer = scope === 'edge'
+								? this.getEdgeAttributeBuffer(name)
+								: this.getNodeAttributeBuffer(name);
+							for (let i = 0; i < resolvedIds.length; i += 1) {
+								const label = attrValues[i];
+								const id = dict[label];
+								if (id == null) {
+									throw new Error(`Category label \"${label}\" not found`);
+								}
+								buffer.view[resolvedIds[i]] = id;
 							}
-							buffer.view[resolvedIds[i]] = id;
-						}
+						});
 					} else {
 						if (valueType !== 0) {
 							throw new Error('Numeric attributes require numeric values');
 						}
-						const buffer = scope === 'edge'
-							? this.getEdgeAttributeBuffer(name)
-							: this.getNodeAttributeBuffer(name);
-						if (buffer.type === AttributeType.Data || buffer.type === AttributeType.Javascript || buffer.type === AttributeType.MultiCategory) {
-							throw new Error('Unsupported attribute type for binary batches');
-						}
-						for (let i = 0; i < resolvedIds.length; i += 1) {
-							buffer.view[resolvedIds[i]] = attrValues[i];
-						}
+						this.withBufferAccess(() => {
+							const buffer = scope === 'edge'
+								? this.getEdgeAttributeBuffer(name)
+								: this.getNodeAttributeBuffer(name);
+							if (buffer.type === AttributeType.Data || buffer.type === AttributeType.Javascript || buffer.type === AttributeType.MultiCategory) {
+								throw new Error('Unsupported attribute type for binary batches');
+							}
+							for (let i = 0; i < resolvedIds.length; i += 1) {
+								buffer.view[resolvedIds[i]] = attrValues[i];
+							}
+						});
 					}
 					result.ok = true;
 				} else {
@@ -8503,25 +7284,27 @@ export class HeliosNetwork extends BaseEventTarget {
 
 		const dimension = Math.max(1, Math.floor(info.dimension || 1));
 		const component = Math.min(Math.max(0, Math.floor(order.component || 0)), dimension - 1);
-		const values = scope === 'edge'
-			? this.getEdgeAttributeBuffer(attributeName).view
-			: this.getNodeAttributeBuffer(attributeName).view;
 		const sign = order.descending ? -1 : 1;
 		const indexStride = dimension;
 
-		sorted.sort((a, b) => {
-			const valueA = Number(values[a * indexStride + component]);
-			const valueB = Number(values[b * indexStride + component]);
-			const finiteA = Number.isFinite(valueA);
-			const finiteB = Number.isFinite(valueB);
-			if (finiteA && finiteB) {
-				if (valueA < valueB) return -1 * sign;
-				if (valueA > valueB) return 1 * sign;
+		this.withBufferAccess(() => {
+			const values = scope === 'edge'
+				? this.getEdgeAttributeBuffer(attributeName).view
+				: this.getNodeAttributeBuffer(attributeName).view;
+			sorted.sort((a, b) => {
+				const valueA = Number(values[a * indexStride + component]);
+				const valueB = Number(values[b * indexStride + component]);
+				const finiteA = Number.isFinite(valueA);
+				const finiteB = Number.isFinite(valueB);
+				if (finiteA && finiteB) {
+					if (valueA < valueB) return -1 * sign;
+					if (valueA > valueB) return 1 * sign;
+					return a - b;
+				}
+				if (finiteA) return -1;
+				if (finiteB) return 1;
 				return a - b;
-			}
-			if (finiteA) return -1;
-			if (finiteB) return 1;
-			return a - b;
+			});
 		});
 
 		return Uint32Array.from(sorted);
@@ -8708,16 +7491,10 @@ export class HeliosNetwork extends BaseEventTarget {
 	 */
 	copyNodeAttributeToEdgeAttribute(sourceName, destinationName, endpoints = 'both', doubleWidth = true) {
 		this._copyNodeToEdgeAttribute(sourceName, destinationName, this._normalizeEndpointMode(endpoints), doubleWidth);
-		this._markDenseAttributeDirtySilently('edge', destinationName);
-		const passthrough = this._nodeToEdgePassthrough.get(destinationName);
-		if (passthrough) {
-			passthrough.dirty = false;
-			passthrough.sourceVersion = this.getNodeAttributeVersion(passthrough.sourceName);
-			passthrough.edgeTopologyVersion = this._getTopologyVersion('edge');
-		}
 	}
 
 	_removeAttribute(scope, name) {
+		this._assertCanAllocate(`remove ${scope} attribute`);
 		this._ensureActive();
 		const metaMap = this._attributeMap(scope);
 		const meta = metaMap.get(name);
@@ -8755,12 +7532,9 @@ export class HeliosNetwork extends BaseEventTarget {
 			if (dependents) {
 				for (const edgeName of dependents) {
 					this._nodeToEdgePassthrough.delete(edgeName);
-					this._markDenseAttributeDirtySilently('edge', edgeName);
 				}
 				this._nodeAttributeDependents.delete(name);
 			}
-			this._denseNodeAttributeDescriptors.delete(name);
-			this._registeredDenseNodeAttributes.delete(name);
 		} else if (scope === 'edge') {
 			if (this._nodeToEdgePassthrough.has(name)) {
 				const entry = this._nodeToEdgePassthrough.get(name);
@@ -8770,11 +7544,6 @@ export class HeliosNetwork extends BaseEventTarget {
 			for (const dependents of this._nodeAttributeDependents.values()) {
 				dependents.delete(name);
 			}
-			this._denseEdgeAttributeDescriptors.delete(name);
-			this._registeredDenseEdgeAttributes.delete(name);
-		}
-		if (scope === 'node' || scope === 'edge') {
-			this._removeColorEncodedAttributesForSource(scope, name);
 		}
 	}
 
@@ -8802,6 +7571,9 @@ export class HeliosNetwork extends BaseEventTarget {
 
 	_copyNodeToEdgeAttribute(sourceName, destinationName, endpointMode, doubleWidth, cachedMeta = null, cachedPointers = null) {
 		this._ensureActive();
+		if (this.nodeCount === 0 || this.edgeCount === 0) {
+			return;
+		}
 		const sourceMeta = cachedMeta?.sourceMeta ?? this._ensureAttributeMetadata('node', sourceName);
 		const targetMeta = cachedMeta?.targetMeta ?? this._ensureAttributeMetadata('edge', destinationName);
 		if (!sourceMeta || !targetMeta) {
@@ -8821,36 +7593,38 @@ export class HeliosNetwork extends BaseEventTarget {
 		if (targetComponents !== expectedTargetComponents) {
 			throw new Error(`Edge attribute "${destinationName}" must have dimension ${expectedTargetComponents}`);
 		}
-		const sourceBuffer = this.getNodeAttributeBuffer(sourceName);
-		const targetBuffer = this.getEdgeAttributeBuffer(destinationName);
-		if (sourceBuffer.view.constructor !== targetBuffer.view.constructor) {
-			throw new Error('Source and destination attribute storage types must match');
-		}
-		const sourceStrideBytes = cachedMeta?.sourceStrideBytes ?? sourceBuffer.stride;
-		const targetStrideBytes = cachedMeta?.targetStrideBytes ?? targetBuffer.stride;
-		const sourceStride = cachedMeta?.sourceStride ?? Math.max(1, Math.floor(sourceStrideBytes / sourceBuffer.view.BYTES_PER_ELEMENT));
-		const targetStride = cachedMeta?.targetStride ?? Math.max(1, Math.floor(targetStrideBytes / targetBuffer.view.BYTES_PER_ELEMENT));
-		const expectedStride = endpointMode === -1
-			? sourceStride * 2
-			: (doubleWidth ? sourceStride * 2 : sourceStride);
-		if (targetStride !== expectedStride) {
-			throw new Error(`Edge attribute "${destinationName}" stride does not match expected dimension ${expectedStride}`);
-		}
-		const duplicateSingleEndpoint = endpointMode !== -1 && doubleWidth;
-		const sourcePointers = cachedPointers?.sourcePointers ?? this._attributePointers('node', sourceName, sourceMeta);
-		const targetPointers = cachedPointers?.targetPointers ?? this._attributePointers('edge', destinationName, targetMeta);
-		if (typeof this.module._CXNetworkCopyNodeAttributesToEdgeAttributes !== 'function') {
-			throw new Error('CXNetworkCopyNodeAttributesToEdgeAttributes is unavailable in this WASM build');
-		}
-		this.module._CXNetworkCopyNodeAttributesToEdgeAttributes(
-			this.ptr,
-			sourcePointers.pointer,
-			sourceStrideBytes,
-			targetPointers.pointer,
-			targetStrideBytes,
-			endpointMode,
-			duplicateSingleEndpoint ? 1 : 0
-		);
+		this.withBufferAccess(() => {
+			const sourceBuffer = this.getNodeAttributeBuffer(sourceName);
+			const targetBuffer = this.getEdgeAttributeBuffer(destinationName);
+			if (sourceBuffer.view.constructor !== targetBuffer.view.constructor) {
+				throw new Error('Source and destination attribute storage types must match');
+			}
+			const sourceStrideBytes = cachedMeta?.sourceStrideBytes ?? sourceBuffer.stride;
+			const targetStrideBytes = cachedMeta?.targetStrideBytes ?? targetBuffer.stride;
+			const sourceStride = cachedMeta?.sourceStride ?? Math.max(1, Math.floor(sourceStrideBytes / sourceBuffer.view.BYTES_PER_ELEMENT));
+			const targetStride = cachedMeta?.targetStride ?? Math.max(1, Math.floor(targetStrideBytes / targetBuffer.view.BYTES_PER_ELEMENT));
+			const expectedStride = endpointMode === -1
+				? sourceStride * 2
+				: (doubleWidth ? sourceStride * 2 : sourceStride);
+			if (targetStride !== expectedStride) {
+				throw new Error(`Edge attribute "${destinationName}" stride does not match expected dimension ${expectedStride}`);
+			}
+			const duplicateSingleEndpoint = endpointMode !== -1 && doubleWidth;
+			const sourcePointers = cachedPointers?.sourcePointers ?? this._attributePointers('node', sourceName, sourceMeta);
+			const targetPointers = cachedPointers?.targetPointers ?? this._attributePointers('edge', destinationName, targetMeta);
+			if (typeof this.module._CXNetworkCopyNodeAttributesToEdgeAttributes !== 'function') {
+				throw new Error('CXNetworkCopyNodeAttributesToEdgeAttributes is unavailable in this WASM build');
+			}
+			this.module._CXNetworkCopyNodeAttributesToEdgeAttributes(
+				this.ptr,
+				sourcePointers.pointer,
+				sourceStrideBytes,
+				targetPointers.pointer,
+				targetStrideBytes,
+				endpointMode,
+				duplicateSingleEndpoint ? 1 : 0
+			);
+		});
 		this._bumpAttributeVersion('edge', destinationName, { op: 'copy' });
 	}
 
@@ -8876,22 +7650,18 @@ export class HeliosNetwork extends BaseEventTarget {
 		const dependents = this._nodeAttributeDependents.get(sourceName);
 		if (!dependents) return;
 		for (const edgeName of dependents) {
-			this._markDenseAttributeDirtySilently('edge', edgeName);
 			const entry = this._nodeToEdgePassthrough.get(edgeName);
 			if (entry) {
-				entry.dirty = true;
-				entry.sourceVersion = null;
+				this._copyNodeToEdgeAttribute(entry.sourceName, edgeName, entry.endpointMode, entry.doubleWidth);
 			}
 		}
 	}
 
 	_markAllPassthroughEdgesDirty() {
 		for (const edgeName of this._nodeToEdgePassthrough.keys()) {
-			this._markDenseAttributeDirtySilently('edge', edgeName);
 			const entry = this._nodeToEdgePassthrough.get(edgeName);
 			if (entry) {
-				entry.dirty = true;
-				entry.edgeTopologyVersion = null;
+				this._copyNodeToEdgeAttribute(entry.sourceName, edgeName, entry.endpointMode, entry.doubleWidth);
 			}
 		}
 	}
@@ -8918,8 +7688,10 @@ export class HeliosNetwork extends BaseEventTarget {
 			throw new Error('CXNetworkCompact is not available in this WASM build. Rebuild the module to enable compact().');
 		}
 
-		const nodeIndices = this.nodeIndices;
-		const edgeIndices = this.edgeIndices;
+		const { nodeIndices, edgeIndices } = this.withBufferAccess(() => ({
+			nodeIndices: this.nodeIndices.slice(),
+			edgeIndices: this.edgeIndices.slice(),
+		}), { nodeIndices: true, edgeIndices: true });
 		const nodeRemap = this._buildRemapFromIndices(nodeIndices);
 		const edgeRemap = this._buildRemapFromIndices(edgeIndices);
 
@@ -8993,6 +7765,7 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * @param {object} [options]
 	 * @param {(number|string)} [options.direction='both'] - out/in/both
 	 * @param {Array<number>|TypedArray|null} [options.nodes=null] - Optional node subset.
+	 * @param {string|null} [options.outNodeAttribute=null] - Optional node attribute name to store degree values.
 	 * @returns {{nodeIndices:Uint32Array, values:Float32Array, valuesByNode:Float32Array, direction:number}}
 	 */
 	measureDegree(options = {}) {
@@ -9003,7 +7776,8 @@ export class HeliosNetwork extends BaseEventTarget {
 		}
 
 		const direction = this._normalizeNeighborDirection(options.direction ?? 'both');
-		const outPtr = this.module._malloc(this.nodeCapacity * Float32Array.BYTES_PER_ELEMENT);
+		const output = this._resolveNodeMetricOutputAttribute(options.outNodeAttribute ?? null, AttributeType.Float, 'Float');
+		const outPtr = output?.pointer ?? this.module._malloc(this.nodeCapacity * Float32Array.BYTES_PER_ELEMENT);
 		if (!outPtr) {
 			throw new Error('Failed to allocate WASM buffer for degree measurement');
 		}
@@ -9012,11 +7786,16 @@ export class HeliosNetwork extends BaseEventTarget {
 			if (!ok) {
 				throw new Error('Degree measurement failed');
 			}
-			const valuesByNode = new Float32Array(this.module.HEAPF32.buffer, outPtr, this.nodeCapacity).slice();
+			const valuesByNode = this._copyFloat32NodeValuesFromPointer(outPtr);
+			if (output) {
+				this._bumpAttributeVersion('node', output.name, { op: 'set' });
+			}
 			const result = this._collectNodeMetricResult(valuesByNode, options.nodes ?? null);
 			return { ...result, direction };
 		} finally {
-			this.module._free(outPtr);
+			if (!output) {
+				this.module._free(outPtr);
+			}
 		}
 	}
 
@@ -9028,6 +7807,7 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * @param {(number|string)} [options.direction='both'] - out/in/both
 	 * @param {(number|string)} [options.measure='sum'] - sum/average/maximum/minimum
 	 * @param {Array<number>|TypedArray|null} [options.nodes=null] - Optional node subset.
+	 * @param {string|null} [options.outNodeAttribute=null] - Optional node attribute name to store strength values.
 	 * @returns {{nodeIndices:Uint32Array, values:Float32Array, valuesByNode:Float32Array, direction:number, measure:number}}
 	 */
 	measureStrength(options = {}) {
@@ -9040,8 +7820,9 @@ export class HeliosNetwork extends BaseEventTarget {
 		const direction = this._normalizeNeighborDirection(options.direction ?? 'both');
 		const measure = this._normalizeStrengthMeasure(options.measure ?? 'sum');
 		const edgeWeightAttribute = options.edgeWeightAttribute ?? null;
+		const output = this._resolveNodeMetricOutputAttribute(options.outNodeAttribute ?? null, AttributeType.Float, 'Float');
 		const weightName = edgeWeightAttribute ? new CString(this.module, String(edgeWeightAttribute)) : null;
-		const outPtr = this.module._malloc(this.nodeCapacity * Float32Array.BYTES_PER_ELEMENT);
+		const outPtr = output?.pointer ?? this.module._malloc(this.nodeCapacity * Float32Array.BYTES_PER_ELEMENT);
 		if (!outPtr) {
 			if (weightName) weightName.dispose();
 			throw new Error('Failed to allocate WASM buffer for strength measurement');
@@ -9057,11 +7838,16 @@ export class HeliosNetwork extends BaseEventTarget {
 			if (!ok) {
 				throw new Error('Strength measurement failed');
 			}
-			const valuesByNode = new Float32Array(this.module.HEAPF32.buffer, outPtr, this.nodeCapacity).slice();
+			const valuesByNode = this._copyFloat32NodeValuesFromPointer(outPtr);
+			if (output) {
+				this._bumpAttributeVersion('node', output.name, { op: 'set' });
+			}
 			const result = this._collectNodeMetricResult(valuesByNode, options.nodes ?? null);
 			return { ...result, direction, measure };
 		} finally {
-			this.module._free(outPtr);
+			if (!output) {
+				this.module._free(outPtr);
+			}
 			if (weightName) {
 				weightName.dispose();
 			}
@@ -9076,6 +7862,7 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * @param {string|null} [options.edgeWeightAttribute=null] - Required for weighted variants.
 	 * @param {(number|string)} [options.direction='both'] - out/in/both
 	 * @param {Array<number>|TypedArray|null} [options.nodes=null] - Optional node subset.
+	 * @param {string|null} [options.outNodeAttribute=null] - Optional node attribute name to store local clustering values.
 	 * @returns {{nodeIndices:Uint32Array, values:Float32Array, valuesByNode:Float32Array, direction:number, variant:number}}
 	 */
 		measureLocalClusteringCoefficient(options = {}) {
@@ -9088,8 +7875,9 @@ export class HeliosNetwork extends BaseEventTarget {
 		const direction = this._normalizeNeighborDirection(options.direction ?? 'both');
 		const variant = this._normalizeClusteringVariant(options.variant ?? 'unweighted');
 		const edgeWeightAttribute = options.edgeWeightAttribute ?? null;
+		const output = this._resolveNodeMetricOutputAttribute(options.outNodeAttribute ?? null, AttributeType.Float, 'Float');
 		const weightName = edgeWeightAttribute ? new CString(this.module, String(edgeWeightAttribute)) : null;
-		const outPtr = this.module._malloc(this.nodeCapacity * Float32Array.BYTES_PER_ELEMENT);
+		const outPtr = output?.pointer ?? this.module._malloc(this.nodeCapacity * Float32Array.BYTES_PER_ELEMENT);
 		if (!outPtr) {
 			if (weightName) weightName.dispose();
 			throw new Error('Failed to allocate WASM buffer for clustering measurement');
@@ -9105,11 +7893,16 @@ export class HeliosNetwork extends BaseEventTarget {
 			if (!ok) {
 				throw new Error('Local clustering coefficient measurement failed');
 			}
-			const valuesByNode = new Float32Array(this.module.HEAPF32.buffer, outPtr, this.nodeCapacity).slice();
+			const valuesByNode = this._copyFloat32NodeValuesFromPointer(outPtr);
+			if (output) {
+				this._bumpAttributeVersion('node', output.name, { op: 'set' });
+			}
 			const result = this._collectNodeMetricResult(valuesByNode, options.nodes ?? null);
 			return { ...result, direction, variant };
 		} finally {
-			this.module._free(outPtr);
+			if (!output) {
+				this.module._free(outPtr);
+			}
 			if (weightName) {
 				weightName.dispose();
 			}
@@ -9138,12 +7931,16 @@ export class HeliosNetwork extends BaseEventTarget {
 				options.executionMode ?? 'single-thread',
 				MeasurementExecutionMode.SingleThread
 			);
-			const outNodeCorenessAttribute = options.outNodeCorenessAttribute ?? null;
+			const output = this._resolveNodeMetricOutputAttribute(
+				options.outNodeCorenessAttribute ?? null,
+				AttributeType.UnsignedInteger,
+				'UnsignedInteger'
+			);
 
-			const outPtr = this.module._malloc(this.nodeCapacity * Uint32Array.BYTES_PER_ELEMENT);
+			const outPtr = output?.pointer ?? this.module._malloc(this.nodeCapacity * Uint32Array.BYTES_PER_ELEMENT);
 			const maxCorePtr = this.module._malloc(Uint32Array.BYTES_PER_ELEMENT);
 			if (!outPtr || !maxCorePtr) {
-				if (outPtr) this.module._free(outPtr);
+				if (!output && outPtr) this.module._free(outPtr);
 				if (maxCorePtr) this.module._free(maxCorePtr);
 				throw new Error('Failed to allocate WASM buffers for coreness measurement');
 			}
@@ -9163,24 +7960,16 @@ export class HeliosNetwork extends BaseEventTarget {
 					throw new Error('Coreness measurement failed');
 				}
 				maxCore = this.module.HEAPU32[maxCorePtr / Uint32Array.BYTES_PER_ELEMENT] ?? 0;
-				valuesByNode = new Uint32Array(this.module.HEAPU32.buffer, outPtr, this.nodeCapacity).slice();
+				valuesByNode = this._copyUint32NodeValuesFromPointer(outPtr);
 			} finally {
-				this.module._free(outPtr);
+				if (!output) {
+					this.module._free(outPtr);
+				}
 				this.module._free(maxCorePtr);
 			}
 
-			if (outNodeCorenessAttribute) {
-				if (!this._nodeAttributes.has(outNodeCorenessAttribute)) {
-					this.defineNodeAttribute(outNodeCorenessAttribute, AttributeType.UnsignedInteger, 1);
-				} else {
-					const meta = this._nodeAttributes.get(outNodeCorenessAttribute);
-					if (meta && meta.type !== AttributeType.UnsignedInteger) {
-						throw new Error(`Node attribute "${outNodeCorenessAttribute}" must be UnsignedInteger`);
-					}
-				}
-				const { view, bumpVersion } = this.getNodeAttributeBuffer(outNodeCorenessAttribute);
-				view.set(valuesByNode);
-				bumpVersion();
+			if (output) {
+				this._bumpAttributeVersion('node', output.name, { op: 'set' });
 			}
 
 			const result = this._collectNodeMetricResultUint32(valuesByNode, options.nodes ?? null);
@@ -9238,6 +8027,7 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * @param {number} [options.tolerance=1e-6]
 	 * @param {Float32Array|Array<number>|null} [options.initialValues=null] - Optional node-capacity-sized initial vector.
 	 * @param {Array<number>|TypedArray|null} [options.nodes=null] - Optional node subset.
+	 * @param {string|null} [options.outNodeAttribute=null] - Optional node attribute name to store eigenvector values.
 	 * @returns {{nodeIndices:Uint32Array, values:Float32Array, valuesByNode:Float32Array, direction:number, eigenvalue:number, delta:number, iterations:number, converged:boolean}}
 	 */
 	measureEigenvectorCentrality(options = {}) {
@@ -9255,16 +8045,17 @@ export class HeliosNetwork extends BaseEventTarget {
 		const maxIterations = Math.max(1, (options.maxIterations ?? 100) | 0);
 		const tolerance = Number.isFinite(options.tolerance) ? Number(options.tolerance) : 1e-6;
 		const edgeWeightAttribute = options.edgeWeightAttribute ?? null;
+		const output = this._resolveNodeMetricOutputAttribute(options.outNodeAttribute ?? null, AttributeType.Float, 'Float');
 		const weightName = edgeWeightAttribute ? new CString(this.module, String(edgeWeightAttribute)) : null;
 		const initialInfo = this._copyFloat32NodeValuesToWasm(options.initialValues ?? null);
 
-		const outPtr = this.module._malloc(this.nodeCapacity * Float32Array.BYTES_PER_ELEMENT);
+		const outPtr = output?.pointer ?? this.module._malloc(this.nodeCapacity * Float32Array.BYTES_PER_ELEMENT);
 		const eigenvaluePtr = this.module._malloc(Float64Array.BYTES_PER_ELEMENT);
 		const deltaPtr = this.module._malloc(Float64Array.BYTES_PER_ELEMENT);
 		const iterationsPtr = this.module._malloc(Uint32Array.BYTES_PER_ELEMENT);
 		const convergedPtr = this.module._malloc(Uint32Array.BYTES_PER_ELEMENT);
 		if (!outPtr || !eigenvaluePtr || !deltaPtr || !iterationsPtr || !convergedPtr) {
-			if (outPtr) this.module._free(outPtr);
+			if (!output && outPtr) this.module._free(outPtr);
 			if (eigenvaluePtr) this.module._free(eigenvaluePtr);
 			if (deltaPtr) this.module._free(deltaPtr);
 			if (iterationsPtr) this.module._free(iterationsPtr);
@@ -9298,7 +8089,10 @@ export class HeliosNetwork extends BaseEventTarget {
 				throw new Error('Eigenvector centrality measurement failed');
 			}
 
-			const valuesByNode = new Float32Array(this.module.HEAPF32.buffer, outPtr, this.nodeCapacity).slice();
+			const valuesByNode = this._copyFloat32NodeValuesFromPointer(outPtr);
+			if (output) {
+				this._bumpAttributeVersion('node', output.name, { op: 'set' });
+			}
 			const result = this._collectNodeMetricResult(valuesByNode, options.nodes ?? null);
 			const eigenvalue = this.module.HEAPF64[eigenvaluePtr / Float64Array.BYTES_PER_ELEMENT] ?? 0;
 			const delta = this.module.HEAPF64[deltaPtr / Float64Array.BYTES_PER_ELEMENT] ?? 0;
@@ -9313,7 +8107,9 @@ export class HeliosNetwork extends BaseEventTarget {
 				converged,
 			};
 		} finally {
-			this.module._free(outPtr);
+			if (!output) {
+				this.module._free(outPtr);
+			}
 			this.module._free(eigenvaluePtr);
 			this.module._free(deltaPtr);
 			this.module._free(iterationsPtr);
@@ -9336,6 +8132,7 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * @param {boolean} [options.accumulate=false] - Add into `initialValues` instead of resetting.
 	 * @param {Float32Array|Array<number>|null} [options.initialValues=null] - Optional node-capacity-sized seed values.
 	 * @param {Array<number>|TypedArray|null} [options.nodes=null] - Optional node subset for returned vector.
+	 * @param {string|null} [options.outNodeAttribute=null] - Optional node attribute name to store betweenness values.
 	 * @returns {{nodeIndices:Uint32Array, values:Float32Array, valuesByNode:Float32Array, processedSources:number, normalize:boolean, accumulate:boolean}}
 	 */
 	measureBetweennessCentrality(options = {}) {
@@ -9352,11 +8149,12 @@ export class HeliosNetwork extends BaseEventTarget {
 		const normalize = options.normalize !== false;
 		const accumulate = options.accumulate === true;
 		const edgeWeightAttribute = options.edgeWeightAttribute ?? null;
+		const output = this._resolveNodeMetricOutputAttribute(options.outNodeAttribute ?? null, AttributeType.Float, 'Float');
 		const weightName = edgeWeightAttribute ? new CString(this.module, String(edgeWeightAttribute)) : null;
 		const sourceInfo = this._copyIndicesToWasm(options.sourceNodes ?? null);
 		const initialInfo = this._copyFloat32NodeValuesToWasm(options.initialValues ?? null);
 
-		const outPtr = this.module._malloc(this.nodeCapacity * Float32Array.BYTES_PER_ELEMENT);
+		const outPtr = output?.pointer ?? this.module._malloc(this.nodeCapacity * Float32Array.BYTES_PER_ELEMENT);
 		if (!outPtr) {
 			if (weightName) weightName.dispose();
 			sourceInfo.dispose();
@@ -9387,7 +8185,10 @@ export class HeliosNetwork extends BaseEventTarget {
 				outPtr
 			) >>> 0;
 
-			const valuesByNode = new Float32Array(this.module.HEAPF32.buffer, outPtr, this.nodeCapacity).slice();
+			const valuesByNode = this._copyFloat32NodeValuesFromPointer(outPtr);
+			if (output) {
+				this._bumpAttributeVersion('node', output.name, { op: 'set' });
+			}
 			const result = this._collectNodeMetricResult(valuesByNode, options.nodes ?? null);
 			return {
 				...result,
@@ -9396,7 +8197,9 @@ export class HeliosNetwork extends BaseEventTarget {
 				accumulate,
 			};
 		} finally {
-			this.module._free(outPtr);
+			if (!output) {
+				this.module._free(outPtr);
+			}
 			if (weightName) {
 				weightName.dispose();
 			}
@@ -9424,11 +8227,15 @@ export class HeliosNetwork extends BaseEventTarget {
 		}
 
 		const mode = this._normalizeConnectedComponentsMode(options.mode ?? 'weak');
-		const outNodeComponentAttribute = options.outNodeComponentAttribute ?? null;
-		const outPtr = this.module._malloc(this.nodeCapacity * Uint32Array.BYTES_PER_ELEMENT);
+		const output = this._resolveNodeMetricOutputAttribute(
+			options.outNodeComponentAttribute ?? null,
+			AttributeType.UnsignedInteger,
+			'UnsignedInteger'
+		);
+		const outPtr = output?.pointer ?? this.module._malloc(this.nodeCapacity * Uint32Array.BYTES_PER_ELEMENT);
 		const largestComponentSizePtr = this.module._malloc(Uint32Array.BYTES_PER_ELEMENT);
 		if (!outPtr || !largestComponentSizePtr) {
-			if (outPtr) this.module._free(outPtr);
+			if (!output && outPtr) this.module._free(outPtr);
 			if (largestComponentSizePtr) this.module._free(largestComponentSizePtr);
 			throw new Error('Failed to allocate WASM buffers for connected components measurement');
 		}
@@ -9445,24 +8252,16 @@ export class HeliosNetwork extends BaseEventTarget {
 				largestComponentSizePtr
 			) >>> 0;
 			largestComponentSize = this.module.HEAPU32[largestComponentSizePtr / Uint32Array.BYTES_PER_ELEMENT] ?? 0;
-			valuesByNode = new Uint32Array(this.module.HEAPU32.buffer, outPtr, this.nodeCapacity).slice();
+			valuesByNode = this._copyUint32NodeValuesFromPointer(outPtr);
 		} finally {
-			this.module._free(outPtr);
+			if (!output) {
+				this.module._free(outPtr);
+			}
 			this.module._free(largestComponentSizePtr);
 		}
 
-		if (outNodeComponentAttribute) {
-			if (!this._nodeAttributes.has(outNodeComponentAttribute)) {
-				this.defineNodeAttribute(outNodeComponentAttribute, AttributeType.UnsignedInteger, 1);
-			} else {
-				const meta = this._nodeAttributes.get(outNodeComponentAttribute);
-				if (meta && meta.type !== AttributeType.UnsignedInteger) {
-					throw new Error(`Node attribute "${outNodeComponentAttribute}" must be UnsignedInteger`);
-				}
-			}
-			const { view, bumpVersion } = this.getNodeAttributeBuffer(outNodeComponentAttribute);
-			view.set(valuesByNode);
-			bumpVersion();
+		if (output) {
+			this._bumpAttributeVersion('node', output.name, { op: 'set' });
 		}
 
 		const result = this._collectNodeMetricResultUint32(valuesByNode, options.nodes ?? null);
@@ -9566,7 +8365,7 @@ export class HeliosNetwork extends BaseEventTarget {
 			outNodeComponentAttribute,
 		});
 		const valuesByNode = measured.valuesByNode;
-		const activeNodes = this.nodeIndices;
+		const activeNodes = this.withBufferAccess(() => this.nodeIndices.slice(), { nodeIndices: true });
 		const groups = new Map();
 		for (let i = 0; i < activeNodes.length; i += 1) {
 			const node = activeNodes[i];
@@ -10519,7 +9318,6 @@ function resolvePairsRelative(pairs, set) {
 export {
 	AttributeType,
 	CategorySortOrder,
-	DenseColorEncodingFormat,
 	DimensionDifferenceMethod,
 	NeighborDirection,
 	StrengthMeasure,

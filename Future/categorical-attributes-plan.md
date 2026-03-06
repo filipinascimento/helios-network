@@ -31,7 +31,7 @@
     - `30 "Category30"`
     - ...
   - Missing IDs imply unlabeled categories; use a fallback like `id-<number>` (which could be customized somehow).
-- Values remain categorical integers in the value block (dense numeric codes).
+- Values remain categorical integers in the value block (compact numeric codes).
 - On load:
   - Read the dictionary stanza if present (v/e/g-specific).
   - Populate the categorical dictionary in C-core.

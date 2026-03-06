@@ -83,19 +83,28 @@ test('browser round-trips BXNet serialization', async ({ page }) => {
 			net.defineEdgeAttribute('capacity', AttributeType.Double, 1);
 			net.defineNetworkAttribute('title', AttributeType.String, 1);
 
-			net.getNodeAttributeBuffer('mass').view[nodes[0]] = 3.25;
-			net.getEdgeAttributeBuffer('capacity').view[edges[0]] = 7.5;
+			net.withBufferAccess(() => {
+				net.getNodeAttributeBuffer('mass').view[nodes[0]] = 3.25;
+				net.getEdgeAttributeBuffer('capacity').view[edges[0]] = 7.5;
+			});
 			net.setNetworkStringAttribute('title', 'browser-bxnet');
 
 			const payload = await net.saveBXNet();
 			const restored = await HeliosNetwork.fromBXNet(payload);
 			try {
-				return {
+				for (const [scope, name] of [['node', 'mass'], ['edge', 'capacity']]) {
+					const meta = restored._ensureAttributeMetadata(scope, name);
+					restored._attributePointers(scope, name, meta);
+				}
+				const snapshot = restored.withBufferAccess(() => ({
 					directed: restored.directed,
 					nodeCount: restored.nodeCount,
 					edgeCount: restored.edgeCount,
 					mass0: restored.getNodeAttributeBuffer('mass').view[0],
 					capacity0: restored.getEdgeAttributeBuffer('capacity').view[0],
+				}));
+				return {
+					...snapshot,
 					title: restored.getNetworkStringAttribute('title'),
 				};
 			} finally {

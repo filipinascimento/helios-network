@@ -214,11 +214,11 @@ Helios Network cannot automatically detect arbitrary typed-array writes, so you 
 
 ## WASM buffer access sessions
 
-If you are consuming WASM-backed typed arrays (dense buffers, sparse buffers, index buffers, etc.), remember that WASM memory can grow and invalidate previous views.
+If you are consuming WASM-backed typed arrays (sparse attribute buffers, active index views, and similar), remember that WASM memory can grow and invalidate previous views.
 
 Use the existing buffer access helpers to avoid surprises:
 
 - `net.withBufferAccess(() => { ... })`
 - `net.startBufferAccess()` / `net.endBufferAccess()`
 
-Inside buffer access, allocation-prone calls (like structural mutations and dense repacks) will throw.
+Inside buffer access, allocation-prone calls (like structural mutations and buffer growth) will throw.

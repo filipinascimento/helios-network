@@ -1,5 +1,6 @@
 import { expect, test } from 'vitest';
 import HeliosNetwork, { AttributeType } from '../src/helios-network.js';
+import { withNodeBuffer } from './helpers/bufferAccess.js';
 
 const BATCH_NODES = 2000;
 const EDGE_REPETITIONS = 3;
@@ -23,7 +24,7 @@ test('handles batched high-volume network operations', async () => {
 		expect(newNodes.length).toBe(BATCH_NODES);
 		expect(network.nodeCount).toBeGreaterThanOrEqual(BATCH_NODES);
 
-		// Create a dense batch of edges; each node connects to the next few nodes.
+		// Create a broad batch of edges; each node connects to the next few nodes.
 		const edgePayload = [];
 		for (let i = 0; i < BATCH_NODES; i += 1) {
 			for (let j = 1; j <= EDGE_REPETITIONS; j += 1) {
@@ -38,16 +39,17 @@ test('handles batched high-volume network operations', async () => {
 
 		// Attribute buffers should scale with node count.
 		network.defineNodeAttribute('load', AttributeType.Float, 1);
-		const loadBuffer = network.getNodeAttributeBuffer('load');
-		expect(loadBuffer.view.length).toBeGreaterThanOrEqual(network.nodeCount);
+		withNodeBuffer(network, 'load', (loadBuffer) => {
+			expect(loadBuffer.view.length).toBeGreaterThanOrEqual(network.nodeCount);
 
-		for (let i = 0; i < newNodes.length; i += 1) {
-			loadBuffer.view[newNodes[i]] = Math.log1p(i);
-		}
+			for (let i = 0; i < newNodes.length; i += 1) {
+				loadBuffer.view[newNodes[i]] = Math.log1p(i);
+			}
 
-		// Validate a handful of computed values to ensure numeric stability.
-		expect(loadBuffer.view[newNodes[0]]).toBeCloseTo(0);
-		expect(loadBuffer.view[newNodes[1000]]).toBeGreaterThan(loadBuffer.view[newNodes[10]]);
+			// Validate a handful of computed values to ensure numeric stability.
+			expect(loadBuffer.view[newNodes[0]]).toBeCloseTo(0);
+			expect(loadBuffer.view[newNodes[1000]]).toBeGreaterThan(loadBuffer.view[newNodes[10]]);
+		});
 
 		// Exercise selector population on a large subset.
 		const sampledNodes = newNodes.filter((_, idx) => idx % 5 === 0);
@@ -63,8 +65,9 @@ test('handles batched high-volume network operations', async () => {
 
 		const nodesToRemove = sampledNodes.slice(0, 50);
 		network.removeNodes(nodesToRemove);
+		const activeNodes = network.withBufferAccess(() => Array.from(network.nodeIndices), { nodeIndices: true });
 		for (const nodeId of nodesToRemove) {
-			expect(Array.from(network.nodeIndices)).not.toContain(nodeId);
+			expect(activeNodes).not.toContain(nodeId);
 		}
 
 		// Query neighbours from a mid-stream node after removals to ensure adjacency is consistent.

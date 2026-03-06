@@ -1,5 +1,6 @@
 import { expect, test } from 'vitest';
 import HeliosNetwork, { AttributeType } from '../src/helios-network-inline.js';
+import { withEdgeBuffer, withNodeBuffer } from './helpers/bufferAccess.js';
 
 function makeRng(seed = 1) {
 	let state = seed >>> 0;
@@ -44,11 +45,12 @@ test('steppable Leiden session reports progress and finalizes', async () => {
 	try {
 		network.defineEdgeAttribute('w', AttributeType.Float, 1);
 		const edgeIds = network.addEdges(edges);
-		const weights = network.getEdgeAttributeBuffer('w').view;
-		for (let i = 0; i < edgeIds.length; i += 1) {
-			const e = edges[i];
-			weights[edgeIds[i]] = truth[e.from] === truth[e.to] ? 2.0 : 0.5;
-		}
+		withEdgeBuffer(network, 'w', ({ view: weights }) => {
+			for (let i = 0; i < edgeIds.length; i += 1) {
+				const e = edges[i];
+				weights[edgeIds[i]] = truth[e.from] === truth[e.to] ? 2.0 : 0.5;
+			}
+		});
 
 		const session = network.createLeidenSession({
 			resolution: 1,
@@ -81,8 +83,9 @@ test('steppable Leiden session reports progress and finalizes', async () => {
 			expect(communityCount).toBeGreaterThan(1);
 			expect(modularity).toBeGreaterThanOrEqual(0);
 			expect(session.isFinalized()).toBe(true);
-			const view = network.getNodeAttributeBuffer('community_session').view;
-			expect(view.length).toBeGreaterThanOrEqual(network.nodeCount);
+			withNodeBuffer(network, 'community_session', ({ view }) => {
+				expect(view.length).toBeGreaterThanOrEqual(network.nodeCount);
+			});
 		} finally {
 			session.dispose();
 		}

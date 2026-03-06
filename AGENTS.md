@@ -4,22 +4,14 @@ This repository is a WebAssembly-first graph store: a C17/C23 core compiled with
 
 ## Non‑negotiables (WASM + performance)
 
-1) **WASM views can become invalid after allocation / memory growth.** Any `TypedArray` that views `wasmMemory.buffer` (dense buffers, sparse attribute buffers, index buffers, etc.) may be detached/repointed when the WASM heap grows. Do not cache these views across calls that might allocate.
+1) **WASM views can become invalid after allocation / memory growth.** Any `TypedArray` that views `wasmMemory.buffer` (attribute buffers, active-index buffers, etc.) may be detached/repointed when the WASM heap grows. Do not cache these views across calls that might allocate.
 
-2) **Avoid duplication.** Prefer operating on WASM-backed buffers and passing views through (e.g. to WebGL/WebGPU). Avoid creating/keeping JS-side copies of large buffers, except when you explicitly need a *dense packed* snapshot (dense buffers) or there is no alternative.
-
-Clarification:
-- **Dense packed buffers are OK** as a form of duplication **inside WASM** (they are an intentional, GPU-friendly repack into contiguous linear memory).
-- **Avoid duplication outside WASM**: do not materialize or retain large JS-owned copies of WASM data (e.g. `Array.from(view)`, `view.slice()`, `Uint8Array.from(...)`, spreading into `number[]`), unless there is no other way.
+2) **Avoid duplication.** Prefer operating on WASM-backed buffers and passing views through (e.g. to WebGL/WebGPU). Avoid creating or keeping JS-side copies of large buffers unless there is no other way.
 
 Practical rule: **allocate first, view second**.
 
 - Do allocation-prone work *before* taking any `TypedArray` views.
 - Then access buffers inside `withBufferAccess(...)` (or `startBufferAccess()` / `endBufferAccess()`) so allocation-prone calls throw instead of silently invalidating views.
-
-Relevant docs:
-- `docs/dense-buffer-sessions.md`
-- `docs/visualization-buffers.md`
 
 ## Quickstart (common commands)
 
@@ -46,11 +38,10 @@ Generated / do-not-hand-edit:
 
 - Treat anything that may allocate as unsafe while holding views, including:
   - `addNodes`, `addEdges`, attribute (re)definitions, removals
-  - dense repack calls like `updateDense*` (they may grow WASM memory)
-  - helpers that return JS-owned copies (e.g. `nodeIndices` / `edgeIndices`)
+  - helpers that create JS-owned copies (e.g. `Array.from(view)`, `view.slice()`)
 - Preferred pattern:
-  - Call `updateDense*` for everything you need (may allocate).
-  - Enter `withBufferAccess` and only then obtain views (`getDense*View`, `get*AttributeBuffer`, etc.).
+  - Perform allocation-prone work first.
+  - Enter `withBufferAccess` and only then obtain views (`nodeIndices`, `edgeIndices`, `get*AttributeBuffer`, etc.).
   - Use versions/topology versions (see `docs/versioning.md`) to decide whether to re-upload to GPU instead of copying every frame.
 
 ## File formats (xnet/bxnet/zxnet)

@@ -1,5 +1,11 @@
 # CHANGES
 
+## 2026-03-06
+
+- Removed the legacy packed-buffer API surface and the related documentation/tests.
+- `nodeIndices` / `edgeIndices` now expose persistent WASM-backed active-index views instead of materializing cached JS copies.
+- Simplified visualization guidance around sparse attribute buffers, active-index views, and `withBufferAccess(...)`.
+
 ## 2026-03-03
 
 - Added connected-components support across native C, JS/WASM, and Python:
@@ -95,7 +101,7 @@
 
 ## 2026-01-22
 
-- Fixed node→edge passthrough updates to refresh dense edge buffers when the source node attribute version changes (version-based refresh, not just dirty flags).
+- Fixed node→edge passthrough updates to refresh derived edge buffers when the source node attribute version changes (version-based refresh, not just dirty flags).
 
 ## 2026-01-19
 
@@ -129,7 +135,7 @@
 
 ## 2026-01-02
 
-- Added `getBufferMemoryUsage()` to report WASM buffer memory usage (topology buffers including node/edge free lists, sparse attributes, dense buffers) plus total WASM heap size.
+- Added `getBufferMemoryUsage()` to report WASM buffer memory usage (topology buffers including node/edge free lists and sparse attributes) plus total WASM heap size.
 
 ## 2025-12-23
 
@@ -138,32 +144,20 @@
 - Serialization updated:
   - XNET: `i`/`u` now represent 32-bit integers; new `I`/`U` tokens represent 64-bit big integers.
   - BXNet/ZXNet: integer attribute storage widths now reflect 32-bit vs 64-bit types.
-- Dense buffers follow the same typing changes (dense views for integer attributes now return 32-bit arrays; big integers return BigInt arrays). Color-encoding remains limited to 32-bit integer attributes.
+- Integer and big-integer attribute storage typing was aligned across the buffer APIs; color encoding remains limited to 32-bit integer attributes.
 
 ## 2025-02-20
 
-- Added stable version counters for sparse attributes, dense buffers (including color-encoded), and topology. Versions start at 0, wrap at `Number.MAX_SAFE_INTEGER`, and are exposed on all dense descriptors (index views also expose `topologyVersion`) plus sparse wrappers.
+- Added stable version counters for sparse attributes and topology. Versions start at 0, wrap at `Number.MAX_SAFE_INTEGER`, and are exposed on sparse wrappers plus active-index views via `version`.
 - Introduced versioning helpers: `getTopologyVersions()`, `get*AttributeVersion(...)`, and manual bumpers on attribute wrappers / `bump*AttributeVersion` APIs for direct buffer writes.
-- Deprecated dirty-flag workflows; `markDense*Dirty` now emits a warning. Dirty booleans remain for compatibility, but consumers should cache and compare versions.
-- Documented the new flow in `docs/versioning.md` and refreshed dense buffer docs to highlight versioning-first change detection.
-
-## 2025-02-10
-
-- Added dense color-encoded node/edge buffers (u8x4/u32x4) with `(value + 1)` packing, dirty tracking, and dense-order support for GPU-friendly picking; exposed JS APIs (`define/update/getDenseColorEncoded*Attribute`) and `DenseColorEncodingFormat`.
-- Index convenience now uses the literal source name `"$index"` to encode ids without defining an attribute (was `index` previously).
-- Documented the new buffers in `docs/dense-buffer-sessions.md` and updated exports.
-- Added regression coverage in `tests/node_helios.test.js` for color-encoded buffers.
+- Documented the new flow in `docs/versioning.md` around versioning-first change detection.
 
 ## 2025-02-02 (developer notes)
 
 - Removed public `nodeActivityView` / `edgeActivityView` accessors. Active tracking remains in the C core (bitsets), but JS no longer exposes raw masks.
 - Added active index helpers:
-  - `nodeIndices` / `edgeIndices`: return copied `Uint32Array`s of active ids in native order (allocated on call; use outside `withBufferAccess`).
+  - `nodeIndices` / `edgeIndices`: expose WASM-backed active id views in native order.
   - `hasNodeIndex` / `hasEdgeIndex` and batch `hasNodeIndices` / `hasEdgeIndices`: check activity via the native bitsets.
-- Active index copies are now cached per topology version and regenerated only when structure changes (add/remove/compact).
-- Fastest ways to iterate active ids:
-  - For general iteration (e.g. to check/modify sparse attributes): use the cached `nodeIndices` / `edgeIndices` snapshots (regenerated on topology changes).
-  - For render-aligned order: call `updateDense*IndexBuffer()` once after edits, then iterate `getDense*IndexView().view` (respects `setDense*Order` and only repacks when dirty).
 - Added full-coverage selectors `network.nodes` / `network.edges` that represent all active ids without storing masks; they materialize ids via the active-index writers.
-- Updated docs (`docs/selectors.md`, `docs/visualization-buffers.md`) and tests to reflect selector usage instead of activity views; compact now remaps using active index lists.
+- Updated docs and tests to reflect selector usage instead of activity views; compact now remaps using active index lists.
 - Browser and Node tests updated to cover the new helpers and the selector lifecycle.

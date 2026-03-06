@@ -3026,9 +3026,6 @@ PyMODINIT_FUNC PyInit__core(void) {
     PyModule_AddIntConstant(module, "SCOPE_EDGE", CXAttributeScopeEdge);
     PyModule_AddIntConstant(module, "SCOPE_NETWORK", CXAttributeScopeNetwork);
 
-    PyModule_AddIntConstant(module, "DENSE_COLOR_U8X4", CXDenseColorFormatU8x4);
-    PyModule_AddIntConstant(module, "DENSE_COLOR_U32X4", CXDenseColorFormatU32x4);
-
     PyModule_AddIntConstant(module, "CATEGORY_SORT_NONE", CX_CATEGORY_SORT_NONE);
     PyModule_AddIntConstant(module, "CATEGORY_SORT_FREQUENCY", CX_CATEGORY_SORT_FREQUENCY);
     PyModule_AddIntConstant(module, "CATEGORY_SORT_ALPHABETICAL", CX_CATEGORY_SORT_ALPHABETICAL);

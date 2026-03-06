@@ -29,11 +29,6 @@ class AttributeScope(enum.IntEnum):
     Network = _core.SCOPE_NETWORK
 
 
-class DenseColorEncodingFormat(enum.IntEnum):
-    Uint8x4 = _core.DENSE_COLOR_U8X4
-    Uint32x4 = _core.DENSE_COLOR_U32X4
-
-
 class CategorySortOrder(enum.IntEnum):
     None_ = _core.CATEGORY_SORT_NONE
     Frequency = _core.CATEGORY_SORT_FREQUENCY
@@ -93,7 +88,6 @@ __all__ = [
     "Network",
     "AttributeType",
     "AttributeScope",
-    "DenseColorEncodingFormat",
     "CategorySortOrder",
     "DimensionMethod",
     "NeighborDirection",

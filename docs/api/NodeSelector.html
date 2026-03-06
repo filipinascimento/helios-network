@@ -247,7 +247,7 @@
         <p class="tag-source">
             <a href="HeliosNetwork.js.html" class="button">View Source</a>
             <span>
-                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line973">line 973</a>
+                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1011">line 1011</a>
             </span>
         </p>
     
@@ -369,7 +369,7 @@
         <p class="tag-source">
             <a href="HeliosNetwork.js.html" class="button">View Source</a>
             <span>
-                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1102">line 1102</a>
+                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1140">line 1140</a>
             </span>
         </p>
     
@@ -639,7 +639,7 @@
         <p class="tag-source">
             <a href="HeliosNetwork.js.html" class="button">View Source</a>
             <span>
-                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1090">line 1090</a>
+                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1128">line 1128</a>
             </span>
         </p>
     
@@ -896,7 +896,7 @@ console.log(weights[0]); // weight for the first node in the selector</code></pr
         <p class="tag-source">
             <a href="HeliosNetwork.js.html" class="button">View Source</a>
             <span>
-                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1223">line 1223</a>
+                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1278">line 1278</a>
             </span>
         </p>
     
@@ -1081,7 +1081,7 @@ console.log(selector.degree({ mode: 'out' })); // [2, 0]</code></pre>
         <p class="tag-source">
             <a href="HeliosNetwork.js.html" class="button">View Source</a>
             <span>
-                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1035">line 1035</a>
+                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1073">line 1073</a>
             </span>
         </p>
     
@@ -1282,7 +1282,7 @@ console.log(selector.degree({ mode: 'out' })); // [2, 0]</code></pre>
         <p class="tag-source">
             <a href="HeliosNetwork.js.html" class="button">View Source</a>
             <span>
-                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1048">line 1048</a>
+                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1086">line 1086</a>
             </span>
         </p>
     
@@ -1421,7 +1421,7 @@ console.log(selector.degree({ mode: 'out' })); // [2, 0]</code></pre>
         <p class="tag-source">
             <a href="HeliosNetwork.js.html" class="button">View Source</a>
             <span>
-                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1072">line 1072</a>
+                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1110">line 1110</a>
             </span>
         </p>
     
@@ -1702,7 +1702,7 @@ console.log(selector.degree({ mode: 'out' })); // [2, 0]</code></pre>
         <p class="tag-source">
             <a href="HeliosNetwork.js.html" class="button">View Source</a>
             <span>
-                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1256">line 1256</a>
+                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1311">line 1311</a>
             </span>
         </p>
     
@@ -2038,7 +2038,7 @@ console.log([...touching]); // [edges[0]]</code></pre>
         <p class="tag-source">
             <a href="HeliosNetwork.js.html" class="button">View Source</a>
             <span>
-                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1160">line 1160</a>
+                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1198">line 1198</a>
             </span>
         </p>
     
@@ -2103,6 +2103,800 @@ const selector = net.createNodeSelector([nodes[0]]);
 const { nodes: neighbours } = selector.neighbors({ mode: 'both' });
 console.log([...neighbours]); // neighbouring node indices for nodes[0]</code></pre>
     
+
+
+</div>
+            
+                <div class="member">
+
+
+    
+    <h4 class="name" id="neighborsAtLevel">
+        <a class="href-link" href="#neighborsAtLevel">#</a>
+        
+        <span class="code-name">
+            
+                neighborsAtLevel<span class="signature">(level, options<span class="signature-attributes">opt</span>)</span><span class="type-signature"> &rarr; {Uint32Array|Object}</span>
+            
+        </span>
+    </h4>
+    
+
+    
+    
+    <div class="description">
+        <p>Computes neighbors at exactly the requested hop distance from this selector.</p>
+    </div>
+    
+
+
+
+
+
+
+
+
+
+    <h5>Parameters:</h5>
+    
+<div class="table-container">
+    <table class="params table">
+        <thead>
+        <tr>
+            
+            <th>Name</th>
+            
+
+            <th>Type</th>
+
+            
+            <th>Attributes</th>
+            
+
+            
+            <th>Default</th>
+            
+
+            <th class="last">Description</th>
+        </tr>
+        </thead>
+
+        <tbody>
+        
+
+            
+<tr class="deep-level-0">
+  
+      <td class="name"><code>level</code></td>
+  
+
+  <td class="type">
+  
+      
+<code class="param-type">number</code>
+
+
+  
+  </td>
+
+  
+      <td class="attributes">
+      
+
+      
+
+      
+      </td>
+  
+
+  
+      <td class="default">
+      
+      </td>
+  
+
+  <td class="description last"><p>Target concentric level (0 = sources).</p></td>
+</tr>
+
+
+        
+
+            
+<tr class="deep-level-0">
+  
+      <td class="name"><code>options</code></td>
+  
+
+  <td class="type">
+  
+      
+<code class="param-type">Object</code>
+
+
+  
+  </td>
+
+  
+      <td class="attributes">
+      
+          &lt;optional><br>
+      
+
+      
+
+      
+      </td>
+  
+
+  
+      <td class="default">
+      
+      </td>
+  
+
+  <td class="description last"><p>Query options.</p></td>
+</tr>
+
+  
+  
+    
+<tr class="deep-level-1">
+  
+      <td class="name"><code>mode</code></td>
+  
+
+  <td class="type">
+  
+      
+<code class="param-type">'out'</code>
+|
+
+<code class="param-type">'in'</code>
+|
+
+<code class="param-type">'both'</code>
+|
+
+<code class="param-type">'all'</code>
+
+
+  
+  </td>
+
+  
+      <td class="attributes">
+      
+          &lt;optional><br>
+      
+
+      
+
+      
+      </td>
+  
+
+  
+      <td class="default">
+      
+          'out'
+      
+      </td>
+  
+
+  <td class="description last"><p>Traversal direction.</p></td>
+</tr>
+
+  
+    
+<tr class="deep-level-1">
+  
+      <td class="name"><code>includeEdges</code></td>
+  
+
+  <td class="type">
+  
+      
+<code class="param-type">boolean</code>
+
+
+  
+  </td>
+
+  
+      <td class="attributes">
+      
+          &lt;optional><br>
+      
+
+      
+
+      
+      </td>
+  
+
+  
+      <td class="default">
+      
+          false
+      
+      </td>
+  
+
+  <td class="description last"><p>When true, include traversed edge ids.</p></td>
+</tr>
+
+  
+    
+<tr class="deep-level-1">
+  
+      <td class="name"><code>includeSources</code></td>
+  
+
+  <td class="type">
+  
+      
+<code class="param-type">boolean</code>
+
+
+  
+  </td>
+
+  
+      <td class="attributes">
+      
+          &lt;optional><br>
+      
+
+      
+
+      
+      </td>
+  
+
+  
+      <td class="default">
+      
+          false
+      
+      </td>
+  
+
+  <td class="description last"><p>Whether source nodes can appear in results.</p></td>
+</tr>
+
+  
+    
+<tr class="deep-level-1">
+  
+      <td class="name"><code>asSelector</code></td>
+  
+
+  <td class="type">
+  
+      
+<code class="param-type">boolean</code>
+
+
+  
+  </td>
+
+  
+      <td class="attributes">
+      
+          &lt;optional><br>
+      
+
+      
+
+      
+      </td>
+  
+
+  
+      <td class="default">
+      
+          false
+      
+      </td>
+  
+
+  <td class="description last"><p>When true, returns selector proxies.</p></td>
+</tr>
+
+  
+
+
+        
+        </tbody>
+    </table>
+</div>
+
+
+
+
+
+<dl class="details">
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+    
+
+    
+
+    
+
+    
+        <p class="tag-source">
+            <a href="HeliosNetwork.js.html" class="button">View Source</a>
+            <span>
+                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1223">line 1223</a>
+            </span>
+        </p>
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    <div class='columns method-parameter'>
+        <div class="column is-2"><label>Returns:</label></div>
+        <div class="column is-10">
+            
+                    
+
+<div class="columns">
+    
+    
+    <div class='column is-5 has-text-left'>
+        <label>Type: </label>
+        
+<code class="param-type">Uint32Array</code>
+|
+
+<code class="param-type">Object</code>
+
+
+    </div>
+    
+</div>
+
+                
+        </div>
+    </div>
+
+
+
+
+</div>
+            
+                <div class="member">
+
+
+    
+    <h4 class="name" id="neighborsUpToLevel">
+        <a class="href-link" href="#neighborsUpToLevel">#</a>
+        
+        <span class="code-name">
+            
+                neighborsUpToLevel<span class="signature">(maxLevel, options<span class="signature-attributes">opt</span>)</span><span class="type-signature"> &rarr; {Uint32Array|Object}</span>
+            
+        </span>
+    </h4>
+    
+
+    
+    
+    <div class="description">
+        <p>Computes neighbors up to the requested hop distance from this selector.</p>
+    </div>
+    
+
+
+
+
+
+
+
+
+
+    <h5>Parameters:</h5>
+    
+<div class="table-container">
+    <table class="params table">
+        <thead>
+        <tr>
+            
+            <th>Name</th>
+            
+
+            <th>Type</th>
+
+            
+            <th>Attributes</th>
+            
+
+            
+            <th>Default</th>
+            
+
+            <th class="last">Description</th>
+        </tr>
+        </thead>
+
+        <tbody>
+        
+
+            
+<tr class="deep-level-0">
+  
+      <td class="name"><code>maxLevel</code></td>
+  
+
+  <td class="type">
+  
+      
+<code class="param-type">number</code>
+
+
+  
+  </td>
+
+  
+      <td class="attributes">
+      
+
+      
+
+      
+      </td>
+  
+
+  
+      <td class="default">
+      
+      </td>
+  
+
+  <td class="description last"><p>Maximum concentric level (inclusive).</p></td>
+</tr>
+
+
+        
+
+            
+<tr class="deep-level-0">
+  
+      <td class="name"><code>options</code></td>
+  
+
+  <td class="type">
+  
+      
+<code class="param-type">Object</code>
+
+
+  
+  </td>
+
+  
+      <td class="attributes">
+      
+          &lt;optional><br>
+      
+
+      
+
+      
+      </td>
+  
+
+  
+      <td class="default">
+      
+      </td>
+  
+
+  <td class="description last"><p>Query options.</p></td>
+</tr>
+
+  
+  
+    
+<tr class="deep-level-1">
+  
+      <td class="name"><code>mode</code></td>
+  
+
+  <td class="type">
+  
+      
+<code class="param-type">'out'</code>
+|
+
+<code class="param-type">'in'</code>
+|
+
+<code class="param-type">'both'</code>
+|
+
+<code class="param-type">'all'</code>
+
+
+  
+  </td>
+
+  
+      <td class="attributes">
+      
+          &lt;optional><br>
+      
+
+      
+
+      
+      </td>
+  
+
+  
+      <td class="default">
+      
+          'out'
+      
+      </td>
+  
+
+  <td class="description last"><p>Traversal direction.</p></td>
+</tr>
+
+  
+    
+<tr class="deep-level-1">
+  
+      <td class="name"><code>includeEdges</code></td>
+  
+
+  <td class="type">
+  
+      
+<code class="param-type">boolean</code>
+
+
+  
+  </td>
+
+  
+      <td class="attributes">
+      
+          &lt;optional><br>
+      
+
+      
+
+      
+      </td>
+  
+
+  
+      <td class="default">
+      
+          false
+      
+      </td>
+  
+
+  <td class="description last"><p>When true, include traversed edge ids.</p></td>
+</tr>
+
+  
+    
+<tr class="deep-level-1">
+  
+      <td class="name"><code>includeSources</code></td>
+  
+
+  <td class="type">
+  
+      
+<code class="param-type">boolean</code>
+
+
+  
+  </td>
+
+  
+      <td class="attributes">
+      
+          &lt;optional><br>
+      
+
+      
+
+      
+      </td>
+  
+
+  
+      <td class="default">
+      
+          false
+      
+      </td>
+  
+
+  <td class="description last"><p>Whether source nodes can appear in results.</p></td>
+</tr>
+
+  
+    
+<tr class="deep-level-1">
+  
+      <td class="name"><code>asSelector</code></td>
+  
+
+  <td class="type">
+  
+      
+<code class="param-type">boolean</code>
+
+
+  
+  </td>
+
+  
+      <td class="attributes">
+      
+          &lt;optional><br>
+      
+
+      
+
+      
+      </td>
+  
+
+  
+      <td class="default">
+      
+          false
+      
+      </td>
+  
+
+  <td class="description last"><p>When true, returns selector proxies.</p></td>
+</tr>
+
+  
+
+
+        
+        </tbody>
+    </table>
+</div>
+
+
+
+
+
+<dl class="details">
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+    
+
+    
+
+    
+
+    
+        <p class="tag-source">
+            <a href="HeliosNetwork.js.html" class="button">View Source</a>
+            <span>
+                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1249">line 1249</a>
+            </span>
+        </p>
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    <div class='columns method-parameter'>
+        <div class="column is-2"><label>Returns:</label></div>
+        <div class="column is-10">
+            
+                    
+
+<div class="columns">
+    
+    
+    <div class='column is-5 has-text-left'>
+        <label>Type: </label>
+        
+<code class="param-type">Uint32Array</code>
+|
+
+<code class="param-type">Object</code>
+
+
+    </div>
+    
+</div>
+
+                
+        </div>
+    </div>
+
+
 
 
 </div>
@@ -2256,7 +3050,7 @@ console.log([...neighbours]); // neighbouring node indices for nodes[0]</code></
         <p class="tag-source">
             <a href="HeliosNetwork.js.html" class="button">View Source</a>
             <span>
-                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line982">line 982</a>
+                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1020">line 1020</a>
             </span>
         </p>
     
@@ -2454,7 +3248,7 @@ console.log([...neighbours]); // neighbouring node indices for nodes[0]</code></
         <p class="tag-source">
             <a href="HeliosNetwork.js.html" class="button">View Source</a>
             <span>
-                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line996">line 996</a>
+                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1034">line 1034</a>
             </span>
         </p>
     
@@ -2656,7 +3450,7 @@ console.log([...neighbours]); // neighbouring node indices for nodes[0]</code></
         <p class="tag-source">
             <a href="HeliosNetwork.js.html" class="button">View Source</a>
             <span>
-                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1009">line 1009</a>
+                <a href="HeliosNetwork.js.html">HeliosNetwork.js</a>, <a href="HeliosNetwork.js.html#line1047">line 1047</a>
             </span>
         </p>
     

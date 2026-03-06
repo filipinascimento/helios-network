@@ -1,5 +1,6 @@
 import { expect, test } from 'vitest';
 import HeliosNetwork, { AttributeType } from '../src/helios-network.js';
+import { withEdgeBuffer, withNodeBuffer } from './helpers/bufferAccess.js';
 
 test('can create network and add nodes/edges', async () => {
 	const network = await HeliosNetwork.create({ directed: true, initialNodes: 2 });
@@ -17,9 +18,10 @@ test('can create network and add nodes/edges', async () => {
 	expect(network.edgeCount).toBe(2);
 
 	network.defineNodeAttribute('weight', AttributeType.Float, 1);
-	const weightBuffer = network.getNodeAttributeBuffer('weight');
-	weightBuffer.view[ newNodes[0] ] = 42.5;
-	expect(weightBuffer.view[newNodes[0]]).toBeCloseTo(42.5);
+	withNodeBuffer(network, 'weight', (weightBuffer) => {
+		weightBuffer.view[newNodes[0]] = 42.5;
+		expect(weightBuffer.view[newNodes[0]]).toBeCloseTo(42.5);
+	});
 
 	network.dispose();
 });
@@ -29,19 +31,21 @@ test('can select nodes and edges with query expressions', async () => {
 	const nodes = network.addNodes(3);
 
 	network.defineNodeAttribute('score', AttributeType.Float, 1);
-	const scoreBuffer = network.getNodeAttributeBuffer('score');
-	scoreBuffer.view[nodes[0]] = 0.5;
-	scoreBuffer.view[nodes[1]] = 2.0;
-	scoreBuffer.view[nodes[2]] = 3.5;
+	withNodeBuffer(network, 'score', (scoreBuffer) => {
+		scoreBuffer.view[nodes[0]] = 0.5;
+		scoreBuffer.view[nodes[1]] = 2.0;
+		scoreBuffer.view[nodes[2]] = 3.5;
+	});
 
 	const selectedNodes = network.selectNodes('score > 1.0');
 	expect(Array.from(selectedNodes)).toEqual([nodes[1], nodes[2]]);
 
 	network.defineNodeAttribute('flag', AttributeType.Integer, 1);
-	const flagBuffer = network.getNodeAttributeBuffer('flag');
-	flagBuffer.view[nodes[0]] = 1;
-	flagBuffer.view[nodes[1]] = 0;
-	flagBuffer.view[nodes[2]] = 1;
+	withNodeBuffer(network, 'flag', (flagBuffer) => {
+		flagBuffer.view[nodes[0]] = 1;
+		flagBuffer.view[nodes[1]] = 0;
+		flagBuffer.view[nodes[2]] = 1;
+	});
 
 	const edges = network.addEdges([
 		{ from: nodes[0], to: nodes[1] },
@@ -63,14 +67,15 @@ test('can select nodes and edges with query expressions', async () => {
 	expect(Array.from(regexNodes)).toEqual([nodes[2]]);
 
 	network.defineNodeAttribute('vec2', AttributeType.Float, 2);
-	const vecBuffer = network.getNodeAttributeBuffer('vec2');
 	const dim = 2;
-	vecBuffer.view[nodes[0] * dim] = 0.2;
-	vecBuffer.view[nodes[0] * dim + 1] = 0.4;
-	vecBuffer.view[nodes[1] * dim] = 1.5;
-	vecBuffer.view[nodes[1] * dim + 1] = 0.1;
-	vecBuffer.view[nodes[2] * dim] = 0.3;
-	vecBuffer.view[nodes[2] * dim + 1] = 2.2;
+	withNodeBuffer(network, 'vec2', (vecBuffer) => {
+		vecBuffer.view[nodes[0] * dim] = 0.2;
+		vecBuffer.view[nodes[0] * dim + 1] = 0.4;
+		vecBuffer.view[nodes[1] * dim] = 1.5;
+		vecBuffer.view[nodes[1] * dim + 1] = 0.1;
+		vecBuffer.view[nodes[2] * dim] = 0.3;
+		vecBuffer.view[nodes[2] * dim + 1] = 2.2;
+	});
 
 	const vectorNodes = network.selectNodes('vec2 > 2.0');
 	expect(Array.from(vectorNodes)).toEqual([nodes[2]]);
@@ -82,13 +87,14 @@ test('can select nodes and edges with query expressions', async () => {
 	expect(Array.from(vectorIndex)).toEqual([nodes[1]]);
 
 	network.defineNodeAttribute('vec2b', AttributeType.Float, 2);
-	const vecB = network.getNodeAttributeBuffer('vec2b');
-	vecB.view[nodes[0] * dim] = 0.1;
-	vecB.view[nodes[0] * dim + 1] = 0.2;
-	vecB.view[nodes[1] * dim] = 1.0;
-	vecB.view[nodes[1] * dim + 1] = 1.0;
-	vecB.view[nodes[2] * dim] = 0.1;
-	vecB.view[nodes[2] * dim + 1] = 0.1;
+	withNodeBuffer(network, 'vec2b', (vecB) => {
+		vecB.view[nodes[0] * dim] = 0.1;
+		vecB.view[nodes[0] * dim + 1] = 0.2;
+		vecB.view[nodes[1] * dim] = 1.0;
+		vecB.view[nodes[1] * dim + 1] = 1.0;
+		vecB.view[nodes[2] * dim] = 0.1;
+		vecB.view[nodes[2] * dim + 1] = 0.1;
+	});
 
 	const vectorDot = network.selectNodes('vec2.dot(vec2b) > 1.0');
 	expect(Array.from(vectorDot)).toEqual([nodes[1]]);
@@ -110,11 +116,12 @@ test('can build filtered subgraphs with induced-edge semantics and optional orde
 	try {
 		const nodes = network.addNodes(4);
 		network.defineNodeAttribute('year', AttributeType.Integer, 1);
-		const years = network.getNodeAttributeBuffer('year').view;
-		years[nodes[0]] = 2018;
-		years[nodes[1]] = 2019;
-		years[nodes[2]] = 2020;
-		years[nodes[3]] = 2021;
+		withNodeBuffer(network, 'year', ({ view: years }) => {
+			years[nodes[0]] = 2018;
+			years[nodes[1]] = 2019;
+			years[nodes[2]] = 2020;
+			years[nodes[3]] = 2021;
+		});
 
 		network.defineEdgeAttribute('score', AttributeType.Float, 1);
 		const edges = network.addEdges([
@@ -123,11 +130,12 @@ test('can build filtered subgraphs with induced-edge semantics and optional orde
 			{ from: nodes[2], to: nodes[3] },
 			{ from: nodes[0], to: nodes[3] },
 		]);
-		const scores = network.getEdgeAttributeBuffer('score').view;
-		scores[edges[0]] = 10;
-		scores[edges[1]] = 20;
-		scores[edges[2]] = 30;
-		scores[edges[3]] = 40;
+		withEdgeBuffer(network, 'score', ({ view: scores }) => {
+			scores[edges[0]] = 10;
+			scores[edges[1]] = 20;
+			scores[edges[2]] = 30;
+			scores[edges[3]] = 40;
+		});
 
 		const filtered = network.filterSubgraph({
 			nodeQuery: 'year >= 2020',

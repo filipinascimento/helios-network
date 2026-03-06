@@ -328,22 +328,20 @@ const segmentBuffer = new Float32Array(net.module.HEAPF32.buffer, segmentPtr, 8 
 const edgesWritten = net.writeActiveEdgeSegments(net.getNodeAttributeBuffer('position').view, segmentBuffer, 4);
 net.module._free(segmentPtr);
 
-// Or use dense packing to propagate node attributes to edges without manual copies (passthrough)
+// Or propagate node attributes to edges without manual copies (passthrough)
 net.defineNodeToEdgeAttribute('position', 'position_endpoints', 'both');
-net.updateDenseEdgeAttributeBuffer('position_endpoints'); // aligned with updateDenseEdgeIndexBuffer
-const denseEdgePositions = net.getDenseEdgeAttributeView('position_endpoints');
-const posPairs = denseEdgePositions.view;
-const lastEdgeIds = net.getDenseEdgeIndexView();
+const posPairs = net.getEdgeAttributeBuffer('position_endpoints').view;
+const lastEdgeIds = net.edgeIndices;
 ```
 
-`writeActiveNodes` / `writeActiveEdges` return the required length; nothing is written when the provided buffer is too small. `writeActiveEdgeSegments` writes two vectors per edge into `segments` using the requested stride (`componentsPerNode`). For dense workflows you now have two paths:
+`writeActiveNodes` / `writeActiveEdges` return the required length; nothing is written when the provided buffer is too small. `writeActiveEdgeSegments` writes two vectors per edge into `segments` using the requested stride (`componentsPerNode`). For render/update workflows there are two main paths:
 
-- **Passthrough edges (recommended for render data)**: `defineNodeToEdgeAttribute(sourceNodeAttr, edgeAttr, endpoints='both', doubleWidth=true)` declares an edge attribute derived from nodes. Calling `updateDenseEdgeAttributeBuffer(edgeAttr)` will copy from nodes into the edge buffer (using native code) and then pack it densely. Bump the source node attribute version (or call `bumpNodeAttributeVersion`) after writes so dependents see the change.
-- **Manual sparse copy**: `copyNodeAttributeToEdgeAttribute(sourceNodeAttr, edgeAttr, endpoints='both', doubleWidth=true)` fills the sparse edge attribute once (honouring endpoint/duplication), then you can mutate it further and call `updateDenseEdgeAttributeBuffer` yourself.
+- **Passthrough edges**: `defineNodeToEdgeAttribute(sourceNodeAttr, edgeAttr, endpoints='both', doubleWidth=true)` declares an edge attribute derived from nodes and keeps the sparse edge buffer in sync.
+- **Manual sparse copy**: `copyNodeAttributeToEdgeAttribute(sourceNodeAttr, edgeAttr, endpoints='both', doubleWidth=true)` fills the sparse edge attribute once, then you can mutate it further yourself.
 
-Cleanup: remove dense tracking with `removeDenseNodeAttributeBuffer` / `removeDenseEdgeAttributeBuffer` or unregister a passthrough via `removeNodeToEdgeAttribute(edgeAttr)`. To delete sparse attributes entirely (and their dense buffers), call `removeNodeAttribute`, `removeEdgeAttribute`, or `removeNetworkAttribute`. A passthrough edge name must not already exist as a defined edge attribute.
+Cleanup: unregister a passthrough via `removeNodeToEdgeAttribute(edgeAttr)`. To delete sparse attributes entirely, call `removeNodeAttribute`, `removeEdgeAttribute`, or `removeNetworkAttribute`. A passthrough edge name must not already exist as a defined edge attribute.
 
-Prefer the dense APIs for render paths; the `writeActive*` helpers remain available for low-level, caller-managed buffers when you need direct WASM writes without packing.
+`nodeIndices` / `edgeIndices` now behave like other WASM-backed views: they expose the active ids in native order, stay stable until topology growth forces a resize, and should be treated with the same allocate-first/view-second discipline as attribute buffers.
 
 ### Browser bundlers & inline WASM
 
@@ -463,7 +461,7 @@ For full Node.js and browser walkthroughs—saving to disk, generating downloads
 
 Full JSDoc comments inside `src/js/HeliosNetwork.js` describe signatures and behaviours. You can generate HTML docs as shown below.
 
-Selectors, traversal helpers, and dense index conveniences are covered in [`docs/selectors.md`](docs/selectors.md).
+Selectors, traversal helpers, and active-index helpers are covered in [`docs/selectors.md`](docs/selectors.md).
 
 ---
 
@@ -493,12 +491,8 @@ The public headers under `src/native/include/helios/` define the C API, intended
 ### Active index helpers
 
 - **Fill APIs**: `CXNetworkWriteActiveNodes` / `CXNetworkWriteActiveEdges` write active indices into caller-provided `uint32_t*` buffers. If `capacity` is insufficient, the required size is returned and no writes occur.
-- **Edge copies**: `CXNetworkWriteActiveEdgeSegments(network, positions, componentsPerNode, dst, dstCapacityEdges)` copies two position vectors per active edge (`componentsPerNode` floats each, typically vec4) directly into `dst`. `CXNetworkWriteEdgeNodeAttributesInOrder` mirrors this for arbitrary node attributes and follows the stored dense edge order.
+- **Edge copies**: `CXNetworkWriteActiveEdgeSegments(network, positions, componentsPerNode, dst, dstCapacityEdges)` copies two position vectors per active edge (`componentsPerNode` floats each, typically vec4) directly into `dst`. `CXNetworkWriteEdgeNodeAttributesInOrder` mirrors this for arbitrary node attributes.
 - **Lifetime**: Buffers you supply remain under your control; the functions are read-only over the network state and will not resize your allocations.
-
-### Dense attribute buffers
-
-Advanced usage for render-ready dense buffers (packing, ordering, versioning / legacy dirty flags, valid ranges) lives in [`docs/visualization-buffers.md`](docs/visualization-buffers.md).
 
 ---
 

@@ -1,5 +1,6 @@
 import { expect, test } from 'vitest';
 import HeliosNetwork, { AttributeType } from '../src/helios-network-inline.js';
+import { withEdgeBuffer, withNodeBuffer } from './helpers/bufferAccess.js';
 
 function makeRingEdges(n) {
 	const edges = [];
@@ -27,10 +28,11 @@ test('Leiden can run in a worker and apply results', async () => {
 	try {
 		network.defineEdgeAttribute('w', AttributeType.Float, 1);
 		const edgeIds = network.addEdges(edges);
-		const weights = network.getEdgeAttributeBuffer('w').view;
-		for (let i = 0; i < edgeIds.length; i += 1) {
-			weights[edgeIds[i]] = 1.0;
-		}
+		withEdgeBuffer(network, 'w', ({ view: weights }) => {
+			for (let i = 0; i < edgeIds.length; i += 1) {
+				weights[edgeIds[i]] = 1.0;
+			}
+		});
 		network.bumpEdgeAttributeVersion('w');
 
 		const session = network.createLeidenSession({
@@ -52,8 +54,9 @@ test('Leiden can run in a worker and apply results', async () => {
 		expect(Number.isFinite(result.modularity)).toBe(true);
 
 		expect(network.getNodeAttributeVersion('community_worker')).toBeGreaterThan(0);
-		const comm = network.getNodeAttributeBuffer('community_worker').view;
-		expect(comm.length).toBeGreaterThanOrEqual(network.nodeCount);
+		withNodeBuffer(network, 'community_worker', ({ view: comm }) => {
+			expect(comm.length).toBeGreaterThanOrEqual(network.nodeCount);
+		});
 	} finally {
 		network.dispose();
 	}

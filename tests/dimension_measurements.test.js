@@ -1,5 +1,6 @@
 import { expect, test } from 'vitest';
 import HeliosNetwork, { AttributeType, DimensionDifferenceMethod } from '../src/helios-network.js';
+import { withNodeBuffer } from './helpers/bufferAccess.js';
 
 function linearIndex(coords, strides) {
 	let index = 0;
@@ -151,13 +152,15 @@ test('createDimensionSession supports stepwise progress and node max/vector outp
 			expect(levelsInfo?.type).toBe(AttributeType.Float);
 			expect(levelsInfo?.dimension).toBe(6);
 
-			const maxView = network.getNodeAttributeBuffer('dim_max').view;
-			expect(maxView[selectedNodes[0]]).toBeGreaterThan(1.2);
+			withNodeBuffer(network, 'dim_max', ({ view: maxView }) => {
+				expect(maxView[selectedNodes[0]]).toBeGreaterThan(1.2);
+			});
 
-			const levelsView = network.getNodeAttributeBuffer('dim_levels').view;
-			const base = selectedNodes[0] * 6;
-			expect(levelsView[base + 2]).toBe(0);
-			expect(levelsView[base + 3]).toBeGreaterThan(1.2);
+			withNodeBuffer(network, 'dim_levels', ({ view: levelsView }) => {
+				const base = selectedNodes[0] * 6;
+				expect(levelsView[base + 2]).toBe(0);
+				expect(levelsView[base + 3]).toBeGreaterThan(1.2);
+			});
 		} finally {
 			session.dispose();
 		}

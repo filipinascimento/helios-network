@@ -1,5 +1,6 @@
 import { expect, test } from 'vitest';
 import HeliosNetwork, { AttributeType } from '../src/helios-network-inline.js';
+import { withEdgeBuffer, withNodeBuffer } from './helpers/bufferAccess.js';
 
 function makeRng(seed = 1) {
 	let state = seed >>> 0;
@@ -126,11 +127,13 @@ test('Leiden recovers SBM communities (unweighted)', async () => {
 		expect(communityCount).toBeGreaterThan(1);
 		expect(modularity).toBeGreaterThan(0);
 
-		const predictedView = network.getNodeAttributeBuffer('community').view;
-		const predicted = new Uint32Array(n);
-		for (let i = 0; i < n; i += 1) {
-			predicted[i] = predictedView[i];
-		}
+		const predicted = withNodeBuffer(network, 'community', ({ view: predictedView }) => {
+			const values = new Uint32Array(n);
+			for (let i = 0; i < n; i += 1) {
+				values[i] = predictedView[i];
+			}
+			return values;
+		});
 		const nmi = normalizedMutualInformation(truth, predicted);
 		expect(nmi).toBeGreaterThan(0.9);
 	} finally {
@@ -149,11 +152,12 @@ test('Leiden handles weighted modularity with resolution', async () => {
 	try {
 		network.defineEdgeAttribute('w', AttributeType.Float, 1);
 		const edgeIds = network.addEdges(edges);
-		const w = network.getEdgeAttributeBuffer('w').view;
-		for (let i = 0; i < edgeIds.length; i += 1) {
-			const e = edges[i];
-			w[edgeIds[i]] = truth[e.from] === truth[e.to] ? 2.0 : 0.5;
-		}
+		withEdgeBuffer(network, 'w', ({ view: w }) => {
+			for (let i = 0; i < edgeIds.length; i += 1) {
+				const e = edges[i];
+				w[edgeIds[i]] = truth[e.from] === truth[e.to] ? 2.0 : 0.5;
+			}
+		});
 
 		const { communityCount } = network.leidenModularity({
 			resolution: 0.8,
@@ -165,11 +169,13 @@ test('Leiden handles weighted modularity with resolution', async () => {
 		});
 		expect(communityCount).toBeGreaterThan(1);
 
-		const predictedView = network.getNodeAttributeBuffer('community_w').view;
-		const predicted = new Uint32Array(n);
-		for (let i = 0; i < n; i += 1) {
-			predicted[i] = predictedView[i];
-		}
+		const predicted = withNodeBuffer(network, 'community_w', ({ view: predictedView }) => {
+			const values = new Uint32Array(n);
+			for (let i = 0; i < n; i += 1) {
+				values[i] = predictedView[i];
+			}
+			return values;
+		});
 		const nmi = normalizedMutualInformation(truth, predicted);
 		expect(nmi).toBeGreaterThan(0.65);
 	} finally {
