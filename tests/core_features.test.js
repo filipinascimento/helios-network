@@ -26,6 +26,43 @@ test('can create network and add nodes/edges', async () => {
 	network.dispose();
 });
 
+test('freshly defined attributes are readable inside buffer access without priming metadata', async () => {
+	const network = await HeliosNetwork.create({ directed: false, initialNodes: 2 });
+	try {
+		network.defineNodeAttribute('weight', AttributeType.Float, 1);
+		network.withBufferAccess(() => {
+			const buffer = network.getNodeAttributeBuffer('weight');
+			expect(buffer.view).toBeInstanceOf(Float32Array);
+			expect(buffer.version).toBeGreaterThanOrEqual(0);
+		});
+	} finally {
+		network.dispose();
+	}
+});
+
+test('node-to-edge passthrough updates are deferred until buffer access ends', async () => {
+	const network = await HeliosNetwork.create({ directed: false, initialNodes: 2 });
+	try {
+		network.defineNodeAttribute('weight', AttributeType.Float, 1);
+		network.defineNodeToEdgeAttribute('weight', 'weight_edge', 'both');
+		const edges = network.addEdges([{ from: 0, to: 1 }]);
+
+		network.withBufferAccess(() => {
+			const nodeWeight = network.getNodeAttributeBuffer('weight');
+			nodeWeight.view[0] = 2;
+			nodeWeight.view[1] = 5;
+			nodeWeight.bumpVersion();
+		});
+
+		network.withBufferAccess(() => {
+			const edgeWeight = network.getEdgeAttributeBuffer('weight_edge');
+			expect(Array.from(edgeWeight.view.slice(edges[0] * 2, edges[0] * 2 + 2))).toEqual([2, 5]);
+		});
+	} finally {
+		network.dispose();
+	}
+});
+
 test('can select nodes and edges with query expressions', async () => {
 	const network = await HeliosNetwork.create({ directed: false });
 	const nodes = network.addNodes(3);

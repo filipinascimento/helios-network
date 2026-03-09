@@ -2888,10 +2888,12 @@ export class HeliosNetwork extends BaseEventTarget {
 		this._nodeAttributes = new Map();
 		this._edgeAttributes = new Map();
 		this._networkAttributes = new Map();
-		this._bufferSessionDepth = 0;
-		this._nodeToEdgePassthrough = new Map();
-		this._nodeAttributeDependents = new Map();
-		this._nodeTopologyVersion = 0;
+			this._bufferSessionDepth = 0;
+			this._nodeToEdgePassthrough = new Map();
+			this._nodeAttributeDependents = new Map();
+			this._pendingPassthroughSourceUpdates = new Set();
+			this._pendingPassthroughFullRefresh = false;
+			this._nodeTopologyVersion = 0;
 		this._edgeTopologyVersion = 0;
 		this._activeNodeIndexBuffer = { ptr: 0, capacity: 0, count: 0, version: 0, dirty: true };
 		this._activeEdgeIndexBuffer = { ptr: 0, capacity: 0, count: 0, version: 0, dirty: true };
@@ -3115,6 +3117,9 @@ export class HeliosNetwork extends BaseEventTarget {
 			throw new Error('No buffer access session to end');
 		}
 		this._bufferSessionDepth -= 1;
+		if (this._bufferSessionDepth === 0) {
+			this._flushPendingPassthroughUpdates();
+		}
 	}
 
 	/**
@@ -4994,34 +4999,43 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * @param {function} defineFn - Bound native function that declares the attribute.
 	 * @throws {Error} When the attribute exists already or the native call fails.
 	 */
-	_defineAttribute(scope, name, type, dimension, defineFn) {
-		this._assertCanAllocate(`define ${scope} attribute`);
-		this._ensureActive();
-		const metaMap = this._attributeMap(scope);
-		if (metaMap.has(name)) {
-			throw new Error(`Attribute "${name}" already defined on ${scope}`);
-		}
-		const cstr = new CString(this.module, name);
-		try {
-			const success = defineFn.call(this.module, this.ptr, cstr.ptr, type, dimension);
-			if (!success) {
-				throw new Error(`Failed to define ${scope} attribute "${name}"`);
+		_defineAttribute(scope, name, type, dimension, defineFn) {
+			this._assertCanAllocate(`define ${scope} attribute`);
+			this._ensureActive();
+			const metaMap = this._attributeMap(scope);
+			if (metaMap.has(name)) {
+				throw new Error(`Attribute "${name}" already defined on ${scope}`);
 			}
-		} finally {
-			cstr.dispose();
-		}
-		metaMap.set(name, {
-			type,
+			const cstr = new CString(this.module, name);
+			const getter = scope === 'node'
+				? this.module._CXNetworkGetNodeAttribute
+				: scope === 'edge'
+					? this.module._CXNetworkGetEdgeAttribute
+					: this.module._CXNetworkGetNetworkAttribute;
+			let attributePtr = 0;
+			try {
+				const success = defineFn.call(this.module, this.ptr, cstr.ptr, type, dimension);
+				if (!success) {
+					throw new Error(`Failed to define ${scope} attribute "${name}"`);
+				}
+				attributePtr = getter?.call(this.module, this.ptr, cstr.ptr) >>> 0;
+			} finally {
+				cstr.dispose();
+			}
+			metaMap.set(name, {
+				type,
 			dimension,
-			complex: COMPLEX_ATTRIBUTE_TYPES.has(type),
-			jsStore: new Map(),
-			stringPointers: new Map(),
-			nextHandle: 1,
-		});
-		this._emitAttributeEvent(HELIOS_NETWORK_EVENTS.attributeDefined, {
-			scope,
-			name,
-			type,
+				complex: COMPLEX_ATTRIBUTE_TYPES.has(type),
+				jsStore: new Map(),
+				stringPointers: new Map(),
+				nextHandle: 1,
+				attributePtr,
+				stride: attributePtr ? this.module._CXAttributeStride(attributePtr) : 0,
+			});
+			this._emitAttributeEvent(HELIOS_NETWORK_EVENTS.attributeDefined, {
+				scope,
+				name,
+				type,
 			dimension,
 			version: this._getAttributeVersion(scope, name),
 		});
@@ -5356,18 +5370,25 @@ export class HeliosNetwork extends BaseEventTarget {
 		this._setMultiCategoryBuffers('network', name, offsets, ids, weights);
 	}
 
-	_getAttributeVersion(scope, name) {
-		const versionFn = this.module._CXAttributeVersion;
-		if (typeof versionFn !== 'function') {
-			return this._localVersions.get(`attr:${scope}:${name}`) || 0;
-		}
-		this._ensureActive();
-		const meta = this._ensureAttributeMetadata(scope, name);
-		if (!meta) {
-			throw new Error(`Unknown ${scope} attribute "${name}"`);
-		}
-		const attributePtr = meta.attributePtr >>> 0;
-		const version = attributePtr ? this._normalizeVersion(versionFn.call(this.module, attributePtr)) : 0;
+		_getAttributeVersion(scope, name) {
+			const versionFn = this.module._CXAttributeVersion;
+			if (typeof versionFn !== 'function') {
+				return this._localVersions.get(`attr:${scope}:${name}`) || 0;
+			}
+			this._ensureActive();
+			const metaMap = this._attributeMap(scope);
+			let meta = metaMap.get(name) || null;
+			if (!meta?.attributePtr || meta.attributePtr <= 0) {
+				if (this._bufferSessionDepth > 0) {
+					return this._localVersions.get(`attr:${scope}:${name}`) || 0;
+				}
+				meta = this._ensureAttributeMetadata(scope, name);
+			}
+			if (!meta) {
+				throw new Error(`Unknown ${scope} attribute "${name}"`);
+			}
+			const attributePtr = meta.attributePtr >>> 0;
+			const version = attributePtr ? this._normalizeVersion(versionFn.call(this.module, attributePtr)) : 0;
 		return version ?? 0;
 	}
 
@@ -7647,6 +7668,10 @@ export class HeliosNetwork extends BaseEventTarget {
 	}
 
 	_markPassthroughEdgesDirtyForNode(sourceName) {
+		if (this._bufferSessionDepth > 0) {
+			this._pendingPassthroughSourceUpdates.add(sourceName);
+			return;
+		}
 		const dependents = this._nodeAttributeDependents.get(sourceName);
 		if (!dependents) return;
 		for (const edgeName of dependents) {
@@ -7658,11 +7683,33 @@ export class HeliosNetwork extends BaseEventTarget {
 	}
 
 	_markAllPassthroughEdgesDirty() {
+		if (this._bufferSessionDepth > 0) {
+			this._pendingPassthroughFullRefresh = true;
+			this._pendingPassthroughSourceUpdates.clear();
+			return;
+		}
 		for (const edgeName of this._nodeToEdgePassthrough.keys()) {
 			const entry = this._nodeToEdgePassthrough.get(edgeName);
 			if (entry) {
 				this._copyNodeToEdgeAttribute(entry.sourceName, edgeName, entry.endpointMode, entry.doubleWidth);
 			}
+		}
+	}
+
+	_flushPendingPassthroughUpdates() {
+		if (this._pendingPassthroughFullRefresh) {
+			this._pendingPassthroughFullRefresh = false;
+			this._pendingPassthroughSourceUpdates.clear();
+			this._markAllPassthroughEdgesDirty();
+			return;
+		}
+		if (!this._pendingPassthroughSourceUpdates.size) {
+			return;
+		}
+		const sources = [...this._pendingPassthroughSourceUpdates];
+		this._pendingPassthroughSourceUpdates.clear();
+		for (const sourceName of sources) {
+			this._markPassthroughEdgesDirtyForNode(sourceName);
 		}
 	}
 
