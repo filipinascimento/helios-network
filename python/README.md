@@ -79,6 +79,49 @@ python -m pip install networkx
 python -m pip install igraph
 ```
 
+## UMAP export
+
+Install the optional UMAP stack when you want a Helios-ready fuzzy graph or
+kNN graph export:
+
+```bash
+python -m pip install ./python[umap]
+```
+
+```python
+from helios_network import HeliosUMAP
+
+umap_export = HeliosUMAP(
+    n_neighbors=15,
+    min_dist=0.1,
+    build_knn_network=True,
+)
+
+network = umap_export.fit_network(X)
+network.save_bxnet("embedding.bxnet")
+
+# Optional directed kNN export
+umap_export.knn_network_.save_zxnet("embedding-knn.zxnet")
+```
+
+If you want only the UMAP graph construction output for `helios-web-next`
+to lay out from scratch, use the graph-only export path instead:
+
+```python
+graph_network = umap_export.fit_graph_network(X)
+graph_network.save_zxnet("umap-graph.zxnet")
+```
+
+The fit graph export writes:
+
+- node attributes: `umap_embedding`, `_helios_visuals_position`, `umap_mass`
+- edge attribute: `umap_weight`
+- network attributes that let `helios-web-next` auto-enable UMAP force mode on import
+
+The graph-only export writes the same UMAP edge weights and graph metadata, but
+omits `umap_embedding` and `_helios_visuals_position` so `helios-web-next` can
+start its own realtime UMAP-like layout from scratch.
+
 ## Examples
 
 From `python/`:
@@ -89,6 +132,7 @@ python examples/toroidal_dimensions_table.py
 python examples/toroidal_dimensions_plot.py --skip-plot
 python examples/toroidal_dimensions_plot.py
 python examples/toroidal_dimensions_plot.py --large --skip-plot
+python examples/generate_umap_example_networks.py --sizes 200 2000 20000
 ```
 
 `toroidal_dimensions_plot.py` uses `matplotlib` for plotting local dimension curves. Install it with:

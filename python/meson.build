@@ -60,3 +60,4 @@ py.extension_module(
 py.install_sources('src/helios_network/__init__.py', subdir: 'helios_network')
 py.install_sources('src/helios_network/_conversions.py', subdir: 'helios_network')
 py.install_sources('src/helios_network/_wrapper.py', subdir: 'helios_network')
+py.install_sources('src/helios_network/umap.py', subdir: 'helios_network')

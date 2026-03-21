@@ -10,3 +10,11 @@ readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }
 authors = [{ name = "Helios" }]
+
+[project.optional-dependencies]
+umap = [
+  "numpy>=1.23",
+  "scipy>=1.10",
+  "umap-learn>=0.5.7",
+  "pynndescent>=0.5.12",
+]

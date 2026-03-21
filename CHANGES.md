@@ -1,5 +1,14 @@
 # CHANGES
 
+## 2026-03-19
+
+- Added a Python `HeliosUMAP` wrapper that mirrors the `umap-learn` fit/transform pipeline while exporting Helios-ready fuzzy-graph, kNN, and transform networks.
+- Added UMAP export metadata and default attributes for Helios Web interoperability:
+  - node attributes: `umap_embedding`, `_helios_visuals_position`, `umap_mass`, `umap_is_query`, `umap_index`
+  - edge attributes: `umap_weight`, `umap_knn_distance`, `umap_knn_rank`
+  - network attributes for UMAP force-layout autodetection and parameter recovery.
+- Added Python regression coverage for the UMAP exporter, including BXNet round-trip validation.
+
 ## 2026-03-06
 
 - Removed the legacy packed-buffer API surface and the related documentation/tests.

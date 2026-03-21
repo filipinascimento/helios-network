@@ -84,6 +84,18 @@ def read_xnet(path: str) -> Network:
     return Network(_core_network=_core.read_xnet(path))
 
 
+def __getattr__(name: str):
+    if name in {"HeliosUMAP", "NetworkExportResult"}:
+        from .umap import HeliosUMAP, NetworkExportResult
+
+        exports = {
+            "HeliosUMAP": HeliosUMAP,
+            "NetworkExportResult": NetworkExportResult,
+        }
+        return exports[name]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
 __all__ = [
     "Network",
     "AttributeType",
@@ -98,6 +110,8 @@ __all__ = [
     "read_bxnet",
     "read_zxnet",
     "read_xnet",
+    "HeliosUMAP",
+    "NetworkExportResult",
     "to_networkx",
     "from_networkx",
     "to_igraph",
