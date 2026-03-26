@@ -4,6 +4,7 @@ import enum
 
 from . import _core
 from ._conversions import from_igraph, from_networkx, to_igraph, to_networkx
+from ._node_link_json import read_node_link_json as _read_node_link_json
 from ._wrapper import Network
 
 
@@ -83,6 +84,13 @@ def read_zxnet(path: str) -> Network:
 def read_xnet(path: str) -> Network:
     return Network(_core_network=_core.read_xnet(path))
 
+def read_gml(path: str) -> Network:
+    return Network(_core_network=_core.read_gml(path))
+
+
+def read_node_link_json(path: str) -> Network:
+    return _read_node_link_json(path)
+
 
 def __getattr__(name: str):
     if name in {"HeliosUMAP", "NetworkExportResult"}:
@@ -110,6 +118,8 @@ __all__ = [
     "read_bxnet",
     "read_zxnet",
     "read_xnet",
+    "read_gml",
+    "read_node_link_json",
     "HeliosUMAP",
     "NetworkExportResult",
     "to_networkx",

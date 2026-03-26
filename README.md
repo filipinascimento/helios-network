@@ -399,10 +399,12 @@ Once the WebAssembly module has been initialised (for example by awaiting `Helio
 
 ### Serialization & Persistence
 
-The WASM core exposes the human-readable `.xnet` (XNET 1.0.0) format alongside the native `.bxnet` (binary) and `.zxnet` (BGZF-compressed) containers directly to JavaScript.
+The WASM core exposes the human-readable `.xnet` (XNET 1.0.0) format alongside the native `.bxnet` (binary) and `.zxnet` (BGZF-compressed) containers directly to JavaScript. It also supports `.gml` round-trips plus node-link JSON import/export for interoperability with common network-science tooling.
 
-- `saveBXNet(options?)` / `saveZXNet(options?)` / `saveXNet(options?)` return serialized bytes (default `Uint8Array`). In Node you may also pass `{ path: '/tmp/graph.xnet' }` (or `.bxnet` / `.zxnet`) to persist the file on disk. Optional `format` values include `'arraybuffer'`, `'base64'`, and `'blob'` (browser-friendly).
-- `HeliosNetwork.fromBXNet(source)` / `HeliosNetwork.fromZXNet(source)` / `HeliosNetwork.fromXNet(source)` hydrate a new network from a `Uint8Array`, `ArrayBuffer`, `Blob`/`Response` (browser), or filesystem path (Node).
+- `saveBXNet(options?)` / `saveZXNet(options?)` / `saveXNet(options?)` / `saveGML(options?)` / `saveNodeLinkJSON(options?)` return serialized bytes (default `Uint8Array`). In Node you may also pass `{ path: '/tmp/graph.xnet' }` (or `.bxnet` / `.zxnet` / `.gml` / `.json`) to persist the file on disk. Optional `format` values include `'arraybuffer'`, `'base64'`, `'blob'`, and `'string'` / `'text'` for human-readable formats.
+- `HeliosNetwork.fromBXNet(source)` / `HeliosNetwork.fromZXNet(source)` / `HeliosNetwork.fromXNet(source)` / `HeliosNetwork.fromGML(source)` / `HeliosNetwork.fromNodeLinkJSON(source)` hydrate a new network from a `Uint8Array`, `ArrayBuffer`, `Blob`/`Response` (browser), filesystem path (Node), or in the node-link case a plain parsed object / JSON string.
+- `saveGML()` prefers safe key export by sanitizing unsupported identifiers such as `label with spaces` into `label_with_spaces`, deduplicating collisions, and warning when a rename or skip was necessary.
+- `saveGML()`, `saveNodeLinkJSON()`, and `fromNodeLinkJSON()` may warn when a target/source format cannot preserve every Helios attribute exactly. The JS bindings surface those as `console.warn(...)` messages instead of failing silently.
 - `compact({ nodeOriginalIndexAttribute?, edgeOriginalIndexAttribute? })` rewrites the network so node/edge IDs become contiguous while preserving JavaScript-managed and string attribute stores. When attribute names are provided, the original indices are copied into unsigned integer buffers for audit trails.
 
 #### Node.js example
@@ -457,7 +459,7 @@ rehydrated.dispose();
 network.dispose();
 ```
 
-For full Node.js and browser walkthroughs—saving to disk, generating downloads, and round-tripping Base64/typed-array payloads—see `docs/saving-and-loading.md`.
+For full Node.js and browser walkthroughs—saving to disk, generating downloads, round-tripping Base64/typed-array payloads, and working with GML / node-link JSON—see `docs/saving-and-loading.md`.
 
 Full JSDoc comments inside `src/js/HeliosNetwork.js` describe signatures and behaviours. You can generate HTML docs as shown below.
 

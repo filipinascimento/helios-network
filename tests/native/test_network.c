@@ -8,6 +8,8 @@
 
 #include "CXNetwork.h"
 #include "CXNeighborStorage.h"
+#include "CXNetworkGML.h"
+#include "CXNetworkNodeLinkJSON.h"
 #include "CXNetworkXNet.h"
 
 static void free_attribute_strings(CXAttributeRef attr, CXSize count) {
@@ -48,10 +50,14 @@ static CXBool lookup_category_id(CXStringDictionaryRef dictionary, const char *l
 	CXStringDictionaryFOR(entry, dictionary) {
 		if (entry->key && strcmp(entry->key, label) == 0) {
 			uintptr_t raw = (uintptr_t)entry->data;
-			if (raw == 0) {
+			if (raw == 0u) {
 				return CXFalse;
 			}
-			*outId = (int32_t)(uint32_t)(raw - 1u);
+			if (raw == 1u) {
+				*outId = -1;
+				return CXTrue;
+			}
+			*outId = (int32_t)(uint32_t)(raw - 2u);
 			return CXTrue;
 		}
 	}
@@ -815,28 +821,26 @@ static void test_categorical_serialization(void) {
 	kinds[nodes[0]] = 0;
 	kinds[nodes[1]] = 2;
 	kinds[nodes[2]] = 0;
-	CXAttributeRef kindAttr = CXNetworkGetNodeAttribute(net, "kind");
-	assert(kindAttr && kindAttr->categoricalDictionary);
-	CXStringDictionarySetEntry(kindAttr->categoricalDictionary, "Apple", (void *)(uintptr_t)((uint32_t)0 + 1u));
-	CXStringDictionarySetEntry(kindAttr->categoricalDictionary, "Banana", (void *)(uintptr_t)((uint32_t)2 + 1u));
+	const char *kindLabels[] = { "Apple", "Banana" };
+	int32_t kindIds[] = { 0, 2 };
+	assert(CXNetworkSetAttributeCategoryDictionary(net, CXAttributeScopeNode, "kind", kindLabels, kindIds, 2, CXFalse));
 
 	assert(CXNetworkDefineEdgeAttribute(net, "etype", CXDataAttributeCategoryType, 1));
 	int32_t *etypes = (int32_t *)CXNetworkGetEdgeAttributeBuffer(net, "etype");
 	assert(etypes);
 	etypes[edgeIds[0]] = 1;
 	etypes[edgeIds[1]] = 3;
-	CXAttributeRef etypeAttr = CXNetworkGetEdgeAttribute(net, "etype");
-	assert(etypeAttr && etypeAttr->categoricalDictionary);
-	CXStringDictionarySetEntry(etypeAttr->categoricalDictionary, "Fast", (void *)(uintptr_t)((uint32_t)1 + 1u));
-	CXStringDictionarySetEntry(etypeAttr->categoricalDictionary, "Slow", (void *)(uintptr_t)((uint32_t)3 + 1u));
+	const char *etypeLabels[] = { "Fast", "Slow" };
+	int32_t etypeIds[] = { 1, 3 };
+	assert(CXNetworkSetAttributeCategoryDictionary(net, CXAttributeScopeEdge, "etype", etypeLabels, etypeIds, 2, CXFalse));
 
 	assert(CXNetworkDefineNetworkAttribute(net, "family", CXDataAttributeCategoryType, 1));
 	int32_t *family = (int32_t *)CXNetworkGetNetworkAttributeBuffer(net, "family");
 	assert(family);
 	family[0] = 7;
-	CXAttributeRef familyAttr = CXNetworkGetNetworkAttribute(net, "family");
-	assert(familyAttr && familyAttr->categoricalDictionary);
-	CXStringDictionarySetEntry(familyAttr->categoricalDictionary, "Group7", (void *)(uintptr_t)((uint32_t)7 + 1u));
+	const char *familyLabels[] = { "Group7" };
+	int32_t familyIds[] = { 7 };
+	assert(CXNetworkSetAttributeCategoryDictionary(net, CXAttributeScopeNetwork, "family", familyLabels, familyIds, 1, CXFalse));
 
 	char xnetPath[] = "/tmp/cxnet-cat-XXXXXX";
 	int xnetFd = mkstemp(xnetPath);
@@ -1085,6 +1089,7 @@ static void test_xnet_legacy_multicategory(void) {
 		"\"Second\"\n"
 		"#edges nonweighted undirected\n"
 		"0 1\n"
+		"1 0\n"
 		"#v \"__multicategoryTags\" s\n"
 		"\"alpha;beta%3Bomega\"\n"
 		"\"beta%3Bomega\"\n"
@@ -1439,6 +1444,197 @@ static void test_xnet_compaction_mapping(void) {
 	CXFreeNetwork(compact);
 }
 
+static void test_gml_round_trip_and_warnings(void) {
+	CXNetworkRef net = CXNewNetwork(CXTrue);
+	assert(net);
+
+	CXIndex nodes[3];
+	assert(CXNetworkAddNodes(net, 3, nodes));
+	CXEdge edges[2] = {
+		{ .from = nodes[0], .to = nodes[1] },
+		{ .from = nodes[1], .to = nodes[2] },
+	};
+	CXIndex edgeIds[2];
+	assert(CXNetworkAddEdges(net, edges, 2, edgeIds));
+
+	assert(CXNetworkDefineNodeAttribute(net, "score", CXFloatAttributeType, 1));
+	float *scores = (float *)CXNetworkGetNodeAttributeBuffer(net, "score");
+	assert(scores);
+	scores[nodes[0]] = 1.25f;
+	scores[nodes[1]] = 2.5f;
+	scores[nodes[2]] = 3.75f;
+
+	assert(CXNetworkDefineNodeAttribute(net, "safe_label", CXStringAttributeType, 1));
+	CXString *labels = (CXString *)CXNetworkGetNodeAttributeBuffer(net, "safe_label");
+	assert(labels);
+	labels[nodes[0]] = CXNewStringFromString("Alpha");
+	labels[nodes[1]] = CXNewStringFromString("Beta Value");
+	labels[nodes[2]] = CXNewStringFromString("Gamma");
+
+	assert(CXNetworkDefineNodeAttribute(net, "label with spaces", CXStringAttributeType, 1));
+	CXString *renamed = (CXString *)CXNetworkGetNodeAttributeBuffer(net, "label with spaces");
+	assert(renamed);
+	renamed[nodes[0]] = CXNewStringFromString("A");
+	renamed[nodes[1]] = CXNewStringFromString("B");
+	renamed[nodes[2]] = CXNewStringFromString("C");
+
+	assert(CXNetworkDefineEdgeAttribute(net, "relation", CXStringAttributeType, 1));
+	CXString *relations = (CXString *)CXNetworkGetEdgeAttributeBuffer(net, "relation");
+	assert(relations);
+	relations[edgeIds[0]] = CXNewStringFromString("forward");
+	relations[edgeIds[1]] = CXNewStringFromString("return");
+
+	assert(CXNetworkDefineNetworkAttribute(net, "title", CXStringAttributeType, 1));
+	CXString *titles = (CXString *)CXNetworkGetNetworkAttributeBuffer(net, "title");
+	assert(titles);
+	titles[0] = CXNewStringFromString("GML Round Trip");
+
+	char path[] = "/tmp/cxnet-gml-XXXXXX";
+	int fd = mkstemp(path);
+	assert(fd >= 0);
+	close(fd);
+	assert(CXNetworkWriteGML(net, path));
+	const char *warning = CXNetworkSerializationLastWarningMessage();
+	assert(warning && strstr(warning, "label with spaces") != NULL);
+	release_all_string_attributes(net);
+	CXFreeNetwork(net);
+
+	CXNetworkRef loaded = CXNetworkReadGML(path);
+	assert(loaded);
+	unlink(path);
+
+	assert(loaded->nodeCount == 3);
+	assert(loaded->edgeCount == 2);
+	assert(CXNetworkIsDirected(loaded));
+
+	float *loadedScores = (float *)CXNetworkGetNodeAttributeBuffer(loaded, "score");
+	assert(loadedScores);
+	assert(fabsf(loadedScores[2] - 3.75f) < 1e-6f);
+
+	CXString *loadedLabels = (CXString *)CXNetworkGetNodeAttributeBuffer(loaded, "safe_label");
+	assert(loadedLabels && strcmp(loadedLabels[1], "Beta Value") == 0);
+
+	CXString *loadedOriginal = (CXString *)CXNetworkGetNodeAttributeBuffer(loaded, "_original_ids_");
+	assert(loadedOriginal);
+	assert(strcmp(loadedOriginal[0], "0") == 0);
+	assert(strcmp(loadedOriginal[1], "1") == 0);
+	assert(strcmp(loadedOriginal[2], "2") == 0);
+
+	CXString *loadedTitle = (CXString *)CXNetworkGetNetworkAttributeBuffer(loaded, "title");
+	assert(loadedTitle && strcmp(loadedTitle[0], "GML Round Trip") == 0);
+
+	release_all_string_attributes(loaded);
+	CXFreeNetwork(loaded);
+}
+
+static void test_gml_loose_loader(void) {
+	const char *payload =
+		"graph [\n"
+		"  directed 1\n"
+		"  \"graph note\" \"Loose GML\"\n"
+		"  node [ id 10 \"node label\" \"Alpha\" rating 3.5 ]\n"
+		"  node [ id 20 \"node label\" \"Beta\" ]\n"
+		"  edge [ source 10 target 20 relation friend ]\n"
+		"]\n";
+
+	char path[] = "/tmp/cxnet-gml-loose-XXXXXX";
+	int fd = mkstemp(path);
+	assert(fd >= 0);
+	size_t len = strlen(payload);
+	assert(write(fd, payload, len) == (ssize_t)len);
+	close(fd);
+
+	CXNetworkRef net = CXNetworkReadGML(path);
+	assert(net);
+	unlink(path);
+
+	assert(CXNetworkIsDirected(net));
+	assert(net->nodeCount == 2);
+	assert(net->edgeCount == 1);
+
+	CXString *graphNote = (CXString *)CXNetworkGetNetworkAttributeBuffer(net, "graph note");
+	assert(graphNote && strcmp(graphNote[0], "Loose GML") == 0);
+
+	CXString *nodeLabels = (CXString *)CXNetworkGetNodeAttributeBuffer(net, "node label");
+	assert(nodeLabels);
+	assert(strcmp(nodeLabels[0], "Alpha") == 0);
+	assert(strcmp(nodeLabels[1], "Beta") == 0);
+
+	double *rating = (double *)CXNetworkGetNodeAttributeBuffer(net, "rating");
+	assert(rating && fabs(rating[0] - 3.5) < 1e-9);
+
+	CXString *relation = (CXString *)CXNetworkGetEdgeAttributeBuffer(net, "relation");
+	assert(relation && strcmp(relation[0], "friend") == 0);
+
+	CXString *originalIds = (CXString *)CXNetworkGetNodeAttributeBuffer(net, "_original_ids_");
+	assert(originalIds);
+	assert(strcmp(originalIds[0], "10") == 0);
+	assert(strcmp(originalIds[1], "20") == 0);
+
+	release_all_string_attributes(net);
+	CXFreeNetwork(net);
+}
+
+static void test_node_link_json_export(void) {
+	CXNetworkRef net = CXNewNetwork(CXFalse);
+	assert(net);
+
+	CXIndex nodes[2];
+	assert(CXNetworkAddNodes(net, 2, nodes));
+	CXEdge edge = { .from = nodes[0], .to = nodes[1] };
+	CXIndex edgeId = 0;
+	assert(CXNetworkAddEdges(net, &edge, 1, &edgeId));
+
+	assert(CXNetworkDefineNodeAttribute(net, "coords", CXFloatAttributeType, 2));
+	float *coords = (float *)CXNetworkGetNodeAttributeBuffer(net, "coords");
+	assert(coords);
+	coords[nodes[0] * 2 + 0] = 1.0f;
+	coords[nodes[0] * 2 + 1] = 2.0f;
+	coords[nodes[1] * 2 + 0] = 3.0f;
+	coords[nodes[1] * 2 + 1] = 4.0f;
+
+	assert(CXNetworkDefineNodeAttribute(net, "id", CXStringAttributeType, 1));
+	CXString *ids = (CXString *)CXNetworkGetNodeAttributeBuffer(net, "id");
+	assert(ids);
+	ids[nodes[0]] = CXNewStringFromString("left");
+	ids[nodes[1]] = CXNewStringFromString("right");
+
+	assert(CXNetworkDefineEdgeAttribute(net, "weight", CXFloatAttributeType, 1));
+	float *weights = (float *)CXNetworkGetEdgeAttributeBuffer(net, "weight");
+	assert(weights);
+	weights[edgeId] = 2.5f;
+
+	char path[] = "/tmp/cxnet-node-link-XXXXXX";
+	int fd = mkstemp(path);
+	assert(fd >= 0);
+	close(fd);
+	assert(CXNetworkWriteNodeLinkJSON(net, path));
+	const char *warning = CXNetworkSerializationLastWarningMessage();
+	assert(warning && strstr(warning, "\"attributes\"") != NULL);
+
+	FILE *file = fopen(path, "rb");
+	assert(file);
+	fseek(file, 0, SEEK_END);
+	long size = ftell(file);
+	assert(size >= 0);
+	fseek(file, 0, SEEK_SET);
+	char *text = calloc((size_t)size + 1u, sizeof(char));
+	assert(text);
+	assert(fread(text, 1, (size_t)size, file) == (size_t)size);
+	fclose(file);
+	unlink(path);
+
+	assert(strstr(text, "\"nodes\"") != NULL);
+	assert(strstr(text, "\"links\"") != NULL);
+	assert(strstr(text, "\"coords\": [1") != NULL);
+	assert(strstr(text, "\"attributes\": {\"id\": \"left\"}") != NULL);
+	assert(strstr(text, "\"weight\": 2.5") != NULL);
+
+	free(text);
+	release_all_string_attributes(net);
+	CXFreeNetwork(net);
+}
+
 static void test_serialization_fuzz(void) {
 	srand(42);
 	CXSize sizes[] = {0, 1, 4, 12};
@@ -1467,6 +1663,9 @@ int main(void) {
 	test_xnet_string_escaping();
 	test_xnet_invalid_inputs();
 	test_xnet_compaction_mapping();
+	test_gml_round_trip_and_warnings();
+	test_gml_loose_loader();
+	test_node_link_json_export();
 	test_serialization_fuzz();
 	printf("All native network tests passed.\n");
 	return 0;

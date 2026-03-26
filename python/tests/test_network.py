@@ -1,6 +1,7 @@
 import os
 import tempfile
 import warnings
+import json
 
 from helios_network import (
     AttributeScope,
@@ -13,6 +14,8 @@ from helios_network import (
     Network,
     StrengthMeasure,
     read_bxnet,
+    read_gml,
+    read_node_link_json,
     read_xnet,
     read_zxnet,
 )
@@ -334,6 +337,105 @@ def test_save_load_zxnet_roundtrip():
         loaded = read_zxnet(path)
         assert loaded.node_count() == network.node_count()
         assert loaded.edge_count() == network.edge_count()
+
+
+def test_save_load_gml_roundtrip_with_warning():
+    network = Network(directed=True)
+    nodes = network.add_nodes(3)
+    network.add_edges([(nodes[0], nodes[1]), (nodes[1], nodes[2])])
+    network.define_attribute(AttributeScope.Node, "score", AttributeType.Float, 1)
+    network.define_attribute(AttributeScope.Node, "safe_label", AttributeType.String, 1)
+    network.define_attribute(AttributeScope.Node, "label with spaces", AttributeType.String, 1)
+
+    network.set_attribute_value(AttributeScope.Node, "score", nodes[0], 1.25)
+    network.set_attribute_value(AttributeScope.Node, "score", nodes[1], 2.5)
+    network.set_attribute_value(AttributeScope.Node, "score", nodes[2], 3.75)
+    network.set_attribute_value(AttributeScope.Node, "safe_label", nodes[0], "Alpha")
+    network.set_attribute_value(AttributeScope.Node, "safe_label", nodes[1], "Beta")
+    network.set_attribute_value(AttributeScope.Node, "safe_label", nodes[2], "Gamma")
+    network.set_attribute_value(AttributeScope.Node, "label with spaces", nodes[0], "A")
+    network.set_attribute_value(AttributeScope.Node, "label with spaces", nodes[1], "B")
+    network.set_attribute_value(AttributeScope.Node, "label with spaces", nodes[2], "C")
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        path = os.path.join(tmpdir, "sample.gml")
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            network.save_gml(path)
+            assert any("label with spaces" in str(item.message) for item in caught)
+        loaded = read_gml(path)
+        assert loaded.node_count() == network.node_count()
+        assert loaded.edge_count() == network.edge_count()
+        assert loaded.get_attribute_value(AttributeScope.Node, "safe_label", 1) == "Beta"
+        assert loaded.get_attribute_value(AttributeScope.Node, "label_with_spaces", 2) == "C"
+        assert loaded.get_attribute_value(AttributeScope.Node, "_original_ids_", 1) == "1"
+
+
+def test_save_node_link_json_with_reserved_attribute_warning():
+    network = Network(directed=False)
+    nodes = network.add_nodes(2)
+    edge_ids = network.add_edges([(nodes[0], nodes[1])])
+    network.define_attribute(AttributeScope.Node, "coords", AttributeType.Float, 2)
+    network.define_attribute(AttributeScope.Node, "id", AttributeType.String, 1)
+    network.define_attribute(AttributeScope.Edge, "weight", AttributeType.Float, 1)
+
+    network.set_attribute_value(AttributeScope.Node, "coords", nodes[0], (1.0, 2.0))
+    network.set_attribute_value(AttributeScope.Node, "coords", nodes[1], (3.0, 4.0))
+    network.set_attribute_value(AttributeScope.Node, "id", nodes[0], "left")
+    network.set_attribute_value(AttributeScope.Node, "id", nodes[1], "right")
+    network.set_attribute_value(AttributeScope.Edge, "weight", edge_ids[0], 2.5)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        path = os.path.join(tmpdir, "sample-node-link.json")
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            network.save_node_link_json(path)
+            assert any('"attributes"' in str(item.message) for item in caught)
+        with open(path, "r", encoding="utf-8") as handle:
+            text = handle.read()
+        assert '"nodes"' in text
+        assert '"links"' in text
+        assert '"coords": [1, 2]' in text
+        assert '"attributes": {"id": "left"}' in text
+
+
+def test_read_node_link_json_with_original_ids_and_warnings():
+    payload = {
+        "directed": True,
+        "graph": {
+            "title": "Imported graph",
+            "metadata": {"mode": "demo"},
+        },
+        "nodes": [
+            {"id": "left", "label": "Alpha", "coords": [1, 2]},
+            {"id": "right", "attributes": {"score": 2.5}},
+        ],
+        "links": [
+            {"source": "left", "target": "ghost", "weight": 3.5, "attributes": {"kind": "bridge"}},
+        ],
+    }
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        path = os.path.join(tmpdir, "sample-node-link-load.json")
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle)
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            loaded = read_node_link_json(path)
+
+        assert loaded.is_directed is True
+        assert loaded.node_count() == 3
+        assert loaded.edge_count() == 1
+        assert loaded.get_attribute_value(AttributeScope.Network, "title", 0) == "Imported graph"
+        assert json.loads(loaded.get_attribute_value(AttributeScope.Network, "metadata", 0)) == {"mode": "demo"}
+        assert loaded.get_attribute_value(AttributeScope.Node, "label", 0) == "Alpha"
+        assert loaded.get_attribute_value(AttributeScope.Node, "coords", 0) == (1, 2)
+        assert loaded.get_attribute_value(AttributeScope.Edge, "weight", 0) == 3.5
+        assert loaded.get_attribute_value(AttributeScope.Node, "_original_ids_", 0) == "left"
+        assert loaded.get_attribute_value(AttributeScope.Node, "_original_ids_", 2) == "ghost"
+        assert any("synthesized a node" in str(item.message) for item in caught)
+        assert any('coerced attribute "metadata"' in str(item.message) for item in caught)
 
 
 def test_vector_attribute_assignment():

@@ -122,8 +122,12 @@ network.decategorize_attribute(AttributeScope.Node, "label")
 network.save_xnet("graph.xnet")
 network.save_bxnet("graph.bxnet")
 network.save_zxnet("graph.zxnet")
+network.save_gml("graph.gml")
+network.save_node_link_json("graph.json")
 
 loaded = read_xnet("graph.xnet")
+loaded_gml = read_gml("graph.gml")
+loaded_json = read_node_link_json("graph.json")
 ```
 
 ## Conversions

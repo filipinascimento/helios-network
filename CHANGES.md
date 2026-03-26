@@ -1,5 +1,10 @@
 # CHANGES
 
+## 2026-03-25
+
+- Added GML read/write support across the native, WASM, and Python bindings, including tolerant parsing for looser GML variants and warning surfacing for lossy key normalization or skipped attributes.
+- Added node-link JSON export helpers across the native, WASM, and Python bindings plus tolerant node-link JSON loaders in the WASM and Python bindings for common D3 / NetworkX-style graph payloads.
+
 ## 2026-03-19
 
 - Added a Python `HeliosUMAP` wrapper that mirrors the `umap-learn` fit/transform pipeline while exporting Helios-ready fuzzy-graph, kNN, and transform networks.

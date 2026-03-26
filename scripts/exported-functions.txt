@@ -4,6 +4,7 @@ _malloc
 _free
 _calloc
 _CXNetworkVersionString
+_CXNetworkSerializationLastWarningMessage
 _CXNewNetwork
 _CXNewNetworkWithCapacity
 _CXFreeNetwork
@@ -113,9 +114,12 @@ _CXNetworkWriteZXNet
 _CXNetworkWriteZXNetFiltered
 _CXNetworkWriteXNet
 _CXNetworkWriteXNetFiltered
+_CXNetworkWriteGML
+_CXNetworkWriteNodeLinkJSON
 _CXNetworkReadBXNet
 _CXNetworkReadZXNet
 _CXNetworkReadXNet
+_CXNetworkReadGML
 _CXNetworkCategorizeAttribute
 _CXNetworkDecategorizeAttribute
 _CXNetworkGetAttributeCategoryDictionaryCount

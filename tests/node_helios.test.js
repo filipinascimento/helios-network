@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { beforeAll, afterAll, describe, expect, test } from 'vitest';
+import { beforeAll, afterAll, describe, expect, test, vi } from 'vitest';
 import HeliosNetwork, { AttributeType } from '../src/helios-network.js';
 import { withEdgeBuffer, withNetworkBuffer, withNodeBuffer } from './helpers/bufferAccess.js';
 
@@ -1266,6 +1266,146 @@ describe('HeliosNetwork (Node runtime)', () => {
 			}
 			} finally {
 				networkInstance.dispose();
+			}
+		});
+
+		test('round-trips .gml payloads and surfaces lossy export warnings', async () => {
+			const networkInstance = await HeliosNetwork.create({ directed: true, initialNodes: 0, initialEdges: 0 });
+			const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+			try {
+				const mod = networkInstance.module;
+				if (typeof mod._CXNetworkWriteGML !== 'function' || typeof mod._CXNetworkReadGML !== 'function') {
+					await expect(networkInstance.saveGML()).rejects.toThrow(/CXNetworkWriteGML is not available/);
+					return;
+				}
+
+				const nodes = networkInstance.addNodes(3);
+				networkInstance.addEdges([
+					{ from: nodes[0], to: nodes[1] },
+					{ from: nodes[1], to: nodes[2] },
+				]);
+				networkInstance.defineNodeAttribute('score', AttributeType.Float, 1);
+				networkInstance.defineNodeAttribute('safe_label', AttributeType.String, 1);
+				networkInstance.defineNodeAttribute('label with spaces', AttributeType.String, 1);
+				networkInstance.defineNetworkAttribute('title', AttributeType.String, 1);
+
+				withNodeBuffer(networkInstance, 'score', ({ view }) => {
+					view[nodes[0]] = 1.25;
+					view[nodes[1]] = 2.5;
+					view[nodes[2]] = 3.75;
+				});
+				networkInstance.setNodeStringAttribute('safe_label', nodes[0], 'Alpha');
+				networkInstance.setNodeStringAttribute('safe_label', nodes[1], 'Beta');
+				networkInstance.setNodeStringAttribute('safe_label', nodes[2], 'Gamma');
+				networkInstance.setNodeStringAttribute('label with spaces', nodes[0], 'A');
+				networkInstance.setNodeStringAttribute('label with spaces', nodes[1], 'B');
+				networkInstance.setNodeStringAttribute('label with spaces', nodes[2], 'C');
+				networkInstance.setNetworkStringAttribute('title', 'GML Test');
+
+				const text = await networkInstance.saveGML({ format: 'string' });
+				expect(text).toContain('graph [');
+				expect(text).toContain('label_with_spaces');
+				expect(warnSpy).toHaveBeenCalled();
+
+				const payload = await networkInstance.saveGML();
+				const restored = await HeliosNetwork.fromGML(payload);
+				try {
+					expect(restored.directed).toBe(true);
+					expect(restored.nodeCount).toBe(3);
+					expect(restored.edgeCount).toBe(2);
+					expect(restored.hasNodeAttribute('safe_label')).toBe(true);
+					expect(restored.hasNodeAttribute('label_with_spaces')).toBe(true);
+					expect(restored.hasNodeAttribute('_original_ids_')).toBe(true);
+					expect(restored.getNodeStringAttribute('safe_label', 1)).toBe('Beta');
+					expect(restored.getNodeStringAttribute('label_with_spaces', 2)).toBe('C');
+					expect(restored.getNodeStringAttribute('_original_ids_', 1)).toBe('1');
+				} finally {
+					restored.dispose();
+				}
+			} finally {
+				warnSpy.mockRestore();
+				networkInstance.dispose();
+			}
+		});
+
+		test('exports node-link JSON with reserved attributes nested under "attributes"', async () => {
+			const networkInstance = await HeliosNetwork.create({ directed: false, initialNodes: 0, initialEdges: 0 });
+			const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+			try {
+				const mod = networkInstance.module;
+				if (typeof mod._CXNetworkWriteNodeLinkJSON !== 'function') {
+					await expect(networkInstance.saveNodeLinkJSON()).rejects.toThrow(/CXNetworkWriteNodeLinkJSON is not available/);
+					return;
+				}
+
+				const nodes = networkInstance.addNodes(2);
+				const edges = networkInstance.addEdges([{ from: nodes[0], to: nodes[1] }]);
+				networkInstance.defineNodeAttribute('coords', AttributeType.Float, 2);
+				networkInstance.defineNodeAttribute('id', AttributeType.String, 1);
+				networkInstance.defineEdgeAttribute('weight', AttributeType.Float, 1);
+
+				withNodeBuffer(networkInstance, 'coords', ({ view }) => {
+					view[nodes[0] * 2 + 0] = 1;
+					view[nodes[0] * 2 + 1] = 2;
+					view[nodes[1] * 2 + 0] = 3;
+					view[nodes[1] * 2 + 1] = 4;
+				});
+				networkInstance.setNodeStringAttribute('id', nodes[0], 'left');
+				networkInstance.setNodeStringAttribute('id', nodes[1], 'right');
+				withEdgeBuffer(networkInstance, 'weight', ({ view }) => {
+					view[edges[0]] = 2.5;
+				});
+
+				const text = await networkInstance.saveNodeLinkJSON({ format: 'string' });
+				expect(text).toContain('"nodes"');
+				expect(text).toContain('"links"');
+				expect(text).toContain('"coords": [1, 2]');
+				expect(text).toContain('"attributes": {"id": "left"}');
+				expect(text).toContain('"weight": 2.5');
+				expect(warnSpy).toHaveBeenCalled();
+			} finally {
+				warnSpy.mockRestore();
+				networkInstance.dispose();
+			}
+		});
+
+		test('loads node-link JSON, preserves original ids, and warns on lossy coercions', async () => {
+			const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+			const restored = await HeliosNetwork.fromNodeLinkJSON({
+				directed: true,
+				graph: {
+					title: 'Imported graph',
+					metadata: { mode: 'demo' },
+				},
+				nodes: [
+					{ id: 'left', label: 'Alpha', coords: [1, 2] },
+					{ id: 'right', attributes: { score: 2.5 } },
+				],
+				links: [
+					{ source: 'left', target: 'ghost', weight: 3.5, attributes: { kind: 'bridge' } },
+				],
+			});
+			try {
+				expect(restored.directed).toBe(true);
+				expect(restored.nodeCount).toBe(3);
+				expect(restored.edgeCount).toBe(1);
+				expect(restored.getNetworkStringAttribute('title')).toBe('Imported graph');
+				expect(JSON.parse(restored.getNetworkStringAttribute('metadata'))).toEqual({ mode: 'demo' });
+				expect(restored.getNodeStringAttribute('label', 0)).toBe('Alpha');
+				expect(restored.getNodeStringAttribute('_original_ids_', 0)).toBe('left');
+				expect(restored.getNodeStringAttribute('_original_ids_', 2)).toBe('ghost');
+				withNodeBuffer(restored, 'coords', ({ view }) => {
+					expect(view[0]).toBeCloseTo(1);
+					expect(view[1]).toBeCloseTo(2);
+				});
+				withEdgeBuffer(restored, 'weight', ({ view }) => {
+					expect(view[0]).toBeCloseTo(3.5);
+				});
+				expect(warnSpy.mock.calls.some(([message]) => String(message).includes('synthesized a node'))).toBe(true);
+				expect(warnSpy.mock.calls.some(([message]) => String(message).includes('coerced attribute "metadata"'))).toBe(true);
+			} finally {
+				warnSpy.mockRestore();
+				restored.dispose();
 			}
 		});
 

@@ -218,6 +218,8 @@ CX_EXTERN CXSize CXNetworkQueryLastErrorOffset(void);
 // Metadata
 /** Returns the semantic version string for the compiled library (e.g. "1.2.3"). */
 CX_EXTERN const char* CXNetworkVersionString(void);
+/** Returns the last non-fatal serialization warning emitted by a save/load helper. */
+CX_EXTERN const char* CXNetworkSerializationLastWarningMessage(void);
 
 // Network lifecycle
 /** Allocates a new network with default capacities. */

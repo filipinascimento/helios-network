@@ -6,6 +6,8 @@
 
 #include "CXNetwork.h"
 #include "CXNetworkBXNet.h"
+#include "CXNetworkGML.h"
+#include "CXNetworkNodeLinkJSON.h"
 #include "CXNetworkXNet.h"
 
 typedef struct {
@@ -15,6 +17,13 @@ typedef struct {
 } PyHeliosNetwork;
 
 static PyTypeObject PyHeliosNetworkType;
+
+static void emit_serialization_warning(void) {
+    const char *message = CXNetworkSerializationLastWarningMessage();
+    if (message && message[0] != '\0') {
+        PyErr_WarnEx(PyExc_UserWarning, message, 1);
+    }
+}
 
 static int parse_scope(PyObject *obj, CXAttributeScope *out) {
     if (PyLong_Check(obj)) {
@@ -1717,6 +1726,48 @@ static PyObject *Network_save_zxnet(PyHeliosNetwork *self, PyObject *args) {
     Py_RETURN_TRUE;
 }
 
+static PyObject *Network_save_gml(PyHeliosNetwork *self, PyObject *args) {
+    const char *path = NULL;
+    if (!PyArg_ParseTuple(args, "s", &path)) {
+        return NULL;
+    }
+    if (!self->network) {
+        PyErr_SetString(PyExc_RuntimeError, "Network is not initialized");
+        return NULL;
+    }
+    CXBool ok = CXNetworkWriteGML(self->network, path);
+    if (!ok) {
+        PyErr_SetString(PyExc_IOError, "Failed to write GML file");
+        return NULL;
+    }
+    emit_serialization_warning();
+    if (PyErr_Occurred()) {
+        return NULL;
+    }
+    Py_RETURN_TRUE;
+}
+
+static PyObject *Network_save_node_link_json(PyHeliosNetwork *self, PyObject *args) {
+    const char *path = NULL;
+    if (!PyArg_ParseTuple(args, "s", &path)) {
+        return NULL;
+    }
+    if (!self->network) {
+        PyErr_SetString(PyExc_RuntimeError, "Network is not initialized");
+        return NULL;
+    }
+    CXBool ok = CXNetworkWriteNodeLinkJSON(self->network, path);
+    if (!ok) {
+        PyErr_SetString(PyExc_IOError, "Failed to write node-link JSON file");
+        return NULL;
+    }
+    emit_serialization_warning();
+    if (PyErr_Occurred()) {
+        return NULL;
+    }
+    Py_RETURN_TRUE;
+}
+
 static PyObject *Network_categorize_attribute(PyHeliosNetwork *self, PyObject *args, PyObject *kwargs) {
     static const char *kwlist[] = {"scope", "name", "sort_order", "missing_label", NULL};
     PyObject *scope_obj = NULL;
@@ -2894,6 +2945,8 @@ static PyMethodDef Network_methods[] = {
     {"save_xnet", (PyCFunction)Network_save_xnet, METH_VARARGS, "Save network as .xnet."},
     {"save_bxnet", (PyCFunction)Network_save_bxnet, METH_VARARGS, "Save network as .bxnet."},
     {"save_zxnet", (PyCFunction)Network_save_zxnet, METH_VARARGS, "Save network as .zxnet."},
+    {"save_gml", (PyCFunction)Network_save_gml, METH_VARARGS, "Save network as .gml."},
+    {"save_node_link_json", (PyCFunction)Network_save_node_link_json, METH_VARARGS, "Save network as node-link JSON."},
     {"categorize_attribute", (PyCFunction)Network_categorize_attribute, METH_VARARGS | METH_KEYWORDS, "Categorize a string attribute."},
     {"decategorize_attribute", (PyCFunction)Network_decategorize_attribute, METH_VARARGS | METH_KEYWORDS, "Convert categorical attribute to strings."},
     {"get_category_dictionary", (PyCFunction)Network_get_category_dictionary, METH_VARARGS, "Get categorical dictionary as {label: id}."},
@@ -2980,10 +3033,30 @@ static PyObject *module_read_zxnet(PyObject *self, PyObject *args) {
     return Network_FromCXNetwork(network);
 }
 
+static PyObject *module_read_gml(PyObject *self, PyObject *args) {
+    (void)self;
+    const char *path = NULL;
+    if (!PyArg_ParseTuple(args, "s", &path)) {
+        return NULL;
+    }
+    CXNetworkRef network = CXNetworkReadGML(path);
+    if (!network) {
+        PyErr_SetString(PyExc_IOError, "Failed to read GML file");
+        return NULL;
+    }
+    emit_serialization_warning();
+    if (PyErr_Occurred()) {
+        CXFreeNetwork(network);
+        return NULL;
+    }
+    return Network_FromCXNetwork(network);
+}
+
 static PyMethodDef module_methods[] = {
     {"read_xnet", (PyCFunction)module_read_xnet, METH_VARARGS, "Read .xnet file into a Network."},
     {"read_bxnet", (PyCFunction)module_read_bxnet, METH_VARARGS, "Read .bxnet file into a Network."},
     {"read_zxnet", (PyCFunction)module_read_zxnet, METH_VARARGS, "Read .zxnet file into a Network."},
+    {"read_gml", (PyCFunction)module_read_gml, METH_VARARGS, "Read .gml file into a Network."},
     {NULL, NULL, 0, NULL}
 };
 

@@ -191,7 +191,7 @@ const DIMENSION_FORWARD_COEFFICIENTS = Object.freeze([
  * Options for .bxnet/.xnet serialization.
  * @typedef {object} SaveSerializedOptions
  * @property {string=} path
- * @property {('uint8array'|'arraybuffer'|'base64'|'blob')=} format
+ * @property {('uint8array'|'arraybuffer'|'base64'|'blob'|'string'|'text')=} format
  * @property {AttributeFilterMap=} allowAttributes
  * @property {AttributeFilterMap=} ignoreAttributes
  */
@@ -201,7 +201,7 @@ const DIMENSION_FORWARD_COEFFICIENTS = Object.freeze([
  * @typedef {object} SaveZXNetOptions
  * @property {string=} path
  * @property {number=} compressionLevel
- * @property {('uint8array'|'arraybuffer'|'base64'|'blob')=} format
+ * @property {('uint8array'|'arraybuffer'|'base64'|'blob'|'string'|'text')=} format
  * @property {AttributeFilterMap=} allowAttributes
  * @property {AttributeFilterMap=} ignoreAttributes
  */
@@ -628,6 +628,23 @@ async function resolveInputBytes(source) {
 	throw new TypeError('Unsupported source type for deserialization');
 }
 
+async function resolveInputText(source) {
+	if (typeof source === 'string') {
+		const trimmed = source.trimStart();
+		if (!isNodeRuntime() || trimmed.startsWith('{') || trimmed.startsWith('[')) {
+			return source;
+		}
+		const fs = await getNodeFsModule();
+		const resolved = await resolveNodePath(source);
+		return fs.readFile(resolved, 'utf8');
+	}
+	if (typeof source === 'object' && typeof source.text === 'function') {
+		return source.text();
+	}
+	const bytes = await resolveInputBytes(source);
+	return decodeUTF8(bytes);
+}
+
 function bytesToFormat(bytes, format = 'uint8array') {
 	const normalized = typeof format === 'string' ? format.toLowerCase() : 'uint8array';
 	switch (normalized) {
@@ -642,8 +659,298 @@ function bytesToFormat(bytes, format = 'uint8array') {
 				throw new Error('Blob is not available in this environment');
 			}
 			return new Blob([bytes], { type: 'application/octet-stream' });
+		case 'string':
+		case 'text':
+			return decodeUTF8(bytes);
 		default:
 			throw new Error(`Unsupported output format "${format}"`);
+	}
+}
+
+function decodeUTF8(bytes) {
+	if (typeof TextDecoder !== 'undefined') {
+		return new TextDecoder('utf-8').decode(bytes);
+	}
+	if (isNodeRuntime()) {
+		return Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString('utf8');
+	}
+	throw new Error('UTF-8 decoding is not supported in this environment');
+}
+
+function isPlainObject(value) {
+	return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function nodeLinkIdKey(value) {
+	return `${typeof value}:${JSON.stringify(value)}`;
+}
+
+function nodeLinkIdString(value) {
+	if (typeof value === 'string') {
+		return value;
+	}
+	return JSON.stringify(value);
+}
+
+function mergeNodeLinkRecordAttributes(record, reservedKeys) {
+	const merged = {};
+	if (!isPlainObject(record)) {
+		return merged;
+	}
+	for (const [key, value] of Object.entries(record)) {
+		if (reservedKeys.has(key) || key === 'attributes') {
+			continue;
+		}
+		merged[key] = value;
+	}
+	if (isPlainObject(record.attributes)) {
+		for (const [key, value] of Object.entries(record.attributes)) {
+			merged[key] = value;
+		}
+	}
+	return merged;
+}
+
+function classifyNodeLinkValue(value, { allowMultiCategory = false } = {}) {
+	if (value === null || value === undefined) {
+		return null;
+	}
+	if (typeof value === 'string') {
+		return { mode: 'string', attrType: AttributeType.String, dimension: 1 };
+	}
+	if (typeof value === 'boolean') {
+		return { mode: 'boolean', attrType: AttributeType.Boolean, dimension: 1 };
+	}
+	if (typeof value === 'number') {
+		if (!Number.isFinite(value)) {
+			return { mode: 'json-string', attrType: AttributeType.String, dimension: 1 };
+		}
+		if (Number.isInteger(value) && value >= 0 && value <= 0xFFFFFFFF) {
+			return { mode: 'number', attrType: AttributeType.UnsignedInteger, dimension: 1 };
+		}
+		if (Number.isInteger(value) && value >= -0x80000000 && value <= 0x7FFFFFFF) {
+			return { mode: 'number', attrType: AttributeType.Integer, dimension: 1 };
+		}
+		return { mode: 'number', attrType: AttributeType.Double, dimension: 1 };
+	}
+	if (Array.isArray(value)) {
+		const nonNull = value.filter((item) => item !== null && item !== undefined);
+		if (nonNull.length === 0) {
+			return { mode: 'json-string', attrType: AttributeType.String, dimension: 1 };
+		}
+		if (nonNull.every((item) => typeof item === 'number' && Number.isFinite(item))) {
+			const wantsDouble = nonNull.some((item) => !Number.isInteger(item) || item > 0xFFFFFFFF || item < -0x80000000);
+			const wantsSigned = nonNull.some((item) => Number.isInteger(item) && item < 0);
+			return {
+				mode: 'vector',
+				attrType: wantsDouble ? AttributeType.Double : wantsSigned ? AttributeType.Integer : AttributeType.UnsignedInteger,
+				dimension: value.length,
+			};
+		}
+		if (allowMultiCategory && nonNull.every((item) => typeof item === 'string')) {
+			return { mode: 'multicategory', attrType: AttributeType.MultiCategory, hasWeights: false, dimension: 1 };
+		}
+		if (allowMultiCategory && nonNull.every((item) => isPlainObject(item) && typeof item.label === 'string' && (item.weight === undefined || typeof item.weight === 'number'))) {
+			return { mode: 'multicategory', attrType: AttributeType.MultiCategory, hasWeights: true, dimension: 1 };
+		}
+		return { mode: 'json-string', attrType: AttributeType.String, dimension: 1 };
+	}
+	return { mode: 'json-string', attrType: AttributeType.String, dimension: 1 };
+}
+
+function mergeNodeLinkSchema(existing, candidate) {
+	if (!candidate) {
+		return existing;
+	}
+	if (!existing) {
+		return { ...candidate };
+	}
+	if (existing.mode === 'json-string' || candidate.mode === 'json-string') {
+		return { mode: 'json-string', attrType: AttributeType.String, dimension: 1 };
+	}
+	if (existing.mode === 'multicategory' && candidate.mode === 'multicategory') {
+		return {
+			mode: 'multicategory',
+			attrType: AttributeType.MultiCategory,
+			hasWeights: Boolean(existing.hasWeights || candidate.hasWeights),
+			dimension: 1,
+		};
+	}
+	if (existing.mode === candidate.mode && existing.dimension === candidate.dimension) {
+		if ((existing.mode === 'number' || existing.mode === 'vector') && existing.attrType !== candidate.attrType) {
+			return {
+				mode: existing.mode,
+				attrType: AttributeType.Double,
+				dimension: existing.dimension,
+			};
+		}
+		return existing;
+	}
+	return { mode: 'json-string', attrType: AttributeType.String, dimension: 1 };
+}
+
+function inferNodeLinkSchemas(records, reservedKeys, options = {}) {
+	const schemas = new Map();
+	const warnings = [];
+	for (const record of records) {
+		const attrs = mergeNodeLinkRecordAttributes(record, reservedKeys);
+		for (const [name, value] of Object.entries(attrs)) {
+			const candidate = classifyNodeLinkValue(value, options);
+			const merged = mergeNodeLinkSchema(schemas.get(name) ?? null, candidate);
+			if (merged.mode === 'json-string' && (schemas.get(name)?.mode !== 'json-string')) {
+				warnings.push(`Node-link JSON coerced attribute "${name}" to a string payload during load`);
+			}
+			schemas.set(name, merged);
+		}
+	}
+	return { schemas, warnings };
+}
+
+function ensureNodeLinkEndpoints(nodes, links, warnings) {
+	const records = Array.isArray(nodes) ? nodes.map((node) => ({ ...node })) : [];
+	const seen = new Set(records.map((node) => nodeLinkIdKey(node?.id)));
+	for (const link of links) {
+		for (const key of ['source', 'target']) {
+			const endpoint = link?.[key];
+			const mapKey = nodeLinkIdKey(endpoint);
+			if (!seen.has(mapKey)) {
+				seen.add(mapKey);
+				records.push({ id: endpoint });
+				warnings.push(`Node-link JSON synthesized a node for missing endpoint ${nodeLinkIdString(endpoint)}`);
+			}
+		}
+	}
+	return records;
+}
+
+function assignNodeLinkString(scope, network, name, index, value) {
+	const text = typeof value === 'string' ? value : JSON.stringify(value);
+	if (scope === 'node') {
+		network.setNodeStringAttribute(name, index, text);
+	} else if (scope === 'edge') {
+		network.setEdgeStringAttribute(name, index, text);
+	} else {
+		network.setNetworkStringAttribute(name, text);
+	}
+}
+
+function bufferAccessorForScope(scope, network, name) {
+	if (scope === 'node') {
+		return network.getNodeAttributeBuffer(name);
+	}
+	if (scope === 'edge') {
+		return network.getEdgeAttributeBuffer(name);
+	}
+	return network.getNetworkAttributeBuffer(name);
+}
+
+function defineNodeLinkAttribute(scope, network, name, schema) {
+	if (schema.mode === 'multicategory') {
+		if (scope === 'node') {
+			network.defineNodeMultiCategoryAttribute(name, schema.hasWeights);
+		} else if (scope === 'edge') {
+			network.defineEdgeMultiCategoryAttribute(name, schema.hasWeights);
+		} else {
+			network.defineNetworkMultiCategoryAttribute(name, schema.hasWeights);
+		}
+		return;
+	}
+	if (scope === 'node') {
+		network.defineNodeAttribute(name, schema.attrType, schema.dimension);
+	} else if (scope === 'edge') {
+		network.defineEdgeAttribute(name, schema.attrType, schema.dimension);
+	} else {
+		network.defineNetworkAttribute(name, schema.attrType, schema.dimension);
+	}
+}
+
+function applyNodeLinkAttributes(scope, network, records, indices, schemas, reservedKeys) {
+	for (const [name, schema] of schemas.entries()) {
+		defineNodeLinkAttribute(scope, network, name, schema);
+	}
+	const deferred = [];
+	for (let recordIndex = 0; recordIndex < records.length; recordIndex += 1) {
+		const attrs = mergeNodeLinkRecordAttributes(records[recordIndex], reservedKeys);
+		const index = indices[recordIndex];
+		for (const [name, value] of Object.entries(attrs)) {
+			const schema = schemas.get(name);
+			if (!schema || value === null || value === undefined) {
+				continue;
+			}
+			if (schema.mode === 'string' || schema.mode === 'json-string') {
+				deferred.push({ kind: 'string', name, index, value });
+				continue;
+			}
+			if (schema.mode === 'multicategory') {
+				deferred.push({ kind: 'multicategory', name, index, value, schema });
+				continue;
+			}
+		}
+	}
+	network.withBufferAccess(() => {
+		const buffers = new Map();
+		for (const [name, schema] of schemas.entries()) {
+			if (schema.mode !== 'string' && schema.mode !== 'json-string' && schema.mode !== 'multicategory') {
+				buffers.set(name, bufferAccessorForScope(scope, network, name).view);
+			}
+		}
+		for (let recordIndex = 0; recordIndex < records.length; recordIndex += 1) {
+			const attrs = mergeNodeLinkRecordAttributes(records[recordIndex], reservedKeys);
+			const index = indices[recordIndex];
+			for (const [name, value] of Object.entries(attrs)) {
+				const schema = schemas.get(name);
+				if (!schema || value === null || value === undefined || schema.mode === 'string' || schema.mode === 'json-string' || schema.mode === 'multicategory') {
+					continue;
+				}
+				const view = buffers.get(name);
+				if (!view) {
+					continue;
+				}
+				const offset = index * schema.dimension;
+				if (schema.mode === 'vector' && Array.isArray(value)) {
+					for (let component = 0; component < schema.dimension; component += 1) {
+						view[offset + component] = Number.isFinite(value[component]) ? value[component] : 0;
+					}
+				} else if (schema.mode === 'boolean') {
+					view[index] = value ? 1 : 0;
+				} else {
+					view[index] = value;
+				}
+			}
+		}
+	});
+	for (const entry of deferred) {
+		if (entry.kind === 'string') {
+			assignNodeLinkString(scope, network, entry.name, entry.index, entry.value);
+			continue;
+		}
+		const payload = Array.isArray(entry.value) ? entry.value : [];
+		if (entry.schema.hasWeights) {
+			const categories = [];
+			const weights = [];
+			for (const item of payload) {
+				if (isPlainObject(item) && typeof item.label === 'string') {
+					categories.push(item.label);
+					weights.push(typeof item.weight === 'number' ? item.weight : 1);
+				}
+			}
+			if (scope === 'node') {
+				network.setNodeMultiCategoryEntry(entry.name, entry.index, categories, weights);
+			} else if (scope === 'edge') {
+				network.setEdgeMultiCategoryEntry(entry.name, entry.index, categories, weights);
+			} else {
+				network.setNetworkMultiCategoryEntry(entry.name, categories, weights);
+			}
+		} else {
+			const categories = payload.filter((item) => typeof item === 'string');
+			if (scope === 'node') {
+				network.setNodeMultiCategoryEntry(entry.name, entry.index, categories);
+			} else if (scope === 'edge') {
+				network.setEdgeMultiCategoryEntry(entry.name, entry.index, categories);
+			} else {
+				network.setNetworkMultiCategoryEntry(entry.name, categories);
+			}
+		}
 	}
 }
 
@@ -2869,6 +3176,169 @@ export class HeliosNetwork extends BaseEventTarget {
 	}
 
 	/**
+	 * Hydrates a network instance from a GML container.
+	 *
+	 * @param {Uint8Array|ArrayBuffer|string|Blob|Response} source - Serialized payload or Node file path.
+	 * @param {object} [options]
+	 * @param {object} [options.module] - Optional WASM module to reuse.
+	 * @returns {Promise<HeliosNetwork>} Newly constructed network.
+	 */
+	static async fromGML(source, options = {}) {
+		return HeliosNetwork._fromSerialized(source, 'gml', options);
+	}
+
+	/**
+	 * Hydrates a network instance from a node-link JSON document.
+	 *
+	 * Accepts a JSON string, Node.js filesystem path, `Blob`/`Response`, bytes,
+	 * or a plain JavaScript object already parsed from JSON.
+	 *
+	 * @param {Uint8Array|ArrayBuffer|string|Blob|Response|object} source - Node-link JSON payload, object, or Node file path.
+	 * @param {object} [options]
+	 * @param {object} [options.module] - Optional WASM module to reuse.
+	 * @returns {Promise<HeliosNetwork>} Newly constructed network.
+	 */
+	static async fromNodeLinkJSON(source, options = {}) {
+		const { module: providedModule } = options;
+		const module = providedModule || await getModule();
+		moduleInstance = module;
+
+		let document = source;
+		if (!isPlainObject(source)) {
+			const text = await resolveInputText(source);
+			try {
+				document = JSON.parse(text);
+			} catch (error) {
+				throw new Error(`Failed to parse node-link JSON: ${error?.message || String(error)}`);
+			}
+		}
+		if (!isPlainObject(document)) {
+			throw new Error('Node-link JSON root must be an object');
+		}
+
+		const warnings = [];
+		const nodeReservedKeys = new Set(['id']);
+		const edgeReservedKeys = new Set(['source', 'target']);
+
+		const normalizeNodeRecord = (record, index) => {
+			if (!isPlainObject(record)) {
+				warnings.push(`Node-link JSON skipped non-object node at position ${index}`);
+				return null;
+			}
+			const normalized = { ...record };
+			if (normalized.id === undefined || normalized.id === null) {
+				normalized.id = `__helios_node_${index}`;
+				warnings.push(`Node-link JSON synthesized an id for node at position ${index}`);
+			}
+			return normalized;
+		};
+		const normalizeLinkRecord = (record, index) => {
+			if (!isPlainObject(record)) {
+				warnings.push(`Node-link JSON skipped non-object link at position ${index}`);
+				return null;
+			}
+			if (record.source === undefined || record.source === null || record.target === undefined || record.target === null) {
+				warnings.push(`Node-link JSON skipped link at position ${index} because source/target is missing`);
+				return null;
+			}
+			return { ...record };
+		};
+
+		const nodeInput = document.nodes ?? [];
+		if (!Array.isArray(nodeInput)) {
+			throw new Error('Node-link JSON "nodes" must be an array when present');
+		}
+		const linkInput = document.links ?? document.edges ?? [];
+		if (!Array.isArray(linkInput)) {
+			throw new Error('Node-link JSON "links" or "edges" must be an array when present');
+		}
+
+		const normalizedNodes = nodeInput.map(normalizeNodeRecord).filter(Boolean);
+		const normalizedLinks = linkInput.map(normalizeLinkRecord).filter(Boolean);
+		const seenNodeIds = new Set();
+		for (const record of normalizedNodes) {
+			const key = nodeLinkIdKey(record.id);
+			if (seenNodeIds.has(key)) {
+				const original = nodeLinkIdString(record.id);
+				let suffix = 1;
+				let replacement = `${original}#${suffix}`;
+				while (seenNodeIds.has(nodeLinkIdKey(replacement))) {
+					suffix += 1;
+					replacement = `${original}#${suffix}`;
+				}
+				record.id = replacement;
+				warnings.push(`Node-link JSON renamed duplicate node id ${original} to ${replacement}`);
+			}
+			seenNodeIds.add(nodeLinkIdKey(record.id));
+		}
+
+		const nodeRecords = ensureNodeLinkEndpoints(normalizedNodes, normalizedLinks, warnings);
+		const network = await HeliosNetwork.create({
+			module,
+			directed: Boolean(document.directed),
+		});
+
+		try {
+			const nodeIndices = network.addNodes(nodeRecords.length);
+			const nodeIdToIndex = new Map();
+			for (let i = 0; i < nodeRecords.length; i += 1) {
+				nodeIdToIndex.set(nodeLinkIdKey(nodeRecords[i].id), nodeIndices[i]);
+			}
+
+			const edgePairs = [];
+			for (const record of normalizedLinks) {
+				const from = nodeIdToIndex.get(nodeLinkIdKey(record.source));
+				const to = nodeIdToIndex.get(nodeLinkIdKey(record.target));
+				if (from === undefined || to === undefined) {
+					warnings.push(`Node-link JSON skipped a link because endpoint lookup failed (${nodeLinkIdString(record.source)} -> ${nodeLinkIdString(record.target)})`);
+					continue;
+				}
+				edgePairs.push({ from, to });
+			}
+			const edgeIndices = edgePairs.length ? network.addEdges(edgePairs) : new Uint32Array();
+
+			const graphRecord = isPlainObject(document.graph)
+				? document.graph
+				: isPlainObject(document.network)
+					? document.network
+					: {};
+			if (document.graph !== undefined && !isPlainObject(document.graph)) {
+				warnings.push('Node-link JSON ignored top-level "graph" because it is not an object');
+			}
+			if (document.network !== undefined && !isPlainObject(document.network)) {
+				warnings.push('Node-link JSON ignored top-level "network" because it is not an object');
+			}
+
+			const nodeAnalysis = inferNodeLinkSchemas(nodeRecords, nodeReservedKeys, { allowMultiCategory: true });
+			const edgeAnalysis = inferNodeLinkSchemas(normalizedLinks, edgeReservedKeys, { allowMultiCategory: true });
+			const graphAnalysis = inferNodeLinkSchemas([graphRecord], new Set(), { allowMultiCategory: true });
+			warnings.push(...nodeAnalysis.warnings, ...edgeAnalysis.warnings, ...graphAnalysis.warnings);
+
+			if (nodeAnalysis.schemas.has('_original_ids_')) {
+				nodeAnalysis.schemas.delete('_original_ids_');
+				warnings.push('Node-link JSON reserved "_original_ids_" during load and replaced the input payload with imported node ids');
+			}
+
+			applyNodeLinkAttributes('node', network, nodeRecords, nodeIndices, nodeAnalysis.schemas, nodeReservedKeys);
+			applyNodeLinkAttributes('edge', network, normalizedLinks, edgeIndices, edgeAnalysis.schemas, edgeReservedKeys);
+			applyNodeLinkAttributes('network', network, [graphRecord], [0], graphAnalysis.schemas, new Set());
+
+			network.defineNodeAttribute('_original_ids_', AttributeType.String, 1);
+			for (let i = 0; i < nodeRecords.length; i += 1) {
+				network.setNodeStringAttribute('_original_ids_', nodeIndices[i], nodeLinkIdString(nodeRecords[i].id));
+			}
+		} catch (error) {
+			network.dispose();
+			throw error;
+		}
+
+		for (const warning of warnings) {
+			console.warn(`[Helios serialization] ${warning}`);
+		}
+		return network;
+	}
+
+	/**
 	 * Wraps an existing native network pointer.
 	 *
 	 * @param {object} module - Active Helios WASM module.
@@ -4021,6 +4491,29 @@ export class HeliosNetwork extends BaseEventTarget {
 	 */
 	async saveZXNet(options = {}) {
 		return this._saveSerialized('zxnet', options);
+	}
+
+	/**
+	 * Serializes the network into a GML document.
+	 *
+	 * Lossy cases such as renamed keys or skipped unsupported attributes are
+	 * surfaced as warnings through the console.
+	 *
+	 * @param {SaveSerializedOptions} [options]
+	 * @returns {Promise<Uint8Array|ArrayBuffer|string|Blob|undefined>} Serialized payload or void when writing directly to disk.
+	 */
+	async saveGML(options = {}) {
+		return this._saveSerialized('gml', options);
+	}
+
+	/**
+	 * Serializes the network into a node-link JSON document.
+	 *
+	 * @param {SaveSerializedOptions} [options]
+	 * @returns {Promise<Uint8Array|ArrayBuffer|string|Blob|undefined>} Serialized payload or void when writing directly to disk.
+	 */
+	async saveNodeLinkJSON(options = {}) {
+		return this._saveSerialized('node-link-json', options);
 	}
 
 	/**
@@ -8863,6 +9356,12 @@ export class HeliosNetwork extends BaseEventTarget {
 				funcLabel = 'ReadXNet';
 				humanLabel = '.xnet';
 				break;
+			case 'gml':
+				extension = 'gml';
+				readFn = module._CXNetworkReadGML;
+				funcLabel = 'ReadGML';
+				humanLabel = '.gml';
+				break;
 			default:
 				throw new Error(`Unsupported serialization kind: ${kind}`);
 		}
@@ -8920,6 +9419,9 @@ export class HeliosNetwork extends BaseEventTarget {
 
 		if (!networkPtr) {
 			throw new Error(`Failed to read ${humanLabel} data`);
+		}
+		if (kind === 'gml') {
+			HeliosNetwork._emitSerializationWarning(module);
 		}
 		return HeliosNetwork._wrapNative(module, networkPtr);
 	}
@@ -9000,8 +9502,25 @@ export class HeliosNetwork extends BaseEventTarget {
 				filteredLabel = 'WriteXNetFiltered';
 				humanLabel = '.xnet';
 				break;
+			case 'gml':
+				writeFn = module._CXNetworkWriteGML;
+				filteredWriteFn = null;
+				funcLabel = 'WriteGML';
+				filteredLabel = null;
+				humanLabel = '.gml';
+				break;
+			case 'node-link-json':
+				writeFn = module._CXNetworkWriteNodeLinkJSON;
+				filteredWriteFn = null;
+				funcLabel = 'WriteNodeLinkJSON';
+				filteredLabel = null;
+				humanLabel = 'node-link JSON';
+				break;
 			default:
 				throw new Error(`Unsupported serialization kind: ${kind}`);
+		}
+		if (useFilters && !filteredWriteFn) {
+			throw new Error(`${humanLabel} serialization does not support allowAttributes/ignoreAttributes filters`);
 		}
 		const selectedWriteFn = useFilters ? filteredWriteFn : writeFn;
 		const selectedLabel = useFilters ? filteredLabel : funcLabel;
@@ -9154,6 +9673,9 @@ export class HeliosNetwork extends BaseEventTarget {
 			}
 			throw new Error(`Failed to write ${humanLabel} data`);
 		}
+		if (kind === 'gml' || kind === 'node-link-json') {
+			HeliosNetwork._emitSerializationWarning(module);
+		}
 
 		let bytes = null;
 		if (canUseVirtualFS) {
@@ -9204,6 +9726,22 @@ export class HeliosNetwork extends BaseEventTarget {
 				: new Uint8Array(buffer);
 		}
 		return bytesToFormat(bytes, format);
+	}
+
+	static _emitSerializationWarning(module) {
+		const warningFn = module?._CXNetworkSerializationLastWarningMessage;
+		const decode = module?.UTF8ToString;
+		if (typeof warningFn !== 'function' || typeof decode !== 'function') {
+			return;
+		}
+		const ptr = warningFn.call(module);
+		if (!ptr) {
+			return;
+		}
+		const message = decode(ptr);
+		if (message) {
+			console.warn(`[Helios serialization] ${message}`);
+		}
 	}
 }
 

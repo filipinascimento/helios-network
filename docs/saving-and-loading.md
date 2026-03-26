@@ -1,6 +1,6 @@
 # File Persistence Guide
 
-Helios exposes high-level helpers for writing and reading the human-readable `.xnet` format alongside the binary `.bxnet` container and its compressed sibling `.zxnet`. The same API works in Node.js and in browsers thanks to the Emscripten virtual filesystem that ships with the WASM build. This guide shows the typical workflows for saving network snapshots and restoring them in both environments, including handling `Uint8Array`, `ArrayBuffer`, `Blob`, `Response`, and Base64 payloads.
+Helios exposes high-level helpers for writing and reading the human-readable `.xnet` format alongside the binary `.bxnet` container and its compressed sibling `.zxnet`. It also adds `.gml` import/export plus node-link JSON import/export for interop with common graph tooling. The same API works in Node.js and in browsers thanks to the Emscripten virtual filesystem that ships with the WASM build. This guide shows the typical workflows for saving network snapshots and restoring them in both environments, including handling `Uint8Array`, `ArrayBuffer`, `Blob`, `Response`, and Base64 payloads.
 
 > Need the raw file layout? See the [XNET format specification](./xnet-format.md) for the authoritative grammar covering both 1.0.0 and legacy dialects.
 
@@ -8,12 +8,13 @@ Helios exposes high-level helpers for writing and reading the human-readable `.x
 
 ## Quick Reference
 
-- `saveBXNet(options?)`, `saveZXNet(options?)`, and `saveXNet(options?)` serialize the active network. Without a `path`, they resolve to a `Uint8Array` (or another format when you pass `format`).
-- `fromBXNet(source, options?)`, `fromZXNet(source, options?)`, and `fromXNet(source, options?)` hydrate a new `HeliosNetwork` instance from bytes, a browser blob/response, or a Node.js file path.
+- `saveBXNet(options?)`, `saveZXNet(options?)`, `saveXNet(options?)`, `saveGML(options?)`, and `saveNodeLinkJSON(options?)` serialize the active network. Without a `path`, they resolve to a `Uint8Array` (or another format when you pass `format`).
+- `fromBXNet(source, options?)`, `fromZXNet(source, options?)`, `fromXNet(source, options?)`, `fromGML(source, options?)`, and `fromNodeLinkJSON(source, options?)` hydrate a new `HeliosNetwork` instance from bytes, a browser blob/response, a Node.js file path, or for node-link JSON a parsed plain object / JSON string.
 - Use `.zxnet` when you want a compressed payload; `.bxnet` stays uncompressed and is cheaper to load.
 - Always call `dispose()` on networks you no longer need to free native memory.
 - Categorical attributes serialize their dictionaries in XNET/BXNET/ZXNET; missing values use the `-1` sentinel and default label `__NA__`.
 - Multi-category attributes (including weighted sets) serialize in XNET/BXNET/ZXNET using their CSR-like buffers and categorical dictionaries.
+- GML and node-link JSON are intentionally lossy for some Helios-specific payloads. When keys must be renamed or unsupported attributes are skipped, the bindings emit a warning (`console.warn` in JS, `UserWarning` in Python, `CXNetworkSerializationLastWarningMessage()` in native C).
 
 > **Note:** `saveXNet` compacts the network so node identifiers become contiguous (`0..n-1`). The original IDs are preserved in the `_original_ids_` vertex attribute.
 
@@ -42,6 +43,82 @@ await net.saveBXNet({
 - If neither is provided, all supported attributes are saved.
 - `graph` is accepted as an alias for `network`.
 - `saveXNet` still writes `_original_ids_` to preserve compaction metadata.
+- Attribute filters currently apply to BXNet/ZXNet/XNet only. GML and node-link JSON export all supported attributes.
+
+### GML and Node-Link JSON Notes
+
+- `saveGML()` / `fromGML()` target broad GML interoperability and accept looser inputs such as quoted keys and unquoted scalar strings.
+- GML export always prefers safe identifiers when possible. Invalid keys are sanitized, for example `label with spaces` becomes `label_with_spaces`; collisions are deduplicated and reserved tokens are prefixed, with a warning when the export had to rename or skip something.
+- `saveNodeLinkJSON()` writes a common node-link structure with top-level `graph`, `nodes`, and `links` collections, and `fromNodeLinkJSON()` reads the same layout back.
+- Reserved node/link keys such as `id`, `source`, and `target` are moved into a nested `"attributes"` object during node-link JSON export.
+- During node-link JSON load, Helios always preserves external node identifiers in the `_original_ids_` node string attribute.
+
+### Node-Link JSON Schema
+
+Helios uses a D3 / NetworkX-style node-link document:
+
+```json
+{
+  "directed": true,
+  "multigraph": false,
+  "graph": {
+    "title": "Example graph"
+  },
+  "nodes": [
+    {
+      "id": "left",
+      "label": "Alpha",
+      "coords": [1, 2]
+    },
+    {
+      "id": "right",
+      "attributes": {
+        "score": 2.5
+      }
+    }
+  ],
+  "links": [
+    {
+      "source": "left",
+      "target": "right",
+      "weight": 3.5,
+      "attributes": {
+        "kind": "bridge"
+      }
+    }
+  ]
+}
+```
+
+- Top-level fields:
+  - `directed`: boolean, used to create the Helios network orientation.
+  - `multigraph`: accepted for compatibility and currently ignored.
+  - `graph`: optional object of network-scope attributes.
+  - `network`: accepted as an alias for `graph` during load.
+  - `nodes`: array of node records.
+  - `links`: array of edge records.
+  - `edges`: accepted as an alias for `links` during load.
+- Node fields:
+  - `id`: the external node identifier. It can be a string, number, boolean, or JSON value. Helios stores the imported value in `_original_ids_` as a string representation.
+  - Any non-reserved inline key becomes a Helios node attribute.
+  - `attributes`: optional nested object whose keys are merged into the node attribute set.
+- Link fields:
+  - `source` / `target`: endpoint identifiers referencing node `id` values.
+  - Any non-reserved inline key becomes a Helios edge attribute.
+  - `attributes`: optional nested object whose keys are merged into the edge attribute set.
+- Attribute type mapping on load:
+  - JSON strings -> `String`
+  - JSON booleans -> `Boolean`
+  - JSON integers -> `Integer`
+  - JSON non-integer numbers -> `Double`
+  - Numeric arrays -> fixed-dimension numeric vectors
+  - In JS/WASM only, arrays of strings and arrays of `{ label, weight? }` records load as multi-category attributes
+  - Nested objects, mixed-type arrays, empty arrays, and other unsupported shapes are stringified as JSON text and warned about
+- Tolerant load behavior:
+  - Missing node records referenced by `source` / `target` are synthesized automatically and warned about.
+  - Missing node `id` values are synthesized automatically and warned about.
+  - Duplicate node ids are renamed with a `#<n>` suffix and warned about.
+  - Non-object node/link entries are skipped with a warning.
 
 ---
 
@@ -103,6 +180,14 @@ const net = await HeliosNetwork.fromBXNet(
     ? bytes
     : new Uint8Array(bytes),
 );
+```
+
+### Hydrate From Node-Link JSON
+
+```js
+const restored = await HeliosNetwork.fromNodeLinkJSON('./snapshots/graph.json');
+console.log(restored.getNodeStringAttribute('_original_ids_', 0));
+restored.dispose();
 ```
 
 The loader accepts `Uint8Array`, any typed-array view (`Float32Array`, etc.), or an `ArrayBuffer`.

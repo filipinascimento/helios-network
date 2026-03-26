@@ -47,6 +47,10 @@ This complements the inline docstrings and `python/docs/API.md`.
 - `save_xnet(path)`
 - `save_bxnet(path)`
 - `save_zxnet(path, compression=6)`
+- `save_gml(path)`
+- `save_node_link_json(path)`
+- `read_gml(path)`
+- `read_node_link_json(path)`
 
 ## NodeCollection / EdgeCollection
 

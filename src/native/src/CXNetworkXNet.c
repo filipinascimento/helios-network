@@ -2709,19 +2709,51 @@ static CXBool XNetPopulateAttribute(CXNetworkRef network, XNetAttributeScope sco
 		if (!attr->multiCategory || !block->multiOffsets) {
 			return CXFalse;
 		}
+		CXSize logicalCount = 0;
+		switch (scope) {
+			case XNetScopeNode:
+				logicalCount = network->nodeCount;
+				break;
+			case XNetScopeEdge:
+				logicalCount = network->edgeCount;
+				break;
+			case XNetScopeGraph:
+				logicalCount = 1;
+				break;
+			default:
+				return CXFalse;
+		}
+		if (block->count != logicalCount || logicalCount > attr->capacity) {
+			return CXFalse;
+		}
 		CXSize offsetCount = attr->capacity + 1;
+		const uint32_t *offsets = block->multiOffsets;
+		uint32_t *expandedOffsets = NULL;
+		if (logicalCount < attr->capacity) {
+			expandedOffsets = calloc(offsetCount, sizeof(uint32_t));
+			if (!expandedOffsets) {
+				return CXFalse;
+			}
+			memcpy(expandedOffsets, block->multiOffsets, (logicalCount + 1) * sizeof(uint32_t));
+			for (CXSize idx = logicalCount + 1; idx < offsetCount; idx++) {
+				expandedOffsets[idx] = (uint32_t)block->multiEntryCount;
+			}
+			offsets = expandedOffsets;
+		}
 		if (!CXNetworkSetMultiCategoryBuffers(
 			network,
 			(CXAttributeScope)scope,
 			block->name,
-			block->multiOffsets,
+			offsets,
 			offsetCount,
 			block->multiIds,
 			(CXSize)block->multiEntryCount,
 			block->hasWeights ? block->multiWeights : NULL
 		)) {
+			free(expandedOffsets);
 			return CXFalse;
 		}
+		free(expandedOffsets);
 		if (attr->categoricalDictionary && block->categoryCount > 0) {
 			for (size_t idx = 0; idx < block->categoryCount; idx++) {
 				XNetCategoryEntry *entry = &block->categories[idx];

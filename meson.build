@@ -19,6 +19,7 @@ cvnetwork_src = files(
   'src/native/src/CXNetworkMeasurement.c',
   'src/native/src/CXNetworkQuery.c',
   'src/native/src/CXNetworkBXNet.c',
+  'src/native/src/CXNetworkInterchange.c',
   'src/native/src/CXNetworkXNet.c',
   'src/native/src/CXSortTest.c',
   'src/native/src/CXSet.c',
