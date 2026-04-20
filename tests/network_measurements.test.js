@@ -96,6 +96,72 @@ test('degree and strength metrics match known directed/undirected values', async
 	}
 });
 
+test('internal layout strength buffer delta-updates topology edits', async () => {
+	const network = await HeliosNetwork.create({ directed: false, initialNodes: 0, initialEdges: 0 });
+	try {
+		network.addNodes(3);
+		const firstEdges = network.addEdges([{ from: 0, to: 1 }]);
+		const resolved = network.__heliosResolveLayoutStrengthAttribute();
+		expect(resolved.name).toBe('_helios_layout_strength');
+		withNodeBuffer(network, resolved.name, ({ view }) => {
+			expect(Array.from(view.slice(0, 3))).toEqual([1, 1, 0]);
+		});
+
+		const addedNode = network.addNodes(1);
+		withNodeBuffer(network, resolved.name, ({ view }) => {
+			expect(view[addedNode[0]]).toBe(0);
+		});
+
+		const secondEdges = network.addEdges([{ from: 1, to: 2 }]);
+		withNodeBuffer(network, resolved.name, ({ view }) => {
+			expect(Array.from(view.slice(0, 4))).toEqual([1, 2, 1, 0]);
+		});
+
+		network.removeEdges(secondEdges);
+		withNodeBuffer(network, resolved.name, ({ view }) => {
+			expect(Array.from(view.slice(0, 4))).toEqual([1, 1, 0, 0]);
+		});
+
+		network.removeNodes([1]);
+		withNodeBuffer(network, resolved.name, ({ view }) => {
+			expect(Array.from(view.slice(0, 4))).toEqual([0, 0, 0, 0]);
+		});
+		expect(network.getEdgeAttributeNames()).not.toContain('_helios_layout_strength');
+		expect(Array.from(firstEdges)).toEqual([0]);
+	} finally {
+		network.dispose();
+	}
+});
+
+test('internal layout strength buffer rebuilds after edge weight version changes', async () => {
+	const network = await buildNetwork({
+		directed: false,
+		nodeCount: 3,
+		edges: [[0, 1], [0, 2]],
+		weightName: 'w',
+		weights: [2, 3],
+	});
+	try {
+		const resolved = network.__heliosResolveLayoutStrengthAttribute('w');
+		withNodeBuffer(network, resolved.name, ({ view }) => {
+			expect(Array.from(view.slice(0, 3))).toEqual([5, 2, 3]);
+		});
+
+		withEdgeBuffer(network, 'w', ({ view, bumpVersion }) => {
+			view[0] = 7;
+			bumpVersion();
+		});
+		const rebuilt = network.__heliosResolveLayoutStrengthAttribute('w');
+		expect(rebuilt.name).toBe(resolved.name);
+		withNodeBuffer(network, rebuilt.name, ({ view }) => {
+			expect(Array.from(view.slice(0, 3))).toEqual([10, 7, 3]);
+		});
+		expect(network.getEdgeAttributeNames()).toEqual(['w']);
+	} finally {
+		network.dispose();
+	}
+});
+
 test('local clustering coefficient variants match known triangle/path values', async () => {
 	const triangle = await buildNetwork({
 		directed: false,

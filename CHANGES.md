@@ -1,5 +1,9 @@
 # CHANGES
 
+## Unreleased
+
+- Added an internal `_helios_layout_strength` sparse node buffer for GPU-force layout strength normalization. It is derived from incident edge weights, updates incrementally for topology edits, and rebuilds when the source edge-weight attribute version changes.
+
 ## 2026-03-25
 
 - Added GML read/write support across the native, WASM, and Python bindings, including tolerant parsing for looser GML variants and warning surfacing for lossy key normalization or skipped attributes.

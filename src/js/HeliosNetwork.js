@@ -450,6 +450,8 @@ const HELIOS_NETWORK_EVENTS = Object.freeze({
 	attributeChanged: 'attribute:changed',
 });
 
+const LAYOUT_STRENGTH_ATTRIBUTE = '_helios_layout_strength';
+
 const NODE_RUNTIME = typeof process !== 'undefined' && !!process.versions?.node;
 const VIRTUAL_TEMP_DIR = '/tmp/helios';
 
@@ -3368,6 +3370,15 @@ export class HeliosNetwork extends BaseEventTarget {
 		this._activeNodeIndexBuffer = { ptr: 0, capacity: 0, count: 0, version: 0, dirty: true };
 		this._activeEdgeIndexBuffer = { ptr: 0, capacity: 0, count: 0, version: 0, dirty: true };
 		this._localVersions = new Map();
+		this._layoutStrengthMetric = {
+			name: LAYOUT_STRENGTH_ATTRIBUTE,
+			edgeWeightAttribute: null,
+			edgeWeightVersion: 0,
+			topologyNode: 0,
+			topologyEdge: 0,
+			dirty: true,
+			initialized: false,
+		};
 
 		this._nodeValidRangeCache = null;
 		this._edgeValidRangeCache = null;
@@ -4134,6 +4145,10 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * Removes a node attribute and its storage.
 	 */
 	removeNodeAttribute(name) {
+		if (String(name) === this._layoutStrengthMetric?.name) {
+			this._layoutStrengthMetric.initialized = false;
+			this._layoutStrengthMetric.dirty = true;
+		}
 		this._removeAttribute('node', name);
 	}
 
@@ -4141,6 +4156,9 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * Removes an edge attribute and its storage.
 	 */
 	removeEdgeAttribute(name) {
+		if (String(name) === this._layoutStrengthMetric?.edgeWeightAttribute) {
+			this._markLayoutStrengthDirty();
+		}
 		this._removeAttribute('edge', name);
 	}
 
@@ -4548,6 +4566,7 @@ export class HeliosNetwork extends BaseEventTarget {
 		this.module._free(ptr);
 		this._markAllPassthroughEdgesDirty();
 		this._bumpTopology('node');
+		this._handleLayoutStrengthNodesAdded(indices);
 		const topology = this.getTopologyVersions();
 		this.emit(HELIOS_NETWORK_EVENTS.nodesAdded, {
 			indices,
@@ -4588,6 +4607,7 @@ export class HeliosNetwork extends BaseEventTarget {
 		if (array.length === 0) {
 			return;
 		}
+		const layoutStrengthRemoval = this._snapshotLayoutStrengthNodeRemoval(array);
 		const ptr = this.module._malloc(array.length * 4);
 		if (!ptr) {
 			throw new Error('Failed to allocate memory for node removal');
@@ -4618,6 +4638,7 @@ export class HeliosNetwork extends BaseEventTarget {
 		}
 		this._markAllPassthroughEdgesDirty();
 		this._bumpTopology('node', true); // removing nodes also removes incident edges
+		this._handleLayoutStrengthNodesRemoved(array, layoutStrengthRemoval);
 		const topology = this.getTopologyVersions();
 		this.emit(HELIOS_NETWORK_EVENTS.nodesRemoved, {
 			indices: array,
@@ -4722,6 +4743,7 @@ export class HeliosNetwork extends BaseEventTarget {
 		this.module._free(outPtr);
 		this._markAllPassthroughEdgesDirty();
 		this._bumpTopology('edge');
+		this._handleLayoutStrengthEdgesAdded(indices);
 		const topology = this.getTopologyVersions();
 		this.emit(HELIOS_NETWORK_EVENTS.edgesAdded, {
 			indices,
@@ -4763,6 +4785,7 @@ export class HeliosNetwork extends BaseEventTarget {
 		if (array.length === 0) {
 			return;
 		}
+		const layoutStrengthRemoval = this._snapshotLayoutStrengthEdgeRemoval(array);
 		const ptr = this.module._malloc(array.length * 4);
 		if (!ptr) {
 			throw new Error('Failed to allocate memory for edge removal');
@@ -4793,6 +4816,7 @@ export class HeliosNetwork extends BaseEventTarget {
 		}
 		this._markAllPassthroughEdgesDirty();
 		this._bumpTopology('edge');
+		this._handleLayoutStrengthEdgesRemoved(layoutStrengthRemoval);
 		const topology = this.getTopologyVersions();
 		this.emit(HELIOS_NETWORK_EVENTS.edgesRemoved, {
 			indices: array,
@@ -6668,6 +6692,201 @@ export class HeliosNetwork extends BaseEventTarget {
 		return this.withBufferAccess(
 			() => new Float32Array(this.module.HEAPF32.buffer, pointer, this.nodeCapacity).slice()
 		);
+	}
+
+	_normalizeLayoutStrengthEdgeWeightAttribute(edgeWeightAttribute = null) {
+		if (edgeWeightAttribute == null || edgeWeightAttribute === '') {
+			return null;
+		}
+		const name = String(edgeWeightAttribute).trim();
+		return name || null;
+	}
+
+	_layoutStrengthEdgeWeightVersion(edgeWeightAttribute = null) {
+		const name = this._normalizeLayoutStrengthEdgeWeightAttribute(edgeWeightAttribute);
+		if (!name) return 0;
+		if (!this.hasEdgeAttribute(name)) return -1;
+		return this.getEdgeAttributeVersion(name);
+	}
+
+	_layoutStrengthNeedsRebuild(edgeWeightAttribute = null) {
+		const metric = this._layoutStrengthMetric;
+		if (!metric?.initialized || metric.dirty || !this.hasNodeAttribute(metric.name)) {
+			return true;
+		}
+		const normalizedWeight = this._normalizeLayoutStrengthEdgeWeightAttribute(edgeWeightAttribute);
+		const topology = this.getTopologyVersions();
+		return (
+			metric.edgeWeightAttribute !== normalizedWeight
+			|| metric.edgeWeightVersion !== this._layoutStrengthEdgeWeightVersion(normalizedWeight)
+			|| metric.topologyNode !== topology.node
+			|| metric.topologyEdge !== topology.edge
+		);
+	}
+
+	_updateLayoutStrengthSnapshot(edgeWeightAttribute = null) {
+		const metric = this._layoutStrengthMetric;
+		const topology = this.getTopologyVersions();
+		metric.edgeWeightAttribute = this._normalizeLayoutStrengthEdgeWeightAttribute(edgeWeightAttribute);
+		metric.edgeWeightVersion = this._layoutStrengthEdgeWeightVersion(metric.edgeWeightAttribute);
+		metric.topologyNode = topology.node;
+		metric.topologyEdge = topology.edge;
+		metric.dirty = false;
+		metric.initialized = true;
+	}
+
+	_markLayoutStrengthDirty() {
+		if (this._layoutStrengthMetric?.initialized) {
+			this._layoutStrengthMetric.dirty = true;
+		}
+	}
+
+	/**
+	 * Internal resolver used by GPU layouts. It intentionally is not a public
+	 * measurement API; callers consume the returned sparse node attribute through
+	 * the normal indirect buffer path.
+	 *
+	 * @param {string|null} [edgeWeightAttribute=null]
+	 * @returns {{name:string, version:number, edgeWeightAttribute:string|null}}
+	 */
+	__heliosResolveLayoutStrengthAttribute(edgeWeightAttribute = null) {
+		this._ensureActive();
+		const normalizedWeight = this._normalizeLayoutStrengthEdgeWeightAttribute(edgeWeightAttribute);
+		if (normalizedWeight && !this.hasEdgeAttribute(normalizedWeight)) {
+			throw new Error(`Unknown edge attribute "${normalizedWeight}"`);
+		}
+		if (this._layoutStrengthNeedsRebuild(normalizedWeight)) {
+			this.measureStrength({
+				edgeWeightAttribute: normalizedWeight,
+				measure: StrengthMeasure.Sum,
+				outNodeAttribute: this._layoutStrengthMetric.name,
+			});
+			this._updateLayoutStrengthSnapshot(normalizedWeight);
+		}
+		return {
+			name: this._layoutStrengthMetric.name,
+			version: this.getNodeAttributeVersion(this._layoutStrengthMetric.name),
+			edgeWeightAttribute: normalizedWeight,
+		};
+	}
+
+	_readLayoutStrengthEdgeWeight(edgeId, edgeWeightAttribute, edgeWeightView = null) {
+		if (!edgeWeightAttribute) return 1;
+		const view = edgeWeightView ?? this._getAttributeBuffer('edge', edgeWeightAttribute).view;
+		const value = Number(view?.[edgeId]);
+		return Number.isFinite(value) ? value : 0;
+	}
+
+	_canDeltaUpdateLayoutStrength() {
+		const metric = this._layoutStrengthMetric;
+		if (!metric?.initialized || metric.dirty || !this.hasNodeAttribute(metric.name)) {
+			return false;
+		}
+		if (metric.edgeWeightVersion !== this._layoutStrengthEdgeWeightVersion(metric.edgeWeightAttribute)) {
+			metric.dirty = true;
+			return false;
+		}
+		return true;
+	}
+
+	_applyLayoutStrengthEdgeDeltas(records, sign = 1, zeroNodes = null) {
+		if (!records?.length && !zeroNodes?.length) return;
+		if (!this._canDeltaUpdateLayoutStrength()) return;
+		const metric = this._layoutStrengthMetric;
+		this.withBufferAccess(() => {
+			const { view } = this.getNodeAttributeBuffer(metric.name);
+			for (const record of records ?? []) {
+				const source = record.source >>> 0;
+				const target = record.target >>> 0;
+				const delta = Number(record.weight) * sign;
+				if (!Number.isFinite(delta)) continue;
+				if (source < this.nodeCapacity) view[source] = Math.max(0, (Number(view[source]) || 0) + delta);
+				if (target < this.nodeCapacity) view[target] = Math.max(0, (Number(view[target]) || 0) + delta);
+			}
+			for (const node of zeroNodes ?? []) {
+				const nodeId = node >>> 0;
+				if (nodeId < this.nodeCapacity) view[nodeId] = 0;
+			}
+		});
+		this._bumpAttributeVersion('node', metric.name, { op: 'set' });
+		this._updateLayoutStrengthSnapshot(metric.edgeWeightAttribute);
+	}
+
+	_snapshotLayoutStrengthEdges(edgeIds) {
+		if (!this._canDeltaUpdateLayoutStrength()) return null;
+		const metric = this._layoutStrengthMetric;
+		return this.withBufferAccess(() => {
+			const edgesView = this.edgesView;
+			const edgeWeightView = metric.edgeWeightAttribute
+				? this.getEdgeAttributeBuffer(metric.edgeWeightAttribute).view
+				: null;
+			const records = [];
+			for (const rawEdgeId of edgeIds) {
+				const edgeId = rawEdgeId >>> 0;
+				const base = edgeId * 2;
+				if (base + 1 >= edgesView.length) continue;
+				const source = edgesView[base] >>> 0;
+				const target = edgesView[base + 1] >>> 0;
+				if (source === target) continue;
+				records.push({
+					source,
+					target,
+					weight: this._readLayoutStrengthEdgeWeight(edgeId, metric.edgeWeightAttribute, edgeWeightView),
+				});
+			}
+			return records;
+		}, { edgeIndices: true, edgesView: true });
+	}
+
+	_snapshotLayoutStrengthEdgeRemoval(edgeIds) {
+		return this._snapshotLayoutStrengthEdges(edgeIds);
+	}
+
+	_snapshotLayoutStrengthNodeRemoval(nodeIds) {
+		if (!this._canDeltaUpdateLayoutStrength()) return null;
+		const removed = new Set(Array.from(nodeIds ?? [], (node) => node >>> 0));
+		if (!removed.size) return null;
+		const metric = this._layoutStrengthMetric;
+		return this.withBufferAccess(() => {
+			const edgeIndices = this.edgeIndices;
+			const edgesView = this.edgesView;
+			const edgeWeightView = metric.edgeWeightAttribute
+				? this.getEdgeAttributeBuffer(metric.edgeWeightAttribute).view
+				: null;
+			const records = [];
+			for (const rawEdgeId of edgeIndices) {
+				const edgeId = rawEdgeId >>> 0;
+				const base = edgeId * 2;
+				if (base + 1 >= edgesView.length) continue;
+				const source = edgesView[base] >>> 0;
+				const target = edgesView[base + 1] >>> 0;
+				if (source === target) continue;
+				if (!removed.has(source) && !removed.has(target)) continue;
+				records.push({
+					source,
+					target,
+					weight: this._readLayoutStrengthEdgeWeight(edgeId, metric.edgeWeightAttribute, edgeWeightView),
+				});
+			}
+			return records;
+		}, { edgeIndices: true, edgesView: true });
+	}
+
+	_handleLayoutStrengthNodesAdded(nodeIds) {
+		this._applyLayoutStrengthEdgeDeltas([], 1, nodeIds);
+	}
+
+	_handleLayoutStrengthNodesRemoved(nodeIds, records) {
+		this._applyLayoutStrengthEdgeDeltas(records, -1, nodeIds);
+	}
+
+	_handleLayoutStrengthEdgesAdded(edgeIds) {
+		const records = this._snapshotLayoutStrengthEdges(edgeIds);
+		this._applyLayoutStrengthEdgeDeltas(records, 1);
+	}
+
+	_handleLayoutStrengthEdgesRemoved(records) {
+		this._applyLayoutStrengthEdgeDeltas(records, -1);
 	}
 
 	_copyUint32NodeValuesFromPointer(pointer) {
