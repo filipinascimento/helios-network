@@ -29,6 +29,15 @@ CX_EXTERN struct CXNetwork* CXNetworkReadXNet(const char *path);
  * @return CXTrue on success, CXFalse on failure.
  */
 CX_EXTERN CXBool CXNetworkWriteXNet(struct CXNetwork *network, const char *path);
+/**
+ * Serializes an XNET file while allowing or ignoring selected attributes.
+ *
+ * Attribute filters are split by node, edge, and graph/network scope.
+ *
+ * @param network Network to serialize.
+ * @param path Output path for the `.xnet` file.
+ * @return CXTrue on success, CXFalse on failure.
+ */
 CX_EXTERN CXBool CXNetworkWriteXNetFiltered(struct CXNetwork *network,
 	const char *path,
 	const char **nodeAllow,

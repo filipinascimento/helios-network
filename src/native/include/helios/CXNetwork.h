@@ -211,8 +211,11 @@ typedef CXSelector* CXEdgeSelectorRef;
  * to retrieve details about the last failure.
  */
 CX_EXTERN CXBool CXNetworkSelectNodesByQuery(CXNetworkRef network, const CXString query, CXNodeSelectorRef selector);
+/** Evaluates a query string against edges, populating the provided edge selector. */
 CX_EXTERN CXBool CXNetworkSelectEdgesByQuery(CXNetworkRef network, const CXString query, CXEdgeSelectorRef selector);
+/** Returns the most recent query parser/evaluator error message for this thread. */
 CX_EXTERN const CXString CXNetworkQueryLastErrorMessage(void);
+/** Returns the byte offset for the most recent query parser/evaluator error. */
 CX_EXTERN CXSize CXNetworkQueryLastErrorOffset(void);
 
 // Metadata
@@ -428,8 +431,11 @@ CX_EXTERN const CXString CXNetworkEdgeAttributeNameAt(CXNetworkRef network, CXSi
 /** Returns the network attribute name at `index`, or NULL when out of range. */
 CX_EXTERN const CXString CXNetworkNetworkAttributeNameAt(CXNetworkRef network, CXSize index);
 
+/** Returns the category dictionary for a categorical attribute, or NULL when unavailable. */
 CX_EXTERN CXStringDictionaryRef CXNetworkGetAttributeCategoryDictionary(CXNetworkRef network, CXAttributeScope scope, const CXString name);
+/** Returns how many category entries are defined for a categorical attribute. */
 CX_EXTERN CXSize CXNetworkGetAttributeCategoryDictionaryCount(CXNetworkRef network, CXAttributeScope scope, const CXString name);
+/** Copies category ids and labels into caller-provided arrays. */
 CX_EXTERN CXBool CXNetworkGetAttributeCategoryDictionaryEntries(
 	CXNetworkRef network,
 	CXAttributeScope scope,
@@ -438,6 +444,7 @@ CX_EXTERN CXBool CXNetworkGetAttributeCategoryDictionaryEntries(
 	CXString *outLabels,
 	CXSize capacity
 );
+/** Replaces or remaps the category dictionary for a categorical attribute. */
 CX_EXTERN CXBool CXNetworkSetAttributeCategoryDictionary(
 	CXNetworkRef network,
 	CXAttributeScope scope,
@@ -447,11 +454,15 @@ CX_EXTERN CXBool CXNetworkSetAttributeCategoryDictionary(
 	CXSize count,
 	CXBool remapExisting
 );
+/** Converts a string attribute into category ids using the requested sort policy. */
 CX_EXTERN CXBool CXNetworkCategorizeAttribute(CXNetworkRef network, CXAttributeScope scope, const CXString name, CXCategorySortOrder sortOrder, const CXString missingLabel);
+/** Converts category ids back to string labels for the named attribute. */
 CX_EXTERN CXBool CXNetworkDecategorizeAttribute(CXNetworkRef network, CXAttributeScope scope, const CXString name, const CXString missingLabel);
 
 // Multi-category attribute helpers.
+/** Defines a multi-category attribute with optional per-entry weights. */
 CX_EXTERN CXBool CXNetworkDefineMultiCategoryAttribute(CXNetworkRef network, CXAttributeScope scope, const CXString name, CXBool hasWeights);
+/** Writes one entry of a multi-category attribute using category ids. */
 CX_EXTERN CXBool CXNetworkSetMultiCategoryEntry(
 	CXNetworkRef network,
 	CXAttributeScope scope,
@@ -461,6 +472,7 @@ CX_EXTERN CXBool CXNetworkSetMultiCategoryEntry(
 	CXSize count,
 	const float *weights
 );
+/** Writes one entry of a multi-category attribute using category labels. */
 CX_EXTERN CXBool CXNetworkSetMultiCategoryEntryByLabels(
 	CXNetworkRef network,
 	CXAttributeScope scope,
@@ -470,7 +482,9 @@ CX_EXTERN CXBool CXNetworkSetMultiCategoryEntryByLabels(
 	CXSize count,
 	const float *weights
 );
+/** Clears all category ids and weights for one multi-category entry. */
 CX_EXTERN CXBool CXNetworkClearMultiCategoryEntry(CXNetworkRef network, CXAttributeScope scope, const CXString name, CXIndex index);
+/** Replaces the packed offset/id/weight buffers for a multi-category attribute. */
 CX_EXTERN CXBool CXNetworkSetMultiCategoryBuffers(
 	CXNetworkRef network,
 	CXAttributeScope scope,
@@ -481,6 +495,7 @@ CX_EXTERN CXBool CXNetworkSetMultiCategoryBuffers(
 	CXSize idCount,
 	const float *weights
 );
+/** Returns the [start,end) range for one entry inside the packed multi-category buffers. */
 CX_EXTERN CXBool CXNetworkGetMultiCategoryEntryRange(
 	CXNetworkRef network,
 	CXAttributeScope scope,
@@ -489,11 +504,17 @@ CX_EXTERN CXBool CXNetworkGetMultiCategoryEntryRange(
 	CXSize *outStart,
 	CXSize *outEnd
 );
+/** Returns the packed offsets buffer for a multi-category attribute. */
 CX_EXTERN uint32_t* CXNetworkGetMultiCategoryOffsets(CXNetworkRef network, CXAttributeScope scope, const CXString name);
+/** Returns the packed category id buffer for a multi-category attribute. */
 CX_EXTERN uint32_t* CXNetworkGetMultiCategoryIds(CXNetworkRef network, CXAttributeScope scope, const CXString name);
+/** Returns the packed weight buffer, or NULL when the attribute is unweighted. */
 CX_EXTERN float* CXNetworkGetMultiCategoryWeights(CXNetworkRef network, CXAttributeScope scope, const CXString name);
+/** Returns the number of offsets stored for a multi-category attribute. */
 CX_EXTERN CXSize CXNetworkGetMultiCategoryOffsetCount(CXNetworkRef network, CXAttributeScope scope, const CXString name);
+/** Returns the number of category entries stored for a multi-category attribute. */
 CX_EXTERN CXSize CXNetworkGetMultiCategoryEntryCount(CXNetworkRef network, CXAttributeScope scope, const CXString name);
+/** Returns CXTrue when the multi-category attribute stores per-entry weights. */
 CX_EXTERN CXBool CXNetworkMultiCategoryHasWeights(CXNetworkRef network, CXAttributeScope scope, const CXString name);
 
 /** Returns a pointer to the raw node attribute buffer for the named attribute. */

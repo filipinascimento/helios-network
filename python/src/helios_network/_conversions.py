@@ -55,6 +55,8 @@ def _iter_network_attributes(network: Network, scope) -> Iterable[str]:
 
 
 def to_networkx(network: Network):
+    """Convert a Helios `Network` to a NetworkX graph with compatible attributes."""
+
     nx = _lazy_import_networkx()
     graph = nx.DiGraph() if network.is_directed else nx.Graph()
 
@@ -84,6 +86,8 @@ def to_networkx(network: Network):
 
 
 def from_networkx(graph):
+    """Create a Helios `Network` from a NetworkX `Graph` or `DiGraph`."""
+
     nx = _lazy_import_networkx()
     if not isinstance(graph, (nx.Graph, nx.DiGraph)):
         raise TypeError("Expected a networkx Graph or DiGraph")
@@ -108,6 +112,8 @@ def from_networkx(graph):
 
 
 def to_igraph(network: Network):
+    """Convert a Helios `Network` to an igraph `Graph` with compatible attributes."""
+
     ig = _lazy_import_igraph()
     graph = ig.Graph(directed=bool(network.is_directed))
 
@@ -143,6 +149,8 @@ def to_igraph(network: Network):
 
 
 def from_igraph(graph):
+    """Create a Helios `Network` from an igraph `Graph`."""
+
     ig = _lazy_import_igraph()
     if not isinstance(graph, ig.Graph):
         raise TypeError("Expected an igraph Graph")

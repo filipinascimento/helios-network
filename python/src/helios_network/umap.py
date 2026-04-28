@@ -210,6 +210,8 @@ def _extract_transform_graph(model: Any, data: Any) -> sparse.csr_matrix:
 
 @dataclass(slots=True)
 class NetworkExportResult:
+    """Result record returned by UMAP graph export helpers."""
+
     network: Network
     kind: str
 

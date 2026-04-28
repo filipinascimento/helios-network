@@ -72,8 +72,11 @@ typedef struct {
 	uint8_t reservedTail[64];
 } CXNetworkFileFooter;
 
+/** Writes an uncompressed binary BXNet file to disk. */
 CX_EXTERN CXBool CXNetworkWriteBXNet(struct CXNetwork *network, const char *path);
+/** Writes a BGZF-compressed ZXNet file to disk. */
 CX_EXTERN CXBool CXNetworkWriteZXNet(struct CXNetwork *network, const char *path, int compressionLevel);
+/** Writes a BXNet file while allowing or ignoring selected attributes by scope. */
 CX_EXTERN CXBool CXNetworkWriteBXNetFiltered(struct CXNetwork *network,
 	const char *path,
 	const char **nodeAllow,
@@ -88,6 +91,7 @@ CX_EXTERN CXBool CXNetworkWriteBXNetFiltered(struct CXNetwork *network,
 	size_t networkAllowCount,
 	const char **networkIgnore,
 	size_t networkIgnoreCount);
+/** Writes a ZXNet file while allowing or ignoring selected attributes by scope. */
 CX_EXTERN CXBool CXNetworkWriteZXNetFiltered(struct CXNetwork *network,
 	const char *path,
 	int compressionLevel,
@@ -103,7 +107,9 @@ CX_EXTERN CXBool CXNetworkWriteZXNetFiltered(struct CXNetwork *network,
 	size_t networkAllowCount,
 	const char **networkIgnore,
 	size_t networkIgnoreCount);
+/** Reads an uncompressed BXNet file from disk. */
 CX_EXTERN struct CXNetwork* CXNetworkReadBXNet(const char *path);
+/** Reads a BGZF-compressed ZXNet file from disk. */
 CX_EXTERN struct CXNetwork* CXNetworkReadZXNet(const char *path);
 
 #ifdef __cplusplus

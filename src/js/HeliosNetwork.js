@@ -23,6 +23,13 @@ const AttributeType = Object.freeze({
 	Unknown: 255,
 });
 
+/**
+ * Ordering strategies used when converting string attributes to categories.
+ *
+ * Frequency ordering is useful for visualization legends; natural ordering
+ * keeps labels such as "item2" before "item10".
+ * @enum {number}
+ */
 const CategorySortOrder = Object.freeze({
 	None: 0,
 	Frequency: 1,
@@ -30,6 +37,10 @@ const CategorySortOrder = Object.freeze({
 	Natural: 3,
 });
 
+/**
+ * Finite-difference estimators for local and global graph dimension measures.
+ * @enum {number}
+ */
 const DimensionDifferenceMethod = Object.freeze({
 	Forward: 0,
 	Backward: 1,
@@ -37,12 +48,20 @@ const DimensionDifferenceMethod = Object.freeze({
 	LeastSquares: 3,
 });
 
+/**
+ * Direction policy for neighbor traversal and degree-like measurements.
+ * @enum {number}
+ */
 const NeighborDirection = Object.freeze({
 	Out: 0,
 	In: 1,
 	Both: 2,
 });
 
+/**
+ * Aggregation policy for edge-weight based node strength.
+ * @enum {number}
+ */
 const StrengthMeasure = Object.freeze({
 	Sum: 0,
 	Average: 1,
@@ -50,18 +69,30 @@ const StrengthMeasure = Object.freeze({
 	Minimum: 3,
 });
 
+/**
+ * Local clustering coefficient formula selector.
+ * @enum {number}
+ */
 const ClusteringCoefficientVariant = Object.freeze({
 	Unweighted: 0,
 	Onnela: 1,
 	Newman: 2,
 });
 
+/**
+ * Execution policy for native graph measurements that can run in serial or parallel.
+ * @enum {number}
+ */
 const MeasurementExecutionMode = Object.freeze({
 	Auto: 0,
 	SingleThread: 1,
 	Parallel: 2,
 });
 
+/**
+ * Connected-component mode selector for weak or strongly connected components.
+ * @enum {number}
+ */
 const ConnectedComponentsMode = Object.freeze({
 	Weak: 0,
 	Strong: 1,
