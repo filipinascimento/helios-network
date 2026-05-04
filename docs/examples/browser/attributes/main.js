@@ -20,20 +20,14 @@ async function run() {
 		const nodes = network.addNodes(2);
 		const edges = network.addEdges([{ from: nodes[0], to: nodes[1] }]);
 
-		network.defineNodeAttribute('weight', AttributeType.Float, 1);
-		network.defineEdgeAttribute('capacity', AttributeType.Double, 1);
-		network.defineNetworkAttribute('meta', AttributeType.Javascript, 1);
+		network.nodeAttribute('weight', (_current, id) => (id === nodes[0] ? 5.5 : 7.25), { type: AttributeType.Float });
+		network.edgeAttribute('capacity', 42, { type: AttributeType.Double });
+		network.networkAttribute('meta', { name: 'Browser attribute demo', createdAt: new Date().toISOString() });
 
 		const snapshot = network.withBufferAccess(() => {
 			const weights = network.getNodeAttributeBuffer('weight').view;
-			weights[nodes[0]] = 5.5;
-			weights[nodes[1]] = 7.25;
-
 			const capacity = network.getEdgeAttributeBuffer('capacity').view;
-			capacity[edges[0]] = 42;
-
 			const meta = network.getNetworkAttributeBuffer('meta');
-			meta.set(0, { name: 'Browser attribute demo', createdAt: new Date().toISOString() });
 
 			return {
 				weights: Array.from(weights.slice(0, network.nodeCount)),

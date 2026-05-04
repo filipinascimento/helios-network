@@ -111,7 +111,10 @@ function printTable(rows) {
 
 async function runConfig(network, config) {
 	const sampleCap = config.sampleNodes ?? 128;
-	const sampleNodes = Array.from(network.nodeIndices.slice(0, Math.min(sampleCap, network.nodeCount)));
+	const sampleNodes = network.withBufferAccess(
+		() => Array.from(network.nodeIndices.slice(0, Math.min(sampleCap, network.nodeCount))),
+		{ nodeIndices: true }
+	);
 	const id = config.label.toLowerCase();
 	const outNodeMaxDimensionAttribute = `dim_max_${id}`;
 	const outNodeDimensionLevelsAttribute = `dim_levels_${id}`;
@@ -137,12 +140,14 @@ async function runConfig(network, config) {
 		}
 		const result = session.finalize();
 		const maxGlobal = result.globalDimension.reduce((acc, value) => Math.max(acc, value), Number.NEGATIVE_INFINITY);
-		const { view } = network.getNodeAttributeBuffer(outNodeMaxDimensionAttribute);
+		const firstSampleStoredMax = network.withBufferAccess(
+			() => network.getNodeAttributeBuffer(outNodeMaxDimensionAttribute).view[sampleNodes[0]]
+		);
 		return {
 			label: config.label,
 			maxAttrName: outNodeMaxDimensionAttribute,
 			maxGlobal,
-			firstSampleStoredMax: view[sampleNodes[0]],
+			firstSampleStoredMax,
 		};
 	} finally {
 		session.dispose();

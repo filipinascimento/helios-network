@@ -201,11 +201,13 @@ Most numeric attributes are exposed as WASM-backed typed arrays (e.g. `Float32Ar
 
 ```js
 net.defineNodeAttribute('weight', AttributeType.Float);
-const { view, bumpVersion } = net.getNodeAttributeBuffer('weight');
-view[nodeIndex] = 42;
+net.withBufferAccess(() => {
+  const { view, bumpVersion } = net.getNodeAttributeBuffer('weight');
+  view[nodeIndex] = 42;
 
-// Notify downstream systems that depend on change detection:
-bumpVersion();
+  // Notify downstream systems that depend on change detection:
+  bumpVersion();
+});
 ```
 
 Helios Network cannot automatically detect arbitrary typed-array writes, so you should call `bumpVersion()` (or `net.bumpNodeAttributeVersion('weight')`) when you want change detection / bindings to react.

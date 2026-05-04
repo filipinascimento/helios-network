@@ -16,22 +16,23 @@ async function main() {
 		const edges = network.addEdges([{ from: nodes[0], to: nodes[1] }]);
 		log('structure', { nodes: Array.from(nodes), edges: Array.from(edges) });
 
-		network.defineNodeAttribute('weight', AttributeType.Float, 1);
-		network.defineEdgeAttribute('flag', AttributeType.Boolean, 1);
-		network.defineNetworkAttribute('meta', AttributeType.Javascript, 1);
+		network.nodeAttribute('weight', (_current, id) => (id === nodes[0] ? 1.5 : 3.25), { type: AttributeType.Float });
+		network.edgeAttribute('flag', 1, { type: AttributeType.Boolean });
+		network.networkAttribute('meta', { description: 'demo network', version: 1 });
 
-		const weight = network.getNodeAttributeBuffer('weight').view;
-		weight[nodes[0]] = 1.5;
-		weight[nodes[1]] = 3.25;
-		log('nodeAttribute', Array.from(weight.slice(0, network.nodeCount)));
-
-		const edgeFlags = network.getEdgeAttributeBuffer('flag').view;
-		edgeFlags[edges[0]] = 1;
-		log('edgeAttribute', Array.from(edgeFlags.slice(0, network.edgeCount)));
-
-		const meta = network.getNetworkAttributeBuffer('meta');
-		meta.set(0, { description: 'demo network', version: 1 });
-		log('networkAttribute', meta.get(0));
+		const snapshot = network.withBufferAccess(() => {
+			const weight = network.getNodeAttributeBuffer('weight').view;
+			const edgeFlags = network.getEdgeAttributeBuffer('flag').view;
+			const meta = network.getNetworkAttributeBuffer('meta');
+			return {
+				weights: Array.from(weight.slice(0, network.nodeCount)),
+				edgeFlags: Array.from(edgeFlags.slice(0, network.edgeCount)),
+				meta: meta.get(0),
+			};
+		});
+		log('nodeAttribute', snapshot.weights);
+		log('edgeAttribute', snapshot.edgeFlags);
+		log('networkAttribute', snapshot.meta);
 	} finally {
 		network.dispose();
 		log('teardown', 'Network disposed');

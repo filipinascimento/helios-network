@@ -201,6 +201,15 @@ const DIMENSION_FORWARD_COEFFICIENTS = Object.freeze([
  */
 
 /**
+ * Options for high-level node/edge attribute writers.
+ * @typedef {object} AttributeWriteOptions
+ * @property {AttributeType|string|number=} type - Attribute type to use when defining a missing attribute.
+ * @property {number=} dimension - Number of scalar components per node/edge.
+ * @property {'ordinal'|'id'|'auto'=} indexBy - How array-like values are indexed. Defaults to active ordinal.
+ * @property {'ordinal'|'id'|'auto'=} indexMode - Alias for `indexBy`.
+ */
+
+/**
  * Node-to-edge passthrough descriptor.
  * @typedef {object} NodeToEdgePassthrough
  * @property {string} edgeName
@@ -351,6 +360,38 @@ const TYPE_ELEMENT_SIZE = {
 	[AttributeType.UnsignedBigInteger]: 8,
 	[AttributeType.MultiCategory]: 0,
 };
+
+const AttributeTypeNameMap = Object.freeze({
+	string: AttributeType.String,
+	str: AttributeType.String,
+	boolean: AttributeType.Boolean,
+	bool: AttributeType.Boolean,
+	float: AttributeType.Float,
+	float32: AttributeType.Float,
+	number: AttributeType.Float,
+	integer: AttributeType.Integer,
+	int: AttributeType.Integer,
+	int32: AttributeType.Integer,
+	unsignedinteger: AttributeType.UnsignedInteger,
+	unsigned: AttributeType.UnsignedInteger,
+	uint: AttributeType.UnsignedInteger,
+	uint32: AttributeType.UnsignedInteger,
+	double: AttributeType.Double,
+	float64: AttributeType.Double,
+	category: AttributeType.Category,
+	categorical: AttributeType.Category,
+	biginteger: AttributeType.BigInteger,
+	bigint: AttributeType.BigInteger,
+	int64: AttributeType.BigInteger,
+	unsignedbiginteger: AttributeType.UnsignedBigInteger,
+	unsignedbigint: AttributeType.UnsignedBigInteger,
+	uint64: AttributeType.UnsignedBigInteger,
+	data: AttributeType.Data,
+	javascript: AttributeType.Javascript,
+	js: AttributeType.Javascript,
+	multicategory: AttributeType.MultiCategory,
+	'multi-category': AttributeType.MultiCategory,
+});
 
 /**
  * Materializes a `Set<number>` into a compact `Uint32Array`.
@@ -5155,6 +5196,130 @@ export class HeliosNetwork extends BaseEventTarget {
 	}
 
 	/**
+	 * Defines or updates one node attribute and returns the network for chaining.
+	 *
+	 * Missing attributes are defined from `options.type` / `options.dimension`,
+	 * or inferred from the provided scalar, array-like value, or callback result.
+	 * Array-like values are indexed by active ordinal by default; pass
+	 * `{ indexBy: 'id' }` to index them by node id instead.
+	 *
+	 * @param {string} name - Attribute identifier.
+	 * @param {*|function(*, number, number, HeliosNetwork): *} valueOrFn - Scalar, array-like values, or callback.
+	 * @param {AttributeWriteOptions} [options] - Optional type, dimension, and indexing controls.
+	 * @returns {HeliosNetwork} This network.
+	 * @remarks This is the recommended API for normal application code. It performs
+	 * any needed allocation before writing values, so callers do not need to manage
+	 * WASM typed-array view lifetime directly. Use `withBufferAccess(...)` only when
+	 * you intentionally want the lower-level fast path for very large writes.
+	 * @example
+	 * net
+	 *   .nodeAttribute('weight', 1)
+	 *   .nodeAttribute('label', (_current, id) => `node-${id}`, { type: 'string' });
+	 */
+	nodeAttribute(name, valueOrFn, options = {}) {
+		return this._setAttributeValues('node', [name], valueOrFn, options);
+	}
+
+	/**
+	 * Defines or updates one edge attribute and returns the network for chaining.
+	 *
+	 * @param {string} name - Attribute identifier.
+	 * @param {*|function(*, number, number, HeliosNetwork): *} valueOrFn - Scalar, array-like values, or callback.
+	 * @param {AttributeWriteOptions} [options] - Optional type, dimension, and indexing controls.
+	 * @returns {HeliosNetwork} This network.
+	 * @remarks Array-like values are aligned to the active edge ordinal by default.
+	 * Pass `{ indexBy: 'id' }` when your values are keyed by stable edge id instead.
+	 * For bulk streaming writes into existing typed arrays, use the explicit buffer API.
+	 * @example
+	 * net.edgeAttribute('capacity', [10, 20, 30]);
+	 */
+	edgeAttribute(name, valueOrFn, options = {}) {
+		return this._setAttributeValues('edge', [name], valueOrFn, options);
+	}
+
+	/**
+	 * Defines or updates several node attributes and returns the network for chaining.
+	 *
+	 * `valuesOrFn` may be an object keyed by attribute name, an array of per-attribute
+	 * scalar values, or a callback returning either an array aligned with `names` or
+	 * an object keyed by attribute name.
+	 *
+	 * @param {string[]} names - Attribute identifiers.
+	 * @param {object|Array|function(object, number, number, HeliosNetwork): (Array|object)} valuesOrFn - Sources for each attribute.
+	 * @param {AttributeWriteOptions} [options] - Optional type, dimension, and indexing controls.
+	 * @returns {HeliosNetwork} This network.
+	 * @remarks Use this when multiple node attributes come from the same row,
+	 * parser, or derived calculation. The callback receives current values, node id,
+	 * active ordinal, and the network, and may return either an array aligned with
+	 * `names` or an object keyed by attribute name.
+	 * @example
+	 * net.nodeAttributes(['x', 'y'], (_current, _id, ordinal) => [ordinal, ordinal * 2]);
+	 */
+	nodeAttributes(names, valuesOrFn, options = {}) {
+		return this._setAttributeValues('node', names, valuesOrFn, options);
+	}
+
+	/**
+	 * Defines or updates several edge attributes and returns the network for chaining.
+	 *
+	 * @param {string[]} names - Attribute identifiers.
+	 * @param {object|Array|function(object, number, number, HeliosNetwork): (Array|object)} valuesOrFn - Sources for each attribute.
+	 * @param {AttributeWriteOptions} [options] - Optional type, dimension, and indexing controls.
+	 * @returns {HeliosNetwork} This network.
+	 * @remarks Use this when edge attributes are loaded from edge-table rows or
+	 * generated together. The helper keeps schema definition, value conversion, and
+	 * version updates in one call.
+	 * @example
+	 * net.edgeAttributes(['weight', 'visible'], { weight: [1, 2], visible: true });
+	 */
+	edgeAttributes(names, valuesOrFn, options = {}) {
+		return this._setAttributeValues('edge', names, valuesOrFn, options);
+	}
+
+	/**
+	 * Defines or updates one network-level attribute and returns the network for chaining.
+	 *
+	 * Network attributes store one graph-wide value at id/ordinal `0`. Missing
+	 * attributes are defined from `options.type` / `options.dimension`, or inferred
+	 * from the provided value or callback result.
+	 *
+	 * @param {string} name - Attribute identifier.
+	 * @param {*|function(*, number, number, HeliosNetwork): *} valueOrFn - Scalar, vector, or callback.
+	 * @param {AttributeWriteOptions} [options] - Optional type and dimension controls.
+	 * @returns {HeliosNetwork} This network.
+	 * @remarks Network attributes store graph-wide metadata such as titles,
+	 * coordinate bounds, import provenance, or visualization defaults. They have one
+	 * logical value and do not iterate over nodes or edges.
+	 * @example
+	 * net
+	 *   .networkAttribute('title', 'Example graph')
+	 *   .networkAttribute('bounds', [0, 1], { type: 'float', dimension: 2 });
+	 */
+	networkAttribute(name, valueOrFn, options = {}) {
+		return this._setAttributeValues('network', [name], valueOrFn, options);
+	}
+
+	/**
+	 * Defines or updates several network-level attributes and returns the network for chaining.
+	 *
+	 * `valuesOrFn` may be an object keyed by attribute name, an array aligned with
+	 * `names`, or a callback returning either an array aligned with `names` or an
+	 * object keyed by attribute name.
+	 *
+	 * @param {string[]} names - Attribute identifiers.
+	 * @param {object|Array|function(object, number, number, HeliosNetwork): (Array|object)} valuesOrFn - Sources for each attribute.
+	 * @param {AttributeWriteOptions} [options] - Optional type and dimension controls.
+	 * @returns {HeliosNetwork} This network.
+	 * @remarks Use this for compact graph-wide metadata updates, for example when
+	 * loading a saved dataset and setting title, source, units, and bounds together.
+	 * @example
+	 * net.networkAttributes(['title', 'version'], { title: 'Example', version: 1 });
+	 */
+	networkAttributes(names, valuesOrFn, options = {}) {
+		return this._setAttributeValues('network', names, valuesOrFn, options);
+	}
+
+	/**
 	 * Defines a node attribute backed by linear WASM memory.
 	 *
 	 * @param {string} name - Attribute identifier.
@@ -5167,8 +5332,10 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * const net = await HeliosNetwork.create({ initialNodes: 2 });
 	 * net.defineNodeAttribute('weight', AttributeType.Float);
 	 *
-	 * const weightBuffer = net.getNodeAttributeBuffer('weight').view;
-	 * weightBuffer[0] = 1.5;
+	 * net.withBufferAccess(() => {
+	 *   const weightBuffer = net.getNodeAttributeBuffer('weight').view;
+	 *   weightBuffer[0] = 1.5;
+	 * });
 	 */
 	defineNodeAttribute(name, type, dimension = 1) {
 		this._defineAttribute('node', name, type, dimension, this.module._CXNetworkDefineNodeAttribute);
@@ -5186,8 +5353,10 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * net.addNodes(2);
 	 * net.defineEdgeAttribute('capacity', AttributeType.Integer);
 	 * const edges = net.addEdges([[0, 1]]);
-	 * const capacity = net.getEdgeAttributeBuffer('capacity').view;
-	 * capacity[edges[0]] = 10n;
+	 * net.withBufferAccess(() => {
+	 *   const capacity = net.getEdgeAttributeBuffer('capacity').view;
+	 *   capacity[edges[0]] = 10;
+	 * });
 	 */
 	defineEdgeAttribute(name, type, dimension = 1) {
 		this._defineAttribute('edge', name, type, dimension, this.module._CXNetworkDefineEdgeAttribute);
@@ -5203,8 +5372,10 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * @example
 	 * const net = await HeliosNetwork.create();
 	 * net.defineNetworkAttribute('temperature', AttributeType.Float);
-	 * const networkValues = net.getNetworkAttributeBuffer('temperature').view;
-	 * networkValues[0] = 21.5;
+	 * net.withBufferAccess(() => {
+	 *   const networkValues = net.getNetworkAttributeBuffer('temperature').view;
+	 *   networkValues[0] = 21.5;
+	 * });
 	 */
 	defineNetworkAttribute(name, type, dimension = 1) {
 		this._defineAttribute('network', name, type, dimension, this.module._CXNetworkDefineNetworkAttribute);
@@ -5598,8 +5769,10 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * const net = await HeliosNetwork.create();
 	 * net.defineNodeAttribute('flag', AttributeType.Boolean);
 	 * const nodes = net.addNodes(1);
-	 * const attribute = net.getNodeAttributeBuffer('flag');
-	 * attribute.view[nodes[0]] = 1;
+	 * net.withBufferAccess(() => {
+	 *   const attribute = net.getNodeAttributeBuffer('flag');
+	 *   attribute.view[nodes[0]] = 1;
+	 * });
 	 */
 	getNodeAttributeBuffer(name) {
 		this._assertInsideBufferAccess(`node attribute buffer ${name}`);
@@ -5616,8 +5789,10 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * net.addNodes(2);
 	 * net.defineEdgeAttribute('capacity', AttributeType.Double);
 	 * const edges = net.addEdges([[0, 1]]);
-	 * const attribute = net.getEdgeAttributeBuffer('capacity');
-	 * attribute.view[edges[0]] = 12.5;
+	 * net.withBufferAccess(() => {
+	 *   const attribute = net.getEdgeAttributeBuffer('capacity');
+	 *   attribute.view[edges[0]] = 12.5;
+	 * });
 	 */
 	getEdgeAttributeBuffer(name) {
 		this._assertInsideBufferAccess(`edge attribute buffer ${name}`);
@@ -5632,8 +5807,10 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * @example
 	 * const net = await HeliosNetwork.create();
 	 * net.defineNetworkAttribute('version', AttributeType.UnsignedInteger);
-	 * const attribute = net.getNetworkAttributeBuffer('version');
-	 * attribute.view[0] = 1n;
+	 * net.withBufferAccess(() => {
+	 *   const attribute = net.getNetworkAttributeBuffer('version');
+	 *   attribute.view[0] = 1;
+	 * });
 	 */
 	getNetworkAttributeBuffer(name) {
 		this._assertInsideBufferAccess(`network attribute buffer ${name}`);
@@ -6503,6 +6680,614 @@ export class HeliosNetwork extends BaseEventTarget {
 			return true;
 		}
 		return Boolean(this._ensureAttributeMetadata(scope, name));
+	}
+
+	_setAttributeValues(scope, namesInput, valuesOrFn, options = {}) {
+		this._assertCanAllocate(`set ${scope} attribute values`);
+		this._ensureActive();
+		const names = this._normalizeAttributeWriteNames(namesInput);
+		const indices = this._copyActiveIndicesForScope(scope);
+		const sourceByName = typeof valuesOrFn === 'function'
+			? this._evaluateAttributeCallbackSources(scope, names, valuesOrFn, indices)
+			: this._normalizeAttributeWriteSources(scope, names, valuesOrFn, indices, options);
+		const plans = [];
+		for (const name of names) {
+			plans.push(this._resolveAttributeWritePlan(scope, name, sourceByName.get(name), options, indices));
+		}
+		const numericPlans = plans.filter((plan) => plan.meta.type !== AttributeType.String);
+		const complexPlans = numericPlans.filter((plan) => COMPLEX_ATTRIBUTE_TYPES.has(plan.meta.type));
+		const primitivePlans = numericPlans.filter((plan) => !COMPLEX_ATTRIBUTE_TYPES.has(plan.meta.type));
+		const stringPlans = plans.filter((plan) => plan.meta.type === AttributeType.String);
+		this._writeNumericAttributePlans(scope, primitivePlans, indices);
+		this._writeComplexAttributePlans(scope, complexPlans, indices);
+		this._writeStringAttributePlans(scope, stringPlans, indices);
+		return this;
+	}
+
+	_normalizeAttributeWriteNames(namesInput) {
+		const rawNames = Array.isArray(namesInput) ? namesInput : [namesInput];
+		if (rawNames.length === 0) {
+			throw new Error('At least one attribute name is required');
+		}
+		const names = rawNames.map((name) => {
+			const normalized = String(name ?? '').trim();
+			if (!normalized) {
+				throw new Error('Attribute names must be non-empty strings');
+			}
+			return normalized;
+		});
+		if (new Set(names).size !== names.length) {
+			throw new Error('Attribute names must be unique');
+		}
+		return names;
+	}
+
+	_copyActiveIndicesForScope(scope) {
+		if (scope === 'network') {
+			return Uint32Array.of(0);
+		}
+		return this.withBufferAccess(
+			() => (scope === 'node' ? this.nodeIndices.slice() : this.edgeIndices.slice()),
+			scope === 'node' ? { nodeIndices: true } : { edgeIndices: true },
+		);
+	}
+
+	_evaluateAttributeCallbackSources(scope, names, callback, indices) {
+		const multi = names.length > 1;
+		const currentByName = this._readCurrentAttributeValues(scope, names, indices);
+		const sourceByName = new Map(names.map((name) => [name, new Array(indices.length)]));
+		for (let ordinal = 0; ordinal < indices.length; ordinal += 1) {
+			const id = indices[ordinal] >>> 0;
+			let current;
+			if (multi) {
+				current = {};
+				for (const name of names) {
+					current[name] = currentByName.get(name)?.[ordinal] ?? null;
+				}
+			} else {
+				current = currentByName.get(names[0])?.[ordinal] ?? null;
+			}
+			const result = callback(current, id, ordinal, this);
+			if (multi) {
+				const split = this._splitMultiAttributeRecord(names, result);
+				for (const name of names) {
+					sourceByName.get(name)[ordinal] = split.get(name);
+				}
+			} else {
+				sourceByName.get(names[0])[ordinal] = result;
+			}
+		}
+		return sourceByName;
+	}
+
+	_normalizeAttributeWriteSources(scope, names, valuesOrFn, indices, options = {}) {
+		if (names.length === 1) {
+			return new Map([[names[0], valuesOrFn]]);
+		}
+		if (this._isAttributeKeyedSource(valuesOrFn, names)) {
+			const sources = new Map();
+			for (const name of names) {
+				if (!Object.prototype.hasOwnProperty.call(valuesOrFn, name)) {
+					throw new Error(`Missing value source for attribute "${name}"`);
+				}
+				sources.set(name, valuesOrFn[name]);
+			}
+			return sources;
+		}
+		if (this._isPerAttributeArraySource(valuesOrFn, names, indices.length)) {
+			const sources = new Map();
+			for (let i = 0; i < names.length; i += 1) {
+				sources.set(names[i], valuesOrFn[i]);
+			}
+			return sources;
+		}
+		if (!this._isArrayLikeAttributeSource(valuesOrFn) && !this._isRecordObject(valuesOrFn)) {
+			return new Map(names.map((name) => [name, valuesOrFn]));
+		}
+		const sources = new Map(names.map((name) => [name, new Array(indices.length)]));
+		const indexMode = this._normalizeAttributeWriteIndexMode(options);
+		for (let ordinal = 0; ordinal < indices.length; ordinal += 1) {
+			const id = indices[ordinal] >>> 0;
+			const record = this._resolveAttributeSourceValue(valuesOrFn, id, ordinal, {
+				dimension: names.length,
+				indexMode,
+				activeCount: indices.length,
+				capacity: this._capacityForScope(scope),
+				broadcastVector: false,
+			});
+			const split = this._splitMultiAttributeRecord(names, record);
+			for (const name of names) {
+				sources.get(name)[ordinal] = split.get(name);
+			}
+		}
+		return sources;
+	}
+
+	_isAttributeKeyedSource(source, names) {
+		if (source == null || ArrayBuffer.isView(source) || Array.isArray(source) || typeof source !== 'object') {
+			return false;
+		}
+		return names.some((name) => Object.prototype.hasOwnProperty.call(source, name));
+	}
+
+	_isPerAttributeArraySource(source, names, activeCount) {
+		if (!(Array.isArray(source) || ArrayBuffer.isView(source)) || source.length !== names.length) {
+			return false;
+		}
+		if (Array.isArray(source) && activeCount === source.length) {
+			const firstRecord = source.find((entry) => entry != null);
+			if (Array.isArray(firstRecord) || ArrayBuffer.isView(firstRecord) || this._isRecordObject(firstRecord)) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	_isRecordObject(value) {
+		return value !== null
+			&& typeof value === 'object'
+			&& !Array.isArray(value)
+			&& !ArrayBuffer.isView(value);
+	}
+
+	_splitMultiAttributeRecord(names, record) {
+		const values = new Map();
+		if (Array.isArray(record) || ArrayBuffer.isView(record)) {
+			if (record.length < names.length) {
+				throw new Error(`Multi-attribute callback must return at least ${names.length} values`);
+			}
+			for (let i = 0; i < names.length; i += 1) {
+				values.set(names[i], record[i]);
+			}
+			return values;
+		}
+		if (this._isRecordObject(record)) {
+			for (const name of names) {
+				if (!Object.prototype.hasOwnProperty.call(record, name)) {
+					throw new Error(`Multi-attribute callback result is missing "${name}"`);
+				}
+				values.set(name, record[name]);
+			}
+			return values;
+		}
+		if (names.length === 1) {
+			values.set(names[0], record);
+			return values;
+		}
+		throw new Error('Multi-attribute values must be arrays or objects keyed by attribute name');
+	}
+
+	_readCurrentAttributeValues(scope, names, indices) {
+		const result = new Map(names.map((name) => [name, new Array(indices.length).fill(null)]));
+		if (indices.length === 0) {
+			return result;
+		}
+		const readable = [];
+		for (const name of names) {
+			const meta = this._ensureAttributeMetadata(scope, name);
+			if (!meta || !this._isWritableAttributeType(meta.type)) {
+				continue;
+			}
+			this._attributePointers(scope, name, meta);
+			readable.push({ name, meta });
+		}
+		if (readable.length === 0) {
+			return result;
+		}
+		this.withBufferAccess(() => {
+			for (const entry of readable) {
+				const buffer = scope === 'node'
+					? this.getNodeAttributeBuffer(entry.name)
+					: scope === 'edge'
+						? this.getEdgeAttributeBuffer(entry.name)
+						: this.getNetworkAttributeBuffer(entry.name);
+				const values = result.get(entry.name);
+				for (let ordinal = 0; ordinal < indices.length; ordinal += 1) {
+					values[ordinal] = this._readAttributeValueFromBuffer(buffer, indices[ordinal] >>> 0);
+				}
+			}
+		});
+		return result;
+	}
+
+	_readAttributeValueFromBuffer(buffer, id) {
+		const dimension = Math.max(1, buffer.dimension || 1);
+		if (typeof buffer.get === 'function' && !buffer.view) {
+			return buffer.get(id);
+		}
+		if (buffer.type === AttributeType.String) {
+			return buffer.getString(id);
+		}
+		const offset = id * dimension;
+		if (dimension === 1) {
+			const value = buffer.view[offset];
+			return buffer.type === AttributeType.Boolean ? Boolean(value) : value;
+		}
+		const values = new Array(dimension);
+		for (let component = 0; component < dimension; component += 1) {
+			const value = buffer.view[offset + component];
+			values[component] = buffer.type === AttributeType.Boolean ? Boolean(value) : value;
+		}
+		return values;
+	}
+
+	_resolveAttributeWritePlan(scope, name, source, options, indices) {
+		const explicitType = this._normalizeAttributeWriteType(options?.type);
+		const explicitDimension = this._normalizeAttributeWriteDimension(options?.dimension);
+		let meta = this._ensureAttributeMetadata(scope, name);
+		if (!meta) {
+			const inferred = this._inferAttributeWriteSchema(source, scope);
+			const type = explicitType ?? inferred.type;
+			const dimension = explicitDimension ?? inferred.dimension;
+			this._defineAttributeForScope(scope, name, type, dimension);
+			meta = this._ensureAttributeMetadata(scope, name);
+		} else {
+			if (explicitType != null && meta.type !== explicitType) {
+				throw new Error(`Attribute "${name}" on ${scope} already has type ${meta.type}, not ${explicitType}`);
+			}
+			if (explicitDimension != null && Math.max(1, meta.dimension || 1) !== explicitDimension) {
+				throw new Error(`Attribute "${name}" on ${scope} already has dimension ${meta.dimension}, not ${explicitDimension}`);
+			}
+		}
+		if (!meta) {
+			throw new Error(`Failed to resolve ${scope} attribute "${name}"`);
+		}
+		if (!this._isWritableAttributeType(meta.type)) {
+			throw new Error(`Attribute "${name}" on ${scope} has unsupported type ${meta.type} for high-level writes`);
+		}
+		if (meta.type === AttributeType.String && Math.max(1, meta.dimension || 1) !== 1) {
+			throw new Error('High-level string attribute writes require dimension 1');
+		}
+		const pointers = this._attributePointers(scope, name, meta);
+		return {
+			name,
+			meta,
+			pointer: pointers.pointer,
+			source,
+			indexMode: this._normalizeAttributeWriteIndexMode(options),
+			activeCount: indices.length,
+			capacity: this._capacityForScope(scope),
+		};
+	}
+
+	_defineAttributeForScope(scope, name, type, dimension) {
+		if (scope === 'node') {
+			this.defineNodeAttribute(name, type, dimension);
+		} else if (scope === 'edge') {
+			this.defineEdgeAttribute(name, type, dimension);
+		} else {
+			this.defineNetworkAttribute(name, type, dimension);
+		}
+	}
+
+	_normalizeAttributeWriteType(type) {
+		if (type == null) {
+			return null;
+		}
+		if (typeof type === 'number' && Number.isFinite(type)) {
+			return type | 0;
+		}
+		if (typeof type === 'string') {
+			const key = type.trim().toLowerCase().replace(/[\s_]+/g, '');
+			if (Object.prototype.hasOwnProperty.call(AttributeTypeNameMap, key)) {
+				return AttributeTypeNameMap[key];
+			}
+		}
+		throw new Error(`Unsupported attribute type "${type}"`);
+	}
+
+	_normalizeAttributeWriteDimension(dimension) {
+		if (dimension == null) {
+			return null;
+		}
+		const value = Number(dimension);
+		if (!Number.isFinite(value) || value < 1) {
+			throw new Error('Attribute dimension must be a positive integer');
+		}
+		return Math.floor(value);
+	}
+
+	_normalizeAttributeWriteIndexMode(options = {}) {
+		const raw = options?.indexBy ?? options?.indexMode ?? options?.indexedBy ?? 'ordinal';
+		if (raw == null) {
+			return 'ordinal';
+		}
+		const normalized = String(raw).trim().toLowerCase();
+		if (normalized === 'ordinal' || normalized === 'active' || normalized === 'position') {
+			return 'ordinal';
+		}
+		if (normalized === 'id' || normalized === 'index' || normalized === 'node' || normalized === 'edge') {
+			return 'id';
+		}
+		if (normalized === 'auto') {
+			return 'auto';
+		}
+		throw new Error('Attribute write index mode must be "ordinal", "id", or "auto"');
+	}
+
+	_isWritableAttributeType(type) {
+		return type === AttributeType.String
+			|| type === AttributeType.Boolean
+			|| type === AttributeType.Float
+			|| type === AttributeType.Double
+			|| type === AttributeType.Integer
+			|| type === AttributeType.UnsignedInteger
+			|| type === AttributeType.Category
+			|| type === AttributeType.Data
+			|| type === AttributeType.Javascript
+			|| type === AttributeType.BigInteger
+			|| type === AttributeType.UnsignedBigInteger;
+	}
+
+	_inferAttributeWriteSchema(source, scope = 'node') {
+		const sample = scope === 'network' && this._isArrayLikeAttributeSource(source)
+			? source
+			: this._firstAttributeSample(source);
+		return {
+			type: this._inferAttributeType(source, sample),
+			dimension: this._inferAttributeDimension(sample),
+		};
+	}
+
+	_firstAttributeSample(source) {
+		if (Array.isArray(source)) {
+			if (source.length === 0) {
+				return undefined;
+			}
+			return source[0];
+		}
+		if (ArrayBuffer.isView(source)) {
+			return source.length ? source[0] : undefined;
+		}
+		return source;
+	}
+
+	_inferAttributeType(source, sample) {
+		if (ArrayBuffer.isView(source)) {
+			if (source instanceof BigInt64Array) return AttributeType.BigInteger;
+			if (source instanceof BigUint64Array) return AttributeType.UnsignedBigInteger;
+			if (source instanceof Float64Array) return AttributeType.Double;
+			if (source instanceof Float32Array) return AttributeType.Float;
+			if (source instanceof Int8Array || source instanceof Int16Array || source instanceof Int32Array) return AttributeType.Integer;
+			if (source instanceof Uint8Array || source instanceof Uint8ClampedArray || source instanceof Uint16Array || source instanceof Uint32Array) return AttributeType.UnsignedInteger;
+		}
+		const scalar = this._firstScalarAttributeValue(sample);
+		if (typeof scalar === 'string') return AttributeType.String;
+		if (typeof scalar === 'boolean') return AttributeType.Boolean;
+		if (typeof scalar === 'bigint') return AttributeType.BigInteger;
+		if (typeof scalar === 'number') return AttributeType.Float;
+		if (scalar && typeof scalar === 'object') return AttributeType.Javascript;
+		return AttributeType.Float;
+	}
+
+	_inferAttributeDimension(sample) {
+		if (Array.isArray(sample) || ArrayBuffer.isView(sample)) {
+			return Math.max(1, sample.length >>> 0);
+		}
+		return 1;
+	}
+
+	_firstScalarAttributeValue(value) {
+		if (Array.isArray(value) || ArrayBuffer.isView(value)) {
+			return value.length ? this._firstScalarAttributeValue(value[0]) : undefined;
+		}
+		return value;
+	}
+
+	_isArrayLikeAttributeSource(source) {
+		return Array.isArray(source) || ArrayBuffer.isView(source);
+	}
+
+	_resolveAttributeSourceValue(source, id, ordinal, context) {
+		if (!this._isArrayLikeAttributeSource(source)) {
+			return source;
+		}
+		const dimension = Math.max(1, context.dimension || 1);
+		const length = source.length >>> 0;
+		const broadcastVector = context.broadcastVector !== false;
+		if (broadcastVector && dimension > 1 && length === dimension && !this._sourceHasRecordEntries(source)) {
+			return source;
+		}
+		const index = this._resolveAttributeSourceIndex(context.indexMode, source, id, ordinal, dimension, context.activeCount, context.capacity);
+		if (dimension > 1 && !this._sourceHasRecordEntries(source)) {
+			const start = index * dimension;
+			const end = start + dimension;
+			if (end > length) {
+				throw new Error(`Attribute value source does not contain ${dimension} components for id ${id}`);
+			}
+			return typeof source.subarray === 'function' ? source.subarray(start, end) : source.slice(start, end);
+		}
+		if (index >= length) {
+			throw new Error(`Attribute value source does not contain an entry for id ${id}`);
+		}
+		return source[index];
+	}
+
+	_sourceHasRecordEntries(source) {
+		if (!Array.isArray(source) || source.length === 0) {
+			return false;
+		}
+		const first = source.find((entry) => entry != null);
+		return Array.isArray(first) || ArrayBuffer.isView(first) || this._isRecordObject(first);
+	}
+
+	_resolveAttributeSourceIndex(indexMode, source, id, ordinal, dimension, activeCount, capacity) {
+		if (indexMode === 'id') {
+			return id >>> 0;
+		}
+		if (indexMode === 'auto') {
+			const length = source.length >>> 0;
+			const activeLength = activeCount * Math.max(1, dimension || 1);
+			const capacityLength = capacity * Math.max(1, dimension || 1);
+			if (capacityLength > activeLength && length >= capacityLength) {
+				return id >>> 0;
+			}
+		}
+		return ordinal >>> 0;
+	}
+
+	_writeNumericAttributePlans(scope, plans, indices) {
+		if (!plans.length || indices.length === 0) {
+			return;
+		}
+		this.withBufferAccess(() => {
+			const buffers = plans.map((plan) => ({
+				plan,
+				buffer: scope === 'node'
+					? this.getNodeAttributeBuffer(plan.name)
+					: scope === 'edge'
+						? this.getEdgeAttributeBuffer(plan.name)
+						: this.getNetworkAttributeBuffer(plan.name),
+			}));
+			for (let ordinal = 0; ordinal < indices.length; ordinal += 1) {
+				const id = indices[ordinal] >>> 0;
+				for (const entry of buffers) {
+					const value = this._resolveAttributeSourceValue(entry.plan.source, id, ordinal, {
+						dimension: entry.buffer.dimension,
+						indexMode: entry.plan.indexMode,
+						activeCount: entry.plan.activeCount,
+						capacity: entry.plan.capacity,
+					});
+					this._writeNumericAttributeValue(entry.buffer, id, value, entry.plan.name);
+				}
+			}
+		});
+		for (const plan of plans) {
+			this._bumpAttributeVersion(scope, plan.name, { op: 'set' });
+		}
+	}
+
+	_writeComplexAttributePlans(scope, plans, indices) {
+		if (!plans.length || indices.length === 0) {
+			return;
+		}
+		this.withBufferAccess(() => {
+			for (const plan of plans) {
+				const view = new Uint32Array(this.module.HEAPU32.buffer, plan.pointer, this._capacityForScope(scope));
+				for (let ordinal = 0; ordinal < indices.length; ordinal += 1) {
+					const id = indices[ordinal] >>> 0;
+					const value = this._resolveAttributeSourceValue(plan.source, id, ordinal, {
+						dimension: 1,
+						indexMode: plan.indexMode,
+						activeCount: plan.activeCount,
+						capacity: plan.capacity,
+					});
+					if (value == null) {
+						plan.meta.jsStore.delete(id);
+						view[id] = 0;
+						continue;
+					}
+					let entry = plan.meta.jsStore.get(id);
+					if (!entry) {
+						entry = { id: plan.meta.nextHandle++, value: null };
+						plan.meta.jsStore.set(id, entry);
+					}
+					entry.value = value;
+					view[id] = entry.id;
+				}
+			}
+		});
+		for (const plan of plans) {
+			this._bumpAttributeVersion(scope, plan.name, { op: 'set' });
+		}
+	}
+
+	_writeNumericAttributeValue(buffer, id, value, name) {
+		const dimension = Math.max(1, buffer.dimension || 1);
+		const offset = id * dimension;
+		const components = (Array.isArray(value) || ArrayBuffer.isView(value)) ? value : null;
+		if (components && components.length < dimension) {
+			throw new Error(`Attribute "${name}" expected ${dimension} components`);
+		}
+		for (let component = 0; component < dimension; component += 1) {
+			const raw = components ? components[component] : value;
+			buffer.view[offset + component] = this._coerceNumericAttributeValue(buffer.type, raw);
+		}
+	}
+
+	_coerceNumericAttributeValue(type, value) {
+		if (type === AttributeType.Boolean) {
+			if (typeof value === 'string') {
+				const normalized = value.trim().toLowerCase();
+				return normalized === '' || normalized === '0' || normalized === 'false' || normalized === 'no' ? 0 : 1;
+			}
+			return value ? 1 : 0;
+		}
+		if (type === AttributeType.BigInteger || type === AttributeType.UnsignedBigInteger) {
+			if (typeof value === 'bigint') {
+				return value;
+			}
+			const numeric = Number(value ?? 0);
+			return BigInt(Number.isFinite(numeric) ? Math.trunc(numeric) : 0);
+		}
+		const numeric = Number(value ?? 0);
+		if (type === AttributeType.Integer || type === AttributeType.Category) {
+			return Number.isFinite(numeric) ? Math.trunc(numeric) : 0;
+		}
+		if (type === AttributeType.UnsignedInteger) {
+			return Number.isFinite(numeric) ? Math.max(0, Math.trunc(numeric)) : 0;
+		}
+		return numeric;
+	}
+
+	_writeStringAttributePlans(scope, plans, indices) {
+		if (!plans.length || indices.length === 0) {
+			return;
+		}
+		for (const plan of plans) {
+			const values = new Array(indices.length);
+			const ptrs = new Array(indices.length).fill(0);
+			for (let ordinal = 0; ordinal < indices.length; ordinal += 1) {
+				const id = indices[ordinal] >>> 0;
+				const value = this._resolveAttributeSourceValue(plan.source, id, ordinal, {
+					dimension: 1,
+					indexMode: plan.indexMode,
+					activeCount: plan.activeCount,
+					capacity: plan.capacity,
+				});
+				values[ordinal] = value == null ? null : String(value);
+				if (values[ordinal] != null) {
+					ptrs[ordinal] = this._allocateStringAttributePointer(values[ordinal]);
+				}
+			}
+				let installed = false;
+				try {
+					this.withBufferAccess(() => {
+						const view = new Uint32Array(this.module.HEAPU32.buffer, plan.pointer, this._capacityForScope(scope));
+						for (let ordinal = 0; ordinal < indices.length; ordinal += 1) {
+							const id = indices[ordinal] >>> 0;
+							const oldPtr = plan.meta.stringPointers.get(id);
+						view[id] = ptrs[ordinal] >>> 0;
+						if (oldPtr && oldPtr !== ptrs[ordinal]) {
+							this.module._free(oldPtr);
+						}
+						if (ptrs[ordinal]) {
+							plan.meta.stringPointers.set(id, ptrs[ordinal]);
+						} else {
+							plan.meta.stringPointers.delete(id);
+						}
+					}
+				});
+				installed = true;
+			} finally {
+				if (!installed) {
+					for (const ptr of ptrs) {
+						if (ptr) this.module._free(ptr);
+					}
+				}
+			}
+			this._bumpAttributeVersion(scope, plan.name, { op: 'set' });
+		}
+	}
+
+	_allocateStringAttributePointer(value) {
+		const length = this.module.lengthBytesUTF8(value) + 1;
+		const ptr = this.module._malloc(length);
+		if (!ptr) {
+			throw new Error('Failed to allocate memory for string attribute');
+		}
+		this.module.stringToUTF8(value, ptr, length);
+		return ptr >>> 0;
 	}
 
 	/**
@@ -7379,28 +8164,36 @@ export class HeliosNetwork extends BaseEventTarget {
 		if (!meta || meta.type !== AttributeType.String) {
 			throw new Error(`Attribute "${name}" on ${scope} is not a string attribute`);
 		}
-		const { pointer } = this._attributePointers(scope, name, meta);
-		const capacity = this._capacityForScope(scope);
-		const view = new Uint32Array(this.module.HEAPU32.buffer, pointer, capacity * meta.dimension);
-		const oldPtr = meta.stringPointers.get(index);
-		if (oldPtr) {
-			this.module._free(oldPtr);
+		const newPtr = value == null ? 0 : this._allocateStringAttributePointer(String(value));
+		let installed = false;
+		try {
+			const { pointer } = this._attributePointers(scope, name, meta);
+			const capacity = this._capacityForScope(scope);
+			const view = new Uint32Array(this.module.HEAPU32.buffer, pointer, capacity * meta.dimension);
+			const oldPtr = meta.stringPointers.get(index);
+			if (value == null) {
+				view[index] = 0;
+				if (oldPtr) {
+					this.module._free(oldPtr);
+				}
+				meta.stringPointers.delete(index);
+				installed = true;
+				this._bumpAttributeVersion(scope, name, { op: 'clear', index });
+				return;
+			}
+			view[index] = newPtr;
+			if (oldPtr && oldPtr !== newPtr) {
+				this.module._free(oldPtr);
+			}
+			meta.stringPointers.set(index, newPtr);
+			installed = true;
+			this._bumpAttributeVersion(scope, name, { op: 'set', index });
+		} catch (error) {
+			if (!installed && newPtr) {
+				this.module._free(newPtr);
+			}
+			throw error;
 		}
-		if (value == null) {
-			view[index] = 0;
-			meta.stringPointers.delete(index);
-			this._bumpAttributeVersion(scope, name, { op: 'clear', index });
-			return;
-		}
-		const length = this.module.lengthBytesUTF8(value) + 1;
-		const ptr = this.module._malloc(length);
-		if (!ptr) {
-			throw new Error('Failed to allocate memory for string attribute');
-		}
-		this.module.stringToUTF8(value, ptr, length);
-		meta.stringPointers.set(index, ptr);
-		view[index] = ptr;
-		this._bumpAttributeVersion(scope, name, { op: 'set', index });
 	}
 
 	/**

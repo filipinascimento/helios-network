@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Added chainable high-level JS attribute writers (`nodeAttribute`, `edgeAttribute`, `networkAttribute`, `nodeAttributes`, `edgeAttributes`, `networkAttributes`) with schema inference, active-index aware array writes, managed string/JS-value updates, and one version bump per modified attribute.
 - Added an internal `_helios_layout_strength` sparse node buffer for GPU-force layout strength normalization. It is derived from incident edge weights, updates incrementally for topology edits, and rebuilds when the source edge-weight attribute version changes.
 
 ## 2026-03-25

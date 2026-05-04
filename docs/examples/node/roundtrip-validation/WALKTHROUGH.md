@@ -48,55 +48,33 @@ const edges = net.addEdges([
 
 ---
 
-## Step 3 — Define mixed-type attributes
+## Step 3 — Populate mixed-type attributes
 
 ```js
-net.defineNodeAttribute('rank', AttributeType.Integer);
-net.defineNodeAttribute('score', AttributeType.Float);
-net.defineNodeAttribute('label', AttributeType.String);
-net.defineEdgeAttribute('weight', AttributeType.Float);
-net.defineEdgeAttribute('status', AttributeType.String);
-net.defineNetworkAttribute('title', AttributeType.String);
+net
+  .nodeAttribute('rank', [1, 2, 3, 4], { type: AttributeType.Integer })
+  .nodeAttribute('score', [1.25, 2.5, 3.75, 5.0], { type: AttributeType.Float })
+  .nodeAttribute('label', ['Alpha', 'Beta', 'Gamma', 'Delta'])
+  .edgeAttribute('weight', [1.5, 2.0, 0.75], { type: AttributeType.Float })
+  .edgeAttribute('status', ['active', 'active', 'experimental'])
+  .networkAttribute('title', 'Roundtrip Example');
 ```
 
-*Why?* We want integer, floating-point, and string fields represented before and after serialization.
+*Why?* The chainable writers define missing attributes, infer string fields, and keep attribute versioning managed for normal writes.
 
 ---
 
-## Step 4 — Populate attribute data
+## Step 4 — Tweak values after creation
 
 ```js
-const rank = net.getNodeAttributeBuffer('rank').view;
-rank.set([1n, 2n, 3n, 4n]);
-
-const score = net.getNodeAttributeBuffer('score').view;
-score.set([1.25, 2.5, 3.75, 5.0]);
-
-['Alpha', 'Beta', 'Gamma', 'Delta'].forEach((label, index) => {
-  net.setNodeStringAttribute('label', nodes[index], label);
-});
-
-const weight = net.getEdgeAttributeBuffer('weight').view;
-weight.set([1.5, 2.0, 0.75]);
-
-net.setEdgeStringAttribute('status', edges[0], 'active');
-net.setEdgeStringAttribute('status', edges[1], 'active');
-net.setEdgeStringAttribute('status', edges[2], 'experimental');
-
-net.setNetworkStringAttribute('title', 'Roundtrip Example');
-```
-
-*Why?* Populating every attribute lets us confirm the values survive both mutations and serialization.
-
----
-
-## Step 5 — Tweak values after creation
-
-```js
-net.setNodeStringAttribute('label', nodes[1], 'Beta (updated)');
-weight[edges[1]] = 2.25;
-net.setEdgeStringAttribute('status', edges[1], 'updated');
-net.setEdgeStringAttribute('status', edges[2], 'deprecated');
+net
+  .nodeAttribute('label', (current, id) => (id === nodes[1] ? 'Beta (updated)' : current))
+  .edgeAttribute('weight', (current, id) => (id === edges[1] ? 2.25 : current))
+  .edgeAttribute('status', (current, id) => {
+    if (id === edges[1]) return 'updated';
+    if (id === edges[2]) return 'deprecated';
+    return current;
+  });
 ```
 
 *Why?* Demonstrates that edits to strings and floats propagate to the persisted payloads.
@@ -158,8 +136,10 @@ const inspect = (label, netRef) => {
     node1Label: netRef.getNodeStringAttribute('label', 1),
     edge1Status: netRef.getEdgeStringAttribute('status', 1),
     title: netRef.getNetworkStringAttribute('title'),
-    score1: netRef.getNodeAttributeBuffer('score').view[1],
-    weight0: netRef.getEdgeAttributeBuffer('weight').view[0],
+    ...netRef.withBufferAccess(() => ({
+      score1: netRef.getNodeAttributeBuffer('score').view[1],
+      weight0: netRef.getEdgeAttributeBuffer('weight').view[0],
+    })),
   });
 };
 

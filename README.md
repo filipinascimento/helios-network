@@ -196,18 +196,12 @@ const edges = net.addEdges([
 // or: net.addEdges([[newNodes[0], newNodes[1]], [newNodes[1], newNodes[2]]]);
 // or: net.addEdges([newNodes[0], newNodes[1], newNodes[1], newNodes[2]]);
 
-// Define an attribute
-net.defineNodeAttribute('weight', AttributeType.Float, 1);
-const { view } = net.getNodeAttributeBuffer('weight');
-view[newNodes[0]] = 1.25;
+// Define or update attributes ergonomically
+net.nodeAttribute('weight', (_current, id) => (id === newNodes[0] ? 1.25 : 0), { type: AttributeType.Float });
 
 // Work with strings / JS-managed attributes
-net.defineEdgeAttribute('label', AttributeType.String);
-net.setEdgeStringAttribute('label', edges[0], 'a→b');
-
-net.defineNetworkAttribute('metadata', AttributeType.Javascript);
-const meta = net.getNetworkAttributeBuffer('metadata');
-meta.set(0, { description: 'Halo subgraph' });
+net.edgeAttribute('label', (_current, id) => (id === edges[0] ? 'a→b' : null));
+net.networkAttribute('metadata', { description: 'Halo subgraph' });
 
 // Neighbour iteration
 const { nodes, edges: incidentEdges } = net.getOutNeighbors(newNodes[0]);
@@ -325,13 +319,17 @@ net.module._free(ptr);
 // Move the heavy vec4 copy for active edges into the WASM core
 const segmentPtr = net.module._malloc(8 * 4 * 1024);
 const segmentBuffer = new Float32Array(net.module.HEAPF32.buffer, segmentPtr, 8 * 1024);
-const edgesWritten = net.writeActiveEdgeSegments(net.getNodeAttributeBuffer('position').view, segmentBuffer, 4);
+const edgesWritten = net.withBufferAccess(
+  () => net.writeActiveEdgeSegments(net.getNodeAttributeBuffer('position').view, segmentBuffer, 4)
+);
 net.module._free(segmentPtr);
 
 // Or propagate node attributes to edges without manual copies (passthrough)
 net.defineNodeToEdgeAttribute('position', 'position_endpoints', 'both');
-const posPairs = net.getEdgeAttributeBuffer('position_endpoints').view;
-const lastEdgeIds = net.edgeIndices;
+const { posPairs, lastEdgeIds } = net.withBufferAccess(() => ({
+  posPairs: net.getEdgeAttributeBuffer('position_endpoints').view.slice(),
+  lastEdgeIds: net.edgeIndices.slice(),
+}), { edgeIndices: true });
 ```
 
 `writeActiveNodes` / `writeActiveEdges` return the required length; nothing is written when the provided buffer is too small. `writeActiveEdgeSegments` writes two vectors per edge into `segments` using the requested stride (`componentsPerNode`). For render/update workflows there are two main paths:
@@ -394,7 +392,7 @@ Once the WebAssembly module has been initialised (for example by awaiting `Helio
 #### Graph-level attributes
 
 - Use `defineNetworkAttribute(name, type, dimension?)` to declare a graph property stored in linear memory.
-- Primitive buffers expose index `0` as the graph slot (e.g., `getNetworkAttributeBuffer('weight').view[0] = 42`).
+- Primitive network buffers expose index `0` as the graph slot when you use the low-level buffer API. For normal graph-level writes, prefer `networkAttribute(...)` / `networkAttributes(...)`.
 - `setNetworkStringAttribute`/`getNetworkStringAttribute` and JavaScript-managed attributes (`AttributeType.Javascript`) provide convenience accessors.
 
 ### Serialization & Persistence
@@ -416,8 +414,7 @@ import HeliosNetwork, { AttributeType } from 'helios-network';
 const net = await HeliosNetwork.create({ directed: true });
 const nodes = net.addNodes(2);
 net.addEdges([{ from: nodes[0], to: nodes[1] }]);
-net.defineNodeAttribute('weight', AttributeType.Float);
-net.getNodeAttributeBuffer('weight').view[nodes[0]] = 2.5;
+net.nodeAttribute('weight', (_current, id) => (id === nodes[0] ? 2.5 : 0), { type: AttributeType.Float });
 
 // Persist a compressed `.zxnet` file to disk.
 await net.saveZXNet({ path: './data/graph.zxnet', compressionLevel: 6 });

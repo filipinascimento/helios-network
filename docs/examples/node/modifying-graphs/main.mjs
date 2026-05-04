@@ -21,9 +21,7 @@ async function main() {
 		]);
 		log('structure', { nodeCount: network.nodeCount, edgeCount: network.edgeCount });
 
-		network.defineNodeAttribute('score', AttributeType.Float, 1);
-		const score = network.getNodeAttributeBuffer('score').view;
-		score[nodes[2]] = 2.5;
+		network.nodeAttribute('score', (_current, id) => (id === nodes[2] ? 2.5 : 0), { type: AttributeType.Float });
 
 		network.removeEdges([edges[1]]);
 		log('removeEdges', `Edge ${edges[1]} removed → remaining edgeCount=${network.edgeCount}`);

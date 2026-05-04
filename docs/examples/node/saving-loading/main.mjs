@@ -19,8 +19,7 @@ async function main() {
 		const edges = network.addEdges([{ from: nodes[0], to: nodes[1] }]);
 		log('structure', { nodes: Array.from(nodes), edges: Array.from(edges) });
 
-		network.defineNodeAttribute('weight', AttributeType.Float, 1);
-		network.getNodeAttributeBuffer('weight').view[nodes[0]] = 3.5;
+		network.nodeAttribute('weight', (_current, id) => (id === nodes[0] ? 3.5 : 0), { type: AttributeType.Float });
 
 		const bxPayload = await network.saveBXNet();
 		log('saveBXNet', `In-memory payload size → ${bxPayload.byteLength} bytes`);

@@ -130,7 +130,10 @@ async function main() {
 		try {
 			const sampleCap = config.sampleNodes ?? 192;
 			const sampleCount = Math.min(sampleCap, network.nodeCount);
-			const sampleNodes = Array.from(network.nodeIndices.slice(0, sampleCount));
+			const sampleNodes = network.withBufferAccess(
+				() => Array.from(network.nodeIndices.slice(0, sampleCount)),
+				{ nodeIndices: true }
+			);
 			const local = network.measureNodeDimension(0, {
 				maxLevel: config.maxLevel,
 				method: DimensionDifferenceMethod.LeastSquares,

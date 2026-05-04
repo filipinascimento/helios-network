@@ -32,6 +32,21 @@ const nodeAttributes = net.getNodeAttributeNames(); // ['weight', 'degree']
 const edgeAttributes = net.getEdgeAttributeNames(); // ['capacity', 'length']
 ```
 
+## Defining while writing
+
+For ordinary JS-side writes, prefer the chainable writers. They define missing node/edge attributes using inferred schema unless you pass `type` or `dimension`, and they manage version bumps for the modified attributes.
+
+```js
+net
+  .nodeAttribute('weight', 1, { type: AttributeType.Float })
+  .nodeAttribute('label', (_current, id) => `node-${id}`)
+  .edgeAttributes(['capacity', 'visible'], {
+    capacity: [10, 20, 30],
+    visible: true,
+  })
+  .networkAttribute('metadata', { source: 'import' });
+```
+
 ## Reading attribute type metadata
 - `getNodeAttributeInfo(name)`
 - `getEdgeAttributeInfo(name)`
