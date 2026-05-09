@@ -471,6 +471,47 @@ describe('HeliosNetwork (Node runtime)', () => {
 		}
 	});
 
+	test('promotes active render-order indices and reports dirty ranges', async () => {
+		const net = await HeliosNetwork.create({ directed: true, initialNodes: 0, initialEdges: 0 });
+		try {
+			const nodes = net.addNodes(5);
+			const edges = net.addEdges([
+				{ from: nodes[0], to: nodes[1] },
+				{ from: nodes[1], to: nodes[2] },
+				{ from: nodes[3], to: nodes[4] },
+			]);
+
+			const nodeResult = net.promoteActiveNodesToRenderEnd([nodes[1], nodes[3]]);
+			expect(nodeResult.changed).toBe(true);
+			expect(nodeResult.start).toBe(1);
+			expect(nodeResult.count).toBe(4);
+			expect(net.getActiveIndexDirtyRange('node')).toEqual({
+				start: nodeResult.start,
+				count: nodeResult.count,
+				version: nodeResult.version,
+			});
+			expect(net.withBufferAccess(() => Array.from(net.nodeIndices), { nodeIndices: true })).toEqual([
+				nodes[0],
+				nodes[2],
+				nodes[4],
+				nodes[1],
+				nodes[3],
+			]);
+
+			const edgeResult = net.promoteActiveEdgesForNodesToRenderEnd([nodes[1]], { direction: 'both' });
+			expect(edgeResult.changed).toBe(true);
+			expect(edgeResult.start).toBe(0);
+			expect(edgeResult.count).toBe(3);
+			expect(net.withBufferAccess(() => Array.from(net.edgeIndices), { edgeIndices: true })).toEqual([
+				edges[2],
+				edges[0],
+				edges[1],
+			]);
+		} finally {
+			net.dispose();
+		}
+	});
+
 	test('selector proxies expose attributes and topology helpers', () => {
 		const nodes = network.addNodes(3);
 		const edges = network.addEdges([

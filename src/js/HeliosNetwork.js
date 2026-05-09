@@ -3437,10 +3437,14 @@ export class HeliosNetwork extends BaseEventTarget {
 			this._nodeAttributeDependents = new Map();
 			this._pendingPassthroughSourceUpdates = new Set();
 			this._pendingPassthroughFullRefresh = false;
-			this._nodeTopologyVersion = 0;
+		this._nodeTopologyVersion = 0;
 		this._edgeTopologyVersion = 0;
+		this._activeNodeIndexOrderVersion = 0;
+		this._activeEdgeIndexOrderVersion = 0;
 		this._activeNodeIndexBuffer = { ptr: 0, capacity: 0, count: 0, version: 0, dirty: true };
 		this._activeEdgeIndexBuffer = { ptr: 0, capacity: 0, count: 0, version: 0, dirty: true };
+		this._activeNodeIndexDirtyRange = null;
+		this._activeEdgeIndexDirtyRange = null;
 		this._localVersions = new Map();
 		this._layoutStrengthMetric = {
 			name: LAYOUT_STRENGTH_ATTRIBUTE,
@@ -3792,12 +3796,15 @@ export class HeliosNetwork extends BaseEventTarget {
 		}
 		if (scope === 'node') {
 			this._activeNodeIndexBuffer.dirty = true;
+			this._activeNodeIndexDirtyRange = null;
 			if (cascadeEdges) {
 				this._activeEdgeIndexBuffer.dirty = true;
+				this._activeEdgeIndexDirtyRange = null;
 				this._refreshTopologyVersions('edge');
 			}
 		} else if (scope === 'edge') {
 			this._activeEdgeIndexBuffer.dirty = true;
+			this._activeEdgeIndexDirtyRange = null;
 		}
 	}
 
@@ -3945,6 +3952,110 @@ export class HeliosNetwork extends BaseEventTarget {
 	get edgeIndices() {
 		this._assertInsideBufferAccess('active edge indices');
 		return this._getActiveIndexView('edge');
+	}
+
+	_promoteActiveRenderOrder(scope, indices, functionName, extraArgs = []) {
+		this._ensureActive();
+		this._assertCanAllocate('active index render-order promotion');
+		const fn = this.module?.[functionName];
+		const list = Array.from(indices || [])
+			.map((value) => Number(value))
+			.filter((value) => Number.isInteger(value) && value >= 0);
+		if (!list.length) {
+			const buffer = scope === 'node' ? this._activeNodeIndexBuffer : this._activeEdgeIndexBuffer;
+			return {
+				changed: false,
+				start: 0,
+				count: 0,
+				version: buffer.version,
+			};
+		}
+		if (typeof fn !== 'function') {
+			throw new Error(`This WASM build does not expose ${functionName}`);
+		}
+		const indicesPtr = this.module._malloc(list.length * Uint32Array.BYTES_PER_ELEMENT);
+		const rangePtr = this.module._malloc(2 * Uint32Array.BYTES_PER_ELEMENT);
+		if (!indicesPtr || !rangePtr) {
+			if (indicesPtr) this.module._free(indicesPtr);
+			if (rangePtr) this.module._free(rangePtr);
+			throw new Error('Failed to allocate render-order promotion scratch buffers');
+		}
+		try {
+			this.module.HEAPU32.set(list, indicesPtr >>> 2);
+			this.module.HEAPU32[rangePtr >>> 2] = 0;
+			this.module.HEAPU32[(rangePtr >>> 2) + 1] = 0;
+			const ok = fn.call(
+				this.module,
+				this.ptr,
+				indicesPtr,
+				list.length,
+				...extraArgs,
+				rangePtr,
+				rangePtr + Uint32Array.BYTES_PER_ELEMENT,
+			);
+			if (!ok) {
+				return { changed: false, start: 0, count: 0, version: this._ensureActiveIndexBuffer(scope).version };
+			}
+			const start = this.module.HEAPU32[rangePtr >>> 2] >>> 0;
+			const count = this.module.HEAPU32[(rangePtr >>> 2) + 1] >>> 0;
+			if (count > 0) {
+				if (scope === 'node') this._activeNodeIndexOrderVersion = this._nextLocalVersion('render-order:node');
+				else this._activeEdgeIndexOrderVersion = this._nextLocalVersion('render-order:edge');
+			}
+			const buffer = this._ensureActiveIndexBuffer(scope);
+			if (count > 0) {
+				this._mergeActiveIndexDirtyRange(scope, start, count, buffer.version);
+			}
+			return {
+				changed: count > 0,
+				start,
+				count,
+				version: buffer.version,
+			};
+		} finally {
+			this.module._free(indicesPtr);
+			this.module._free(rangePtr);
+		}
+	}
+
+	/**
+	 * Moves active nodes to the end of the native active index order.
+	 *
+	 * @param {Iterable<number>|Uint32Array} indices - Node indices to promote.
+	 * @returns {{changed:boolean,start:number,count:number,version:string|number}}
+	 */
+	promoteActiveNodesToRenderEnd(indices) {
+		return this._promoteActiveRenderOrder('node', indices, '_CXNetworkPromoteActiveNodesToRenderEnd');
+	}
+
+	/**
+	 * Moves active edges to the end of the native active index order.
+	 *
+	 * @param {Iterable<number>|Uint32Array} indices - Edge indices to promote.
+	 * @returns {{changed:boolean,start:number,count:number,version:string|number}}
+	 */
+	promoteActiveEdgesToRenderEnd(indices) {
+		return this._promoteActiveRenderOrder('edge', indices, '_CXNetworkPromoteActiveEdgesToRenderEnd');
+	}
+
+	/**
+	 * Moves active edges incident to the supplied nodes to the end of the native active edge order.
+	 *
+	 * @param {Iterable<number>|Uint32Array} nodeIndices - Node indices whose incident active edges should be promoted.
+	 * @param {{direction?:'out'|'in'|'both'|number}} [options]
+	 * @returns {{changed:boolean,start:number,count:number,version:string|number}}
+	 */
+	promoteActiveEdgesForNodesToRenderEnd(nodeIndices, options = {}) {
+		const rawDirection = options?.direction ?? 'both';
+		const direction = rawDirection === 'out'
+			? NeighborDirection.Out
+			: (rawDirection === 'in' ? NeighborDirection.In : (rawDirection === 'both' ? NeighborDirection.Both : Number(rawDirection)));
+		return this._promoteActiveRenderOrder(
+			'edge',
+			nodeIndices,
+			'_CXNetworkPromoteActiveEdgesForNodesToRenderEnd',
+			[Number.isFinite(direction) ? direction : NeighborDirection.Both],
+		);
 	}
 
 	/**
@@ -8017,8 +8128,10 @@ export class HeliosNetwork extends BaseEventTarget {
 	_disposeActiveIndexBuffer(scope) {
 		if (scope === 'node') {
 			this._activeNodeIndexBuffer = { ptr: 0, capacity: 0, count: 0, version: 0, dirty: true };
+			this._activeNodeIndexDirtyRange = null;
 		} else {
 			this._activeEdgeIndexBuffer = { ptr: 0, capacity: 0, count: 0, version: 0, dirty: true };
+			this._activeEdgeIndexDirtyRange = null;
 		}
 	}
 
@@ -8031,7 +8144,9 @@ export class HeliosNetwork extends BaseEventTarget {
 		const countReader = scope === 'node'
 			? this.module._CXNetworkActiveNodeIndexCount
 			: this.module._CXNetworkActiveEdgeIndexCount;
-		const version = scope === 'node' ? this._nodeTopologyVersion : this._edgeTopologyVersion;
+		const topologyVersion = scope === 'node' ? this._nodeTopologyVersion : this._edgeTopologyVersion;
+		const orderVersion = scope === 'node' ? this._activeNodeIndexOrderVersion : this._activeEdgeIndexOrderVersion;
+		const version = `${topologyVersion}:${orderVersion}`;
 		const buffer = scope === 'node' ? this._activeNodeIndexBuffer : this._activeEdgeIndexBuffer;
 
 		if (typeof pointerReader !== 'function' || typeof countReader !== 'function') {
@@ -8056,6 +8171,28 @@ export class HeliosNetwork extends BaseEventTarget {
 			configurable: true,
 		});
 		return view;
+	}
+
+	_mergeActiveIndexDirtyRange(scope, start, count, version) {
+		if (!(count > 0)) return;
+		const current = scope === 'node' ? this._activeNodeIndexDirtyRange : this._activeEdgeIndexDirtyRange;
+		const nextStart = Math.max(0, Math.floor(Number(start) || 0));
+		const nextEnd = nextStart + Math.max(0, Math.floor(Number(count) || 0));
+		const mergedStart = current ? Math.min(current.start, nextStart) : nextStart;
+		const mergedEnd = current ? Math.max(current.start + current.count, nextEnd) : nextEnd;
+		const merged = {
+			start: mergedStart,
+			count: mergedEnd - mergedStart,
+			version,
+		};
+		if (scope === 'node') this._activeNodeIndexDirtyRange = merged;
+		else this._activeEdgeIndexDirtyRange = merged;
+	}
+
+	getActiveIndexDirtyRange(scope) {
+		if (scope === 'node') return this._activeNodeIndexDirtyRange ? { ...this._activeNodeIndexDirtyRange } : null;
+		if (scope === 'edge') return this._activeEdgeIndexDirtyRange ? { ...this._activeEdgeIndexDirtyRange } : null;
+		return null;
 	}
 
 	_ensureAttributeMetadata(scope, name) {

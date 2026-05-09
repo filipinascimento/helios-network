@@ -260,6 +260,14 @@ CX_EXTERN CXSize CXNetworkWriteActiveNodes(CXNetworkRef network, CXIndex *dst, C
 CX_EXTERN const CXIndex* CXNetworkActiveNodeIndices(CXNetworkRef network);
 /** Returns the number of entries in the stable active node index buffer. */
 CX_EXTERN CXSize CXNetworkActiveNodeIndexCount(CXNetworkRef network);
+/** Moves active node indices to the end of the native active order, preserving batch order. */
+CX_EXTERN CXBool CXNetworkPromoteActiveNodesToRenderEnd(
+	CXNetworkRef network,
+	const CXIndex *indices,
+	CXSize count,
+	CXSize *changedStart,
+	CXSize *changedCount
+);
 /**
  * Writes active edge indices into caller-provided storage. When `capacity` is
  * insufficient the required size is returned and no writes occur.
@@ -269,6 +277,23 @@ CX_EXTERN CXSize CXNetworkWriteActiveEdges(CXNetworkRef network, CXIndex *dst, C
 CX_EXTERN const CXIndex* CXNetworkActiveEdgeIndices(CXNetworkRef network);
 /** Returns the number of entries in the stable active edge index buffer. */
 CX_EXTERN CXSize CXNetworkActiveEdgeIndexCount(CXNetworkRef network);
+/** Moves active edge indices to the end of the native active order, preserving batch order. */
+CX_EXTERN CXBool CXNetworkPromoteActiveEdgesToRenderEnd(
+	CXNetworkRef network,
+	const CXIndex *indices,
+	CXSize count,
+	CXSize *changedStart,
+	CXSize *changedCount
+);
+/** Moves active edges incident to the supplied active nodes to the end of the native active edge order. */
+CX_EXTERN CXBool CXNetworkPromoteActiveEdgesForNodesToRenderEnd(
+	CXNetworkRef network,
+	const CXIndex *nodeIndices,
+	CXSize nodeCount,
+	CXNeighborDirection direction,
+	CXSize *changedStart,
+	CXSize *changedCount
+);
 /**
  * Writes two position vectors per active edge directly into the provided
  * buffer. `componentsPerNode` describes how many floats to copy per endpoint

@@ -46,6 +46,7 @@ static void CXNetworkBumpTopologyVersion(CXNetworkRef network, CXBool isNode);
 static CXBool CXNetworkEnsureIndexBufferCapacity(CXIndex **buffer, CXSize *capacity, CXSize required);
 static void CXNetworkInvalidateActiveIndexBuffer(CXNetworkRef network, CXBool isNode);
 static CXBool CXNetworkRefreshActiveIndexBuffer(CXNetworkRef network, CXBool isNode);
+static CXNeighborDirection CXNetworkNormalizeNeighborDirection(CXNetworkRef network, CXNeighborDirection direction);
 static CXBool CXNetworkRecomputeValidRange(const CXBool *activity, CXSize capacity, CXSize *start, CXSize *end);
 static CXBool CXNetworkRemoveAttributeInternal(CXStringDictionaryRef dict, const CXString name);
 
@@ -546,6 +547,96 @@ static CXBool CXNetworkRefreshActiveIndexBuffer(CXNetworkRef network, CXBool isN
 	return CXTrue;
 }
 
+static CXBool CXNetworkPromoteMarkedActiveIndicesToRenderEnd(
+	CXIndex *buffer,
+	CXSize count,
+	const CXBool *mark,
+	CXSize markCapacity,
+	CXSize *changedStart,
+	CXSize *changedCount
+) {
+	if (changedStart) {
+		*changedStart = 0;
+	}
+	if (changedCount) {
+		*changedCount = 0;
+	}
+	if (!buffer || !mark || count == 0 || markCapacity == 0) {
+		return CXFalse;
+	}
+	CXSize selectedCount = 0;
+	CXSize firstMarked = count;
+	for (CXSize i = 0; i < count; i++) {
+		CXIndex index = buffer[i];
+		if (index < markCapacity && mark[index]) {
+			if (firstMarked == count) {
+				firstMarked = i;
+			}
+			selectedCount++;
+		}
+	}
+	if (selectedCount == 0) {
+		return CXTrue;
+	}
+	if (selectedCount == count) {
+		return CXTrue;
+	}
+	const CXSize tailStart = count - selectedCount;
+	CXBool alreadyAtEnd = CXTrue;
+	for (CXSize i = tailStart; i < count; i++) {
+		CXIndex index = buffer[i];
+		if (!(index < markCapacity && mark[index])) {
+			alreadyAtEnd = CXFalse;
+			break;
+		}
+	}
+	if (alreadyAtEnd) {
+		return CXTrue;
+	}
+	CXIndex *promoted = malloc(sizeof(CXIndex) * selectedCount);
+	if (!promoted) {
+		return CXFalse;
+	}
+	CXSize write = 0;
+	CXSize promotedWrite = 0;
+	for (CXSize read = 0; read < count; read++) {
+		CXIndex index = buffer[read];
+		if (index < markCapacity && mark[index]) {
+			promoted[promotedWrite++] = index;
+		} else {
+			buffer[write++] = index;
+		}
+	}
+	memcpy(buffer + write, promoted, sizeof(CXIndex) * selectedCount);
+	free(promoted);
+	if (changedStart) {
+		*changedStart = firstMarked;
+	}
+	if (changedCount) {
+		*changedCount = count - firstMarked;
+	}
+	return CXTrue;
+}
+
+static CXBool CXNetworkMarkActiveIndices(
+	CXBool *mark,
+	CXSize markCapacity,
+	const CXBool *activity,
+	const CXIndex *indices,
+	CXSize count
+) {
+	if (!mark || !activity || !indices || count == 0) {
+		return CXFalse;
+	}
+	for (CXSize i = 0; i < count; i++) {
+		CXIndex index = indices[i];
+		if (index < markCapacity && activity[index]) {
+			mark[index] = CXTrue;
+		}
+	}
+	return CXTrue;
+}
+
 static CXBool CXNetworkRecomputeValidRange(const CXBool *activity, CXSize capacity, CXSize *start, CXSize *end) {
 	if (!start || !end) {
 		return CXFalse;
@@ -904,6 +995,42 @@ CXSize CXNetworkActiveNodeIndexCount(CXNetworkRef network) {
 	return network->nodeIndexBufferCount;
 }
 
+CXBool CXNetworkPromoteActiveNodesToRenderEnd(
+	CXNetworkRef network,
+	const CXIndex *indices,
+	CXSize count,
+	CXSize *changedStart,
+	CXSize *changedCount
+) {
+	if (changedStart) {
+		*changedStart = 0;
+	}
+	if (changedCount) {
+		*changedCount = 0;
+	}
+	if (!network || !indices || count == 0 || !CXNetworkRefreshActiveIndexBuffer(network, CXTrue)) {
+		return CXFalse;
+	}
+	if (network->nodeCapacity == 0 || network->nodeIndexBufferCount == 0) {
+		return CXTrue;
+	}
+	CXBool *mark = calloc(network->nodeCapacity, sizeof(CXBool));
+	if (!mark) {
+		return CXFalse;
+	}
+	CXNetworkMarkActiveIndices(mark, network->nodeCapacity, network->nodeActive, indices, count);
+	CXBool ok = CXNetworkPromoteMarkedActiveIndicesToRenderEnd(
+		network->nodeIndexBuffer,
+		network->nodeIndexBufferCount,
+		mark,
+		network->nodeCapacity,
+		changedStart,
+		changedCount
+	);
+	free(mark);
+	return ok;
+}
+
 /** Writes active edge indices into caller-provided storage. */
 CXSize CXNetworkWriteActiveEdges(CXNetworkRef network, CXIndex *dst, CXSize capacity) {
 	if (!network || !CXNetworkRefreshActiveIndexBuffer(network, CXFalse)) {
@@ -931,6 +1058,111 @@ CXSize CXNetworkActiveEdgeIndexCount(CXNetworkRef network) {
 		return 0;
 	}
 	return network->edgeIndexBufferCount;
+}
+
+CXBool CXNetworkPromoteActiveEdgesToRenderEnd(
+	CXNetworkRef network,
+	const CXIndex *indices,
+	CXSize count,
+	CXSize *changedStart,
+	CXSize *changedCount
+) {
+	if (changedStart) {
+		*changedStart = 0;
+	}
+	if (changedCount) {
+		*changedCount = 0;
+	}
+	if (!network || !indices || count == 0 || !CXNetworkRefreshActiveIndexBuffer(network, CXFalse)) {
+		return CXFalse;
+	}
+	if (network->edgeCapacity == 0 || network->edgeIndexBufferCount == 0) {
+		return CXTrue;
+	}
+	CXBool *mark = calloc(network->edgeCapacity, sizeof(CXBool));
+	if (!mark) {
+		return CXFalse;
+	}
+	CXNetworkMarkActiveIndices(mark, network->edgeCapacity, network->edgeActive, indices, count);
+	CXBool ok = CXNetworkPromoteMarkedActiveIndicesToRenderEnd(
+		network->edgeIndexBuffer,
+		network->edgeIndexBufferCount,
+		mark,
+		network->edgeCapacity,
+		changedStart,
+		changedCount
+	);
+	free(mark);
+	return ok;
+}
+
+static void CXNetworkMarkEdgesFromNeighborContainer(
+	CXNetworkRef network,
+	CXNeighborContainer *container,
+	CXBool *mark
+) {
+	if (!network || !container || !mark) {
+		return;
+	}
+	CXNeighborIterator iterator;
+	CXNeighborIteratorInit(&iterator, container);
+	while (CXNeighborIteratorNext(&iterator)) {
+		CXIndex edge = iterator.edge;
+		if (edge < network->edgeCapacity && network->edgeActive[edge]) {
+			mark[edge] = CXTrue;
+		}
+	}
+}
+
+CXBool CXNetworkPromoteActiveEdgesForNodesToRenderEnd(
+	CXNetworkRef network,
+	const CXIndex *nodeIndices,
+	CXSize nodeCount,
+	CXNeighborDirection direction,
+	CXSize *changedStart,
+	CXSize *changedCount
+) {
+	if (changedStart) {
+		*changedStart = 0;
+	}
+	if (changedCount) {
+		*changedCount = 0;
+	}
+	if (!network || !nodeIndices || nodeCount == 0 || !CXNetworkRefreshActiveIndexBuffer(network, CXFalse)) {
+		return CXFalse;
+	}
+	if (network->edgeCapacity == 0 || network->edgeIndexBufferCount == 0) {
+		return CXTrue;
+	}
+	CXBool *mark = calloc(network->edgeCapacity, sizeof(CXBool));
+	if (!mark) {
+		return CXFalse;
+	}
+	direction = CXNetworkNormalizeNeighborDirection(network, direction);
+	const CXBool collectOut = (direction == CXNeighborDirectionOut || direction == CXNeighborDirectionBoth);
+	const CXBool collectIn = (direction == CXNeighborDirectionIn || direction == CXNeighborDirectionBoth);
+	for (CXSize i = 0; i < nodeCount; i++) {
+		CXIndex node = nodeIndices[i];
+		if (node >= network->nodeCapacity || !network->nodeActive[node]) {
+			continue;
+		}
+		if (collectOut) {
+			CXNetworkMarkEdgesFromNeighborContainer(network, &network->nodes[node].outNeighbors, mark);
+		}
+		if (collectIn) {
+			CXNetworkMarkEdgesFromNeighborContainer(network, &network->nodes[node].inNeighbors, mark);
+		}
+	}
+	CXBool ok = CXNetworkPromoteMarkedActiveIndicesToRenderEnd(
+		network->edgeIndexBuffer,
+		network->edgeIndexBufferCount,
+		mark,
+		network->edgeCapacity,
+		changedStart,
+		changedCount
+	);
+	free(mark);
+	return ok;
 }
 
 /** Writes two position vectors per active edge into a caller-provided buffer. */
