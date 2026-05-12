@@ -72,7 +72,7 @@
             
             <nav>
                 
-                    <h2><a href="index.html">Documentation</a></h2><div class="category"><h3>Classes</h3><ul><li><a href="EdgeSelector.html">EdgeSelector</a></li><li><a href="HeliosNetwork.html">HeliosNetwork</a></li><li><a href="NodeSelector.html">NodeSelector</a></li></ul><h3>Global</h3><ul><li><a href="global.html#AttributeType">AttributeType</a></li><li><a href="global.html#COMPLEX_ATTRIBUTE_TYPES">COMPLEX_ATTRIBUTE_TYPES</a></li><li><a href="global.html#POINTER_ATTRIBUTE_TYPES">POINTER_ATTRIBUTE_TYPES</a></li><li><a href="global.html#TYPE_ELEMENT_SIZE">TYPE_ELEMENT_SIZE</a></li><li><a href="global.html#TypedArrayForType">TypedArrayForType</a></li><li><a href="global.html#getDefaultHeliosModuleFactory">getDefaultHeliosModuleFactory</a></li><li><a href="global.html#getHeliosModuleFactory">getHeliosModuleFactory</a></li><li><a href="global.html#getModule">getModule</a></li><li><a href="global.html#moduleInstance">moduleInstance</a></li><li><a href="global.html#modulePromise">modulePromise</a></li><li><a href="global.html#projectAttributeValues">projectAttributeValues</a></li><li><a href="global.html#setHeliosModuleFactory">setHeliosModuleFactory</a></li><li><a href="global.html#setToUint32Array">setToUint32Array</a></li></ul></div>
+                    <h2><a href="index.html">Documentation</a></h2><div class="category"><h3>Classes</h3><ul><li><a href="EdgeSelector.html">EdgeSelector</a></li><li><a href="HeliosNetwork.html">HeliosNetwork</a></li><li><a href="NodeSelector.html">NodeSelector</a></li></ul><h3>Global</h3><ul><li><a href="global.html#AttributeType">AttributeType</a></li><li><a href="global.html#COMPLEX_ATTRIBUTE_TYPES">COMPLEX_ATTRIBUTE_TYPES</a></li><li><a href="global.html#CategorySortOrder">CategorySortOrder</a></li><li><a href="global.html#ClusteringCoefficientVariant">ClusteringCoefficientVariant</a></li><li><a href="global.html#ConnectedComponentsMode">ConnectedComponentsMode</a></li><li><a href="global.html#DimensionDifferenceMethod">DimensionDifferenceMethod</a></li><li><a href="global.html#MeasurementExecutionMode">MeasurementExecutionMode</a></li><li><a href="global.html#NeighborDirection">NeighborDirection</a></li><li><a href="global.html#POINTER_ATTRIBUTE_TYPES">POINTER_ATTRIBUTE_TYPES</a></li><li><a href="global.html#StrengthMeasure">StrengthMeasure</a></li><li><a href="global.html#TYPE_ELEMENT_SIZE">TYPE_ELEMENT_SIZE</a></li><li><a href="global.html#TypedArrayForType">TypedArrayForType</a></li><li><a href="global.html#getDefaultHeliosModuleFactory">getDefaultHeliosModuleFactory</a></li><li><a href="global.html#getHeliosModuleFactory">getHeliosModuleFactory</a></li><li><a href="global.html#getModule">getModule</a></li><li><a href="global.html#moduleInstance">moduleInstance</a></li><li><a href="global.html#modulePromise">modulePromise</a></li><li><a href="global.html#projectAttributeValues">projectAttributeValues</a></li><li><a href="global.html#setHeliosModuleFactory">setHeliosModuleFactory</a></li><li><a href="global.html#setToUint32Array">setToUint32Array</a></li></ul></div>
                 
             </nav>
         </div>
@@ -114,6 +114,13 @@ const AttributeType = Object.freeze({
 	Unknown: 255,
 });
 
+/**
+ * Ordering strategies used when converting string attributes to categories.
+ *
+ * Frequency ordering is useful for visualization legends; natural ordering
+ * keeps labels such as "item2" before "item10".
+ * @enum {number}
+ */
 const CategorySortOrder = Object.freeze({
 	None: 0,
 	Frequency: 1,
@@ -121,6 +128,10 @@ const CategorySortOrder = Object.freeze({
 	Natural: 3,
 });
 
+/**
+ * Finite-difference estimators for local and global graph dimension measures.
+ * @enum {number}
+ */
 const DimensionDifferenceMethod = Object.freeze({
 	Forward: 0,
 	Backward: 1,
@@ -128,12 +139,20 @@ const DimensionDifferenceMethod = Object.freeze({
 	LeastSquares: 3,
 });
 
+/**
+ * Direction policy for neighbor traversal and degree-like measurements.
+ * @enum {number}
+ */
 const NeighborDirection = Object.freeze({
 	Out: 0,
 	In: 1,
 	Both: 2,
 });
 
+/**
+ * Aggregation policy for edge-weight based node strength.
+ * @enum {number}
+ */
 const StrengthMeasure = Object.freeze({
 	Sum: 0,
 	Average: 1,
@@ -141,18 +160,30 @@ const StrengthMeasure = Object.freeze({
 	Minimum: 3,
 });
 
+/**
+ * Local clustering coefficient formula selector.
+ * @enum {number}
+ */
 const ClusteringCoefficientVariant = Object.freeze({
 	Unweighted: 0,
 	Onnela: 1,
 	Newman: 2,
 });
 
+/**
+ * Execution policy for native graph measurements that can run in serial or parallel.
+ * @enum {number}
+ */
 const MeasurementExecutionMode = Object.freeze({
 	Auto: 0,
 	SingleThread: 1,
 	Parallel: 2,
 });
 
+/**
+ * Connected-component mode selector for weak or strongly connected components.
+ * @enum {number}
+ */
 const ConnectedComponentsMode = Object.freeze({
 	Weak: 0,
 	Strong: 1,
@@ -261,6 +292,15 @@ const DIMENSION_FORWARD_COEFFICIENTS = Object.freeze([
  */
 
 /**
+ * Options for high-level node/edge attribute writers.
+ * @typedef {object} AttributeWriteOptions
+ * @property {AttributeType|string|number=} type - Attribute type to use when defining a missing attribute.
+ * @property {number=} dimension - Number of scalar components per node/edge.
+ * @property {'ordinal'|'id'|'auto'=} indexBy - How array-like values are indexed. Defaults to active ordinal.
+ * @property {'ordinal'|'id'|'auto'=} indexMode - Alias for `indexBy`.
+ */
+
+/**
  * Node-to-edge passthrough descriptor.
  * @typedef {object} NodeToEdgePassthrough
  * @property {string} edgeName
@@ -282,7 +322,7 @@ const DIMENSION_FORWARD_COEFFICIENTS = Object.freeze([
  * Options for .bxnet/.xnet serialization.
  * @typedef {object} SaveSerializedOptions
  * @property {string=} path
- * @property {('uint8array'|'arraybuffer'|'base64'|'blob')=} format
+ * @property {('uint8array'|'arraybuffer'|'base64'|'blob'|'string'|'text')=} format
  * @property {AttributeFilterMap=} allowAttributes
  * @property {AttributeFilterMap=} ignoreAttributes
  */
@@ -292,7 +332,7 @@ const DIMENSION_FORWARD_COEFFICIENTS = Object.freeze([
  * @typedef {object} SaveZXNetOptions
  * @property {string=} path
  * @property {number=} compressionLevel
- * @property {('uint8array'|'arraybuffer'|'base64'|'blob')=} format
+ * @property {('uint8array'|'arraybuffer'|'base64'|'blob'|'string'|'text')=} format
  * @property {AttributeFilterMap=} allowAttributes
  * @property {AttributeFilterMap=} ignoreAttributes
  */
@@ -411,6 +451,38 @@ const TYPE_ELEMENT_SIZE = {
 	[AttributeType.UnsignedBigInteger]: 8,
 	[AttributeType.MultiCategory]: 0,
 };
+
+const AttributeTypeNameMap = Object.freeze({
+	string: AttributeType.String,
+	str: AttributeType.String,
+	boolean: AttributeType.Boolean,
+	bool: AttributeType.Boolean,
+	float: AttributeType.Float,
+	float32: AttributeType.Float,
+	number: AttributeType.Float,
+	integer: AttributeType.Integer,
+	int: AttributeType.Integer,
+	int32: AttributeType.Integer,
+	unsignedinteger: AttributeType.UnsignedInteger,
+	unsigned: AttributeType.UnsignedInteger,
+	uint: AttributeType.UnsignedInteger,
+	uint32: AttributeType.UnsignedInteger,
+	double: AttributeType.Double,
+	float64: AttributeType.Double,
+	category: AttributeType.Category,
+	categorical: AttributeType.Category,
+	biginteger: AttributeType.BigInteger,
+	bigint: AttributeType.BigInteger,
+	int64: AttributeType.BigInteger,
+	unsignedbiginteger: AttributeType.UnsignedBigInteger,
+	unsignedbigint: AttributeType.UnsignedBigInteger,
+	uint64: AttributeType.UnsignedBigInteger,
+	data: AttributeType.Data,
+	javascript: AttributeType.Javascript,
+	js: AttributeType.Javascript,
+	multicategory: AttributeType.MultiCategory,
+	'multi-category': AttributeType.MultiCategory,
+});
 
 /**
  * Materializes a `Set&lt;number>` into a compact `Uint32Array`.
@@ -540,6 +612,8 @@ const HELIOS_NETWORK_EVENTS = Object.freeze({
 	attributeRemoved: 'attribute:removed',
 	attributeChanged: 'attribute:changed',
 });
+
+const LAYOUT_STRENGTH_ATTRIBUTE = '_helios_layout_strength';
 
 const NODE_RUNTIME = typeof process !== 'undefined' &amp;&amp; !!process.versions?.node;
 const VIRTUAL_TEMP_DIR = '/tmp/helios';
@@ -719,6 +793,23 @@ async function resolveInputBytes(source) {
 	throw new TypeError('Unsupported source type for deserialization');
 }
 
+async function resolveInputText(source) {
+	if (typeof source === 'string') {
+		const trimmed = source.trimStart();
+		if (!isNodeRuntime() || trimmed.startsWith('{') || trimmed.startsWith('[')) {
+			return source;
+		}
+		const fs = await getNodeFsModule();
+		const resolved = await resolveNodePath(source);
+		return fs.readFile(resolved, 'utf8');
+	}
+	if (typeof source === 'object' &amp;&amp; typeof source.text === 'function') {
+		return source.text();
+	}
+	const bytes = await resolveInputBytes(source);
+	return decodeUTF8(bytes);
+}
+
 function bytesToFormat(bytes, format = 'uint8array') {
 	const normalized = typeof format === 'string' ? format.toLowerCase() : 'uint8array';
 	switch (normalized) {
@@ -733,8 +824,298 @@ function bytesToFormat(bytes, format = 'uint8array') {
 				throw new Error('Blob is not available in this environment');
 			}
 			return new Blob([bytes], { type: 'application/octet-stream' });
+		case 'string':
+		case 'text':
+			return decodeUTF8(bytes);
 		default:
 			throw new Error(`Unsupported output format "${format}"`);
+	}
+}
+
+function decodeUTF8(bytes) {
+	if (typeof TextDecoder !== 'undefined') {
+		return new TextDecoder('utf-8').decode(bytes);
+	}
+	if (isNodeRuntime()) {
+		return Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString('utf8');
+	}
+	throw new Error('UTF-8 decoding is not supported in this environment');
+}
+
+function isPlainObject(value) {
+	return value !== null &amp;&amp; typeof value === 'object' &amp;&amp; !Array.isArray(value);
+}
+
+function nodeLinkIdKey(value) {
+	return `${typeof value}:${JSON.stringify(value)}`;
+}
+
+function nodeLinkIdString(value) {
+	if (typeof value === 'string') {
+		return value;
+	}
+	return JSON.stringify(value);
+}
+
+function mergeNodeLinkRecordAttributes(record, reservedKeys) {
+	const merged = {};
+	if (!isPlainObject(record)) {
+		return merged;
+	}
+	for (const [key, value] of Object.entries(record)) {
+		if (reservedKeys.has(key) || key === 'attributes') {
+			continue;
+		}
+		merged[key] = value;
+	}
+	if (isPlainObject(record.attributes)) {
+		for (const [key, value] of Object.entries(record.attributes)) {
+			merged[key] = value;
+		}
+	}
+	return merged;
+}
+
+function classifyNodeLinkValue(value, { allowMultiCategory = false } = {}) {
+	if (value === null || value === undefined) {
+		return null;
+	}
+	if (typeof value === 'string') {
+		return { mode: 'string', attrType: AttributeType.String, dimension: 1 };
+	}
+	if (typeof value === 'boolean') {
+		return { mode: 'boolean', attrType: AttributeType.Boolean, dimension: 1 };
+	}
+	if (typeof value === 'number') {
+		if (!Number.isFinite(value)) {
+			return { mode: 'json-string', attrType: AttributeType.String, dimension: 1 };
+		}
+		if (Number.isInteger(value) &amp;&amp; value >= 0 &amp;&amp; value &lt;= 0xFFFFFFFF) {
+			return { mode: 'number', attrType: AttributeType.UnsignedInteger, dimension: 1 };
+		}
+		if (Number.isInteger(value) &amp;&amp; value >= -0x80000000 &amp;&amp; value &lt;= 0x7FFFFFFF) {
+			return { mode: 'number', attrType: AttributeType.Integer, dimension: 1 };
+		}
+		return { mode: 'number', attrType: AttributeType.Double, dimension: 1 };
+	}
+	if (Array.isArray(value)) {
+		const nonNull = value.filter((item) => item !== null &amp;&amp; item !== undefined);
+		if (nonNull.length === 0) {
+			return { mode: 'json-string', attrType: AttributeType.String, dimension: 1 };
+		}
+		if (nonNull.every((item) => typeof item === 'number' &amp;&amp; Number.isFinite(item))) {
+			const wantsDouble = nonNull.some((item) => !Number.isInteger(item) || item > 0xFFFFFFFF || item &lt; -0x80000000);
+			const wantsSigned = nonNull.some((item) => Number.isInteger(item) &amp;&amp; item &lt; 0);
+			return {
+				mode: 'vector',
+				attrType: wantsDouble ? AttributeType.Double : wantsSigned ? AttributeType.Integer : AttributeType.UnsignedInteger,
+				dimension: value.length,
+			};
+		}
+		if (allowMultiCategory &amp;&amp; nonNull.every((item) => typeof item === 'string')) {
+			return { mode: 'multicategory', attrType: AttributeType.MultiCategory, hasWeights: false, dimension: 1 };
+		}
+		if (allowMultiCategory &amp;&amp; nonNull.every((item) => isPlainObject(item) &amp;&amp; typeof item.label === 'string' &amp;&amp; (item.weight === undefined || typeof item.weight === 'number'))) {
+			return { mode: 'multicategory', attrType: AttributeType.MultiCategory, hasWeights: true, dimension: 1 };
+		}
+		return { mode: 'json-string', attrType: AttributeType.String, dimension: 1 };
+	}
+	return { mode: 'json-string', attrType: AttributeType.String, dimension: 1 };
+}
+
+function mergeNodeLinkSchema(existing, candidate) {
+	if (!candidate) {
+		return existing;
+	}
+	if (!existing) {
+		return { ...candidate };
+	}
+	if (existing.mode === 'json-string' || candidate.mode === 'json-string') {
+		return { mode: 'json-string', attrType: AttributeType.String, dimension: 1 };
+	}
+	if (existing.mode === 'multicategory' &amp;&amp; candidate.mode === 'multicategory') {
+		return {
+			mode: 'multicategory',
+			attrType: AttributeType.MultiCategory,
+			hasWeights: Boolean(existing.hasWeights || candidate.hasWeights),
+			dimension: 1,
+		};
+	}
+	if (existing.mode === candidate.mode &amp;&amp; existing.dimension === candidate.dimension) {
+		if ((existing.mode === 'number' || existing.mode === 'vector') &amp;&amp; existing.attrType !== candidate.attrType) {
+			return {
+				mode: existing.mode,
+				attrType: AttributeType.Double,
+				dimension: existing.dimension,
+			};
+		}
+		return existing;
+	}
+	return { mode: 'json-string', attrType: AttributeType.String, dimension: 1 };
+}
+
+function inferNodeLinkSchemas(records, reservedKeys, options = {}) {
+	const schemas = new Map();
+	const warnings = [];
+	for (const record of records) {
+		const attrs = mergeNodeLinkRecordAttributes(record, reservedKeys);
+		for (const [name, value] of Object.entries(attrs)) {
+			const candidate = classifyNodeLinkValue(value, options);
+			const merged = mergeNodeLinkSchema(schemas.get(name) ?? null, candidate);
+			if (merged.mode === 'json-string' &amp;&amp; (schemas.get(name)?.mode !== 'json-string')) {
+				warnings.push(`Node-link JSON coerced attribute "${name}" to a string payload during load`);
+			}
+			schemas.set(name, merged);
+		}
+	}
+	return { schemas, warnings };
+}
+
+function ensureNodeLinkEndpoints(nodes, links, warnings) {
+	const records = Array.isArray(nodes) ? nodes.map((node) => ({ ...node })) : [];
+	const seen = new Set(records.map((node) => nodeLinkIdKey(node?.id)));
+	for (const link of links) {
+		for (const key of ['source', 'target']) {
+			const endpoint = link?.[key];
+			const mapKey = nodeLinkIdKey(endpoint);
+			if (!seen.has(mapKey)) {
+				seen.add(mapKey);
+				records.push({ id: endpoint });
+				warnings.push(`Node-link JSON synthesized a node for missing endpoint ${nodeLinkIdString(endpoint)}`);
+			}
+		}
+	}
+	return records;
+}
+
+function assignNodeLinkString(scope, network, name, index, value) {
+	const text = typeof value === 'string' ? value : JSON.stringify(value);
+	if (scope === 'node') {
+		network.setNodeStringAttribute(name, index, text);
+	} else if (scope === 'edge') {
+		network.setEdgeStringAttribute(name, index, text);
+	} else {
+		network.setNetworkStringAttribute(name, text);
+	}
+}
+
+function bufferAccessorForScope(scope, network, name) {
+	if (scope === 'node') {
+		return network.getNodeAttributeBuffer(name);
+	}
+	if (scope === 'edge') {
+		return network.getEdgeAttributeBuffer(name);
+	}
+	return network.getNetworkAttributeBuffer(name);
+}
+
+function defineNodeLinkAttribute(scope, network, name, schema) {
+	if (schema.mode === 'multicategory') {
+		if (scope === 'node') {
+			network.defineNodeMultiCategoryAttribute(name, schema.hasWeights);
+		} else if (scope === 'edge') {
+			network.defineEdgeMultiCategoryAttribute(name, schema.hasWeights);
+		} else {
+			network.defineNetworkMultiCategoryAttribute(name, schema.hasWeights);
+		}
+		return;
+	}
+	if (scope === 'node') {
+		network.defineNodeAttribute(name, schema.attrType, schema.dimension);
+	} else if (scope === 'edge') {
+		network.defineEdgeAttribute(name, schema.attrType, schema.dimension);
+	} else {
+		network.defineNetworkAttribute(name, schema.attrType, schema.dimension);
+	}
+}
+
+function applyNodeLinkAttributes(scope, network, records, indices, schemas, reservedKeys) {
+	for (const [name, schema] of schemas.entries()) {
+		defineNodeLinkAttribute(scope, network, name, schema);
+	}
+	const deferred = [];
+	for (let recordIndex = 0; recordIndex &lt; records.length; recordIndex += 1) {
+		const attrs = mergeNodeLinkRecordAttributes(records[recordIndex], reservedKeys);
+		const index = indices[recordIndex];
+		for (const [name, value] of Object.entries(attrs)) {
+			const schema = schemas.get(name);
+			if (!schema || value === null || value === undefined) {
+				continue;
+			}
+			if (schema.mode === 'string' || schema.mode === 'json-string') {
+				deferred.push({ kind: 'string', name, index, value });
+				continue;
+			}
+			if (schema.mode === 'multicategory') {
+				deferred.push({ kind: 'multicategory', name, index, value, schema });
+				continue;
+			}
+		}
+	}
+	network.withBufferAccess(() => {
+		const buffers = new Map();
+		for (const [name, schema] of schemas.entries()) {
+			if (schema.mode !== 'string' &amp;&amp; schema.mode !== 'json-string' &amp;&amp; schema.mode !== 'multicategory') {
+				buffers.set(name, bufferAccessorForScope(scope, network, name).view);
+			}
+		}
+		for (let recordIndex = 0; recordIndex &lt; records.length; recordIndex += 1) {
+			const attrs = mergeNodeLinkRecordAttributes(records[recordIndex], reservedKeys);
+			const index = indices[recordIndex];
+			for (const [name, value] of Object.entries(attrs)) {
+				const schema = schemas.get(name);
+				if (!schema || value === null || value === undefined || schema.mode === 'string' || schema.mode === 'json-string' || schema.mode === 'multicategory') {
+					continue;
+				}
+				const view = buffers.get(name);
+				if (!view) {
+					continue;
+				}
+				const offset = index * schema.dimension;
+				if (schema.mode === 'vector' &amp;&amp; Array.isArray(value)) {
+					for (let component = 0; component &lt; schema.dimension; component += 1) {
+						view[offset + component] = Number.isFinite(value[component]) ? value[component] : 0;
+					}
+				} else if (schema.mode === 'boolean') {
+					view[index] = value ? 1 : 0;
+				} else {
+					view[index] = value;
+				}
+			}
+		}
+	});
+	for (const entry of deferred) {
+		if (entry.kind === 'string') {
+			assignNodeLinkString(scope, network, entry.name, entry.index, entry.value);
+			continue;
+		}
+		const payload = Array.isArray(entry.value) ? entry.value : [];
+		if (entry.schema.hasWeights) {
+			const categories = [];
+			const weights = [];
+			for (const item of payload) {
+				if (isPlainObject(item) &amp;&amp; typeof item.label === 'string') {
+					categories.push(item.label);
+					weights.push(typeof item.weight === 'number' ? item.weight : 1);
+				}
+			}
+			if (scope === 'node') {
+				network.setNodeMultiCategoryEntry(entry.name, entry.index, categories, weights);
+			} else if (scope === 'edge') {
+				network.setEdgeMultiCategoryEntry(entry.name, entry.index, categories, weights);
+			} else {
+				network.setNetworkMultiCategoryEntry(entry.name, categories, weights);
+			}
+		} else {
+			const categories = payload.filter((item) => typeof item === 'string');
+			if (scope === 'node') {
+				network.setNodeMultiCategoryEntry(entry.name, entry.index, categories);
+			} else if (scope === 'edge') {
+				network.setEdgeMultiCategoryEntry(entry.name, entry.index, categories);
+			} else {
+				network.setNetworkMultiCategoryEntry(entry.name, categories);
+			}
+		}
 	}
 }
 
@@ -771,67 +1152,69 @@ function uint8ToBase64(bytes) {
  */
 function projectAttributeValues(network, scope, name, indices, options = {}) {
 	const { raw = false } = options;
-	const buffer = scope === 'node'
-		? network.getNodeAttributeBuffer(name)
-		: network.getEdgeAttributeBuffer(name);
+	return network.withBufferAccess(() => {
+		const buffer = scope === 'node'
+			? network.getNodeAttributeBuffer(name)
+			: network.getEdgeAttributeBuffer(name);
 
-	if ('get' in buffer &amp;&amp; typeof buffer.get === 'function') {
-		const result = new Array(indices.length);
-		for (let i = 0; i &lt; indices.length; i += 1) {
-			const index = indices[i];
-			result[i] = buffer.get(index) ?? null;
+		if ('get' in buffer &amp;&amp; typeof buffer.get === 'function') {
+			const result = new Array(indices.length);
+			for (let i = 0; i &lt; indices.length; i += 1) {
+				const index = indices[i];
+				result[i] = buffer.get(index) ?? null;
+			}
+			return result;
 		}
-		return result;
-	}
 
-	if (buffer.type === AttributeType.String) {
-		const reader = scope === 'node'
-			? network.getNodeStringAttribute.bind(network)
-			: network.getEdgeStringAttribute.bind(network);
+		if (buffer.type === AttributeType.String) {
+			const reader = scope === 'node'
+				? network.getNodeStringAttribute.bind(network)
+				: network.getEdgeStringAttribute.bind(network);
+			if (!indices.length) {
+				return [];
+			}
+			const result = new Array(indices.length);
+			for (let i = 0; i &lt; indices.length; i += 1) {
+				result[i] = reader(name, indices[i]);
+			}
+			return result;
+		}
+
+		if (!('view' in buffer) || !buffer.view) {
+			throw new Error(`Attribute "${name}" on ${scope} is not a numeric attribute`);
+		}
+
+		const { view, dimension } = buffer;
+		const TypedCtor = view.constructor;
+
 		if (!indices.length) {
-			return [];
+			return raw &amp;&amp; dimension === 1 ? new TypedCtor(0) : [];
 		}
-		const result = new Array(indices.length);
-		for (let i = 0; i &lt; indices.length; i += 1) {
-			result[i] = reader(name, indices[i]);
-		}
-		return result;
-	}
 
-	if (!('view' in buffer) || !buffer.view) {
-		throw new Error(`Attribute "${name}" on ${scope} is not a numeric attribute`);
-	}
-
-	const { view, dimension } = buffer;
-	const TypedCtor = view.constructor;
-
-	if (!indices.length) {
-		return raw &amp;&amp; dimension === 1 ? new TypedCtor(0) : [];
-	}
-
-	if (dimension === 1) {
-		if (raw) {
-			const result = new TypedCtor(indices.length);
+		if (dimension === 1) {
+			if (raw) {
+				const result = new TypedCtor(indices.length);
+				for (let i = 0; i &lt; indices.length; i += 1) {
+					result[i] = view[indices[i]];
+				}
+				return result;
+			}
+			const result = new Array(indices.length);
 			for (let i = 0; i &lt; indices.length; i += 1) {
 				result[i] = view[indices[i]];
 			}
 			return result;
 		}
+
 		const result = new Array(indices.length);
 		for (let i = 0; i &lt; indices.length; i += 1) {
-			result[i] = view[indices[i]];
+			const index = indices[i];
+			const start = index * dimension;
+			const slice = view.slice(start, start + dimension);
+			result[i] = raw ? slice : Array.from(slice);
 		}
 		return result;
-	}
-
-	const result = new Array(indices.length);
-	for (let i = 0; i &lt; indices.length; i += 1) {
-		const index = indices[i];
-		const start = index * dimension;
-		const slice = view.slice(start, start + dimension);
-		result[i] = raw ? slice : Array.from(slice);
-	}
-	return result;
+	});
 }
 
 /**
@@ -1083,10 +1466,10 @@ class Selector {
 			return new Uint32Array();
 		}
 		if (this._scope === 'node') {
-			return this.network.nodeIndices;
+			return this.network.withBufferAccess(() => this.network.nodeIndices.slice(), { nodeIndices: true });
 		}
 		if (this._scope === 'edge') {
-			return this.network.edgeIndices;
+			return this.network.withBufferAccess(() => this.network.edgeIndices.slice(), { edgeIndices: true });
 		}
 		return new Uint32Array();
 	}
@@ -1175,6 +1558,7 @@ class NodeSelector extends Selector {
 	 * @throws {Error} When memory allocation fails.
 	 */
 	fillFromArray(network, indices) {
+		network?._assertCanAllocate?.('node selector materialization');
 		const array = Array.isArray(indices) ? Uint32Array.from(indices) : new Uint32Array(indices);
 		if (array.length === 0) {
 			if (typeof this.module._CXNodeSelectorClear === 'function') {
@@ -1502,6 +1886,7 @@ class EdgeSelector extends Selector {
 	 * @throws {Error} When memory allocation fails.
 	 */
 	fillFromArray(network, indices) {
+		network?._assertCanAllocate?.('edge selector materialization');
 		const array = Array.isArray(indices) ? Uint32Array.from(indices) : new Uint32Array(indices);
 		if (array.length === 0) {
 			if (typeof this.module._CXEdgeSelectorClear === 'function') {
@@ -1653,13 +2038,15 @@ class EdgeSelector extends Selector {
 	 * console.log(selector.endpoints()); // [[0, 1]]
 	 */
 	endpoints() {
-		const pairs = [];
-		const edgesView = this.network.edgesView;
-		for (const edge of this) {
-			const base = edge * 2;
-			pairs.push([edgesView[base], edgesView[base + 1]]);
-		}
-		return pairs;
+		return this.network.withBufferAccess(() => {
+			const pairs = [];
+			const edgesView = this.network.edgesView;
+			for (const edge of this) {
+				const base = edge * 2;
+				pairs.push([edgesView[base], edgesView[base + 1]]);
+			}
+			return pairs;
+		}, { edgesView: true });
 	}
 
 	/**
@@ -1682,14 +2069,16 @@ class EdgeSelector extends Selector {
 	 */
 	nodes(options = {}) {
 		const { asSelector = false } = options;
-		const nodeSet = new Set();
-		const edgesView = this.network.edgesView;
-		for (const edge of this) {
-			const base = edge * 2;
-			nodeSet.add(edgesView[base]);
-			nodeSet.add(edgesView[base + 1]);
-		}
-		const indices = setToUint32Array(nodeSet);
+		const indices = this.network.withBufferAccess(() => {
+			const nodeSet = new Set();
+			const edgesView = this.network.edgesView;
+			for (const edge of this) {
+				const base = edge * 2;
+				nodeSet.add(edgesView[base]);
+				nodeSet.add(edgesView[base + 1]);
+			}
+			return setToUint32Array(nodeSet);
+		}, { edgesView: true });
 		return asSelector ? NodeSelector.fromIndices(this.network, indices) : indices;
 	}
 
@@ -1705,22 +2094,24 @@ class EdgeSelector extends Selector {
 	 */
 	_projectEndpoint(offset, options) {
 		const { asSelector, unique } = options;
-		const edgesView = this.network.edgesView;
-		if (unique) {
-			const nodeSet = new Set();
-			for (const edge of this) {
-				nodeSet.add(edgesView[edge * 2 + offset]);
+		const indices = this.network.withBufferAccess(() => {
+			const edgesView = this.network.edgesView;
+			if (unique) {
+				const nodeSet = new Set();
+				for (const edge of this) {
+					nodeSet.add(edgesView[edge * 2 + offset]);
+				}
+				return setToUint32Array(nodeSet);
 			}
-			const indices = setToUint32Array(nodeSet);
-			return asSelector ? NodeSelector.fromIndices(this.network, indices) : indices;
-		}
 
-		const indices = new Uint32Array(this.count);
-		let position = 0;
-		for (const edge of this) {
-			indices[position] = edgesView[edge * 2 + offset];
-			position += 1;
-		}
+			const indices = new Uint32Array(this.count);
+			let position = 0;
+			for (const edge of this) {
+				indices[position] = edgesView[edge * 2 + offset];
+				position += 1;
+			}
+			return indices;
+		}, { edgesView: true });
 		return asSelector ? NodeSelector.fromIndices(this.network, indices) : indices;
 	}
 	}
@@ -1768,7 +2159,7 @@ class EdgeSelector extends Selector {
 
 		static _collectSelectedNodes(network, nodes) {
 			if (!nodes) {
-				return network.nodeIndices;
+				return network.withBufferAccess(() => network.nodeIndices.slice(), { nodeIndices: true });
 			}
 
 			const source = ArrayBuffer.isView(nodes) ? nodes : Array.from(nodes);
@@ -2094,11 +2485,13 @@ class EdgeSelector extends Selector {
 
 		_writeNodeMaxDimensionAttribute(name) {
 			this._ensureNodeFloatAttribute(name, 1);
-			const { view, bumpVersion } = this.network.getNodeAttributeBuffer(name);
-			for (let i = 0; i &lt; this._selectedNodes.length; i += 1) {
-				view[this._selectedNodes[i]] = this._nodeMaxDimension[i];
-			}
-			bumpVersion();
+			this.network.withBufferAccess(() => {
+				const { view, bumpVersion } = this.network.getNodeAttributeBuffer(name);
+				for (let i = 0; i &lt; this._selectedNodes.length; i += 1) {
+					view[this._selectedNodes[i]] = this._nodeMaxDimension[i];
+				}
+				bumpVersion();
+			});
 		}
 
 		_writeNodeDimensionLevelsVectorAttribute(name) {
@@ -2106,15 +2499,17 @@ class EdgeSelector extends Selector {
 				throw new Error('Session did not capture per-level dimensions. Set captureNodeDimensionProfiles: true when creating the session.');
 			}
 			this._ensureNodeFloatAttribute(name, this._levels);
-			const { view, bumpVersion } = this.network.getNodeAttributeBuffer(name);
-			for (let i = 0; i &lt; this._selectedNodes.length; i += 1) {
-				const nodeBase = this._selectedNodes[i] * this._levels;
-				const localBase = i * this._levels;
-				for (let r = 0; r &lt; this._levels; r += 1) {
-					view[nodeBase + r] = this._nodeDimensionLevels[localBase + r];
+			this.network.withBufferAccess(() => {
+				const { view, bumpVersion } = this.network.getNodeAttributeBuffer(name);
+				for (let i = 0; i &lt; this._selectedNodes.length; i += 1) {
+					const nodeBase = this._selectedNodes[i] * this._levels;
+					const localBase = i * this._levels;
+					for (let r = 0; r &lt; this._levels; r += 1) {
+						view[nodeBase + r] = this._nodeDimensionLevels[localBase + r];
+					}
 				}
-			}
-			bumpVersion();
+				bumpVersion();
+			});
 		}
 
 		_writeNodeDimensionLevelsStringAttribute(name, precision) {
@@ -2238,19 +2633,18 @@ class LeidenSession {
 				kind: 'leiden',
 				buildSnapshot: () => {
 					const sessionOptions = this.options ?? {};
-					const activeNodes = network.nodeIndices;
-					const nodeToCompact = new Map();
-					for (let i = 0; i &lt; activeNodes.length; i += 1) {
-						nodeToCompact.set(activeNodes[i], i);
-					}
+					return network.withBufferAccess(() => {
+						const activeNodes = network.nodeIndices;
+						const nodeToCompact = new Map();
+						for (let i = 0; i &lt; activeNodes.length; i += 1) {
+							nodeToCompact.set(activeNodes[i], i);
+						}
 
-					const edgeIds = network.edgeIndices;
-					const edgePairs = new Uint32Array(edgeIds.length * 2);
-					const edgeWeightAttribute = sessionOptions.edgeWeightAttribute ?? null;
-					const edgeWeights = edgeWeightAttribute ? new Float64Array(edgeIds.length) : null;
-					const weightView = edgeWeightAttribute ? network.getEdgeAttributeBuffer(edgeWeightAttribute).view : null;
-
-					network.withBufferAccess(() => {
+						const edgeIds = network.edgeIndices;
+						const edgePairs = new Uint32Array(edgeIds.length * 2);
+						const edgeWeightAttribute = sessionOptions.edgeWeightAttribute ?? null;
+						const edgeWeights = edgeWeightAttribute ? new Float64Array(edgeIds.length) : null;
+						const weightView = edgeWeightAttribute ? network.getEdgeAttributeBuffer(edgeWeightAttribute).view : null;
 						const edgesView = network.edgesView;
 						for (let i = 0; i &lt; edgeIds.length; i += 1) {
 							const edgeId = edgeIds[i];
@@ -2269,21 +2663,20 @@ class LeidenSession {
 								edgeWeights[i] = typeof raw === 'bigint' ? Number(raw) : Number(raw ?? 0);
 							}
 						}
-					});
-
-					return {
-						directed: Boolean(network.directed),
-						activeNodes,
-						edgePairs,
-						edgeWeights,
-						edgeWeightAttribute,
-						resolution: sessionOptions.resolution ?? 1,
-						seed: sessionOptions.seed ?? 0,
-						maxLevels: sessionOptions.maxLevels ?? 32,
-						maxPasses: sessionOptions.passes ?? sessionOptions.maxPasses ?? 8,
-						outNodeCommunityAttribute: sessionOptions.outNodeCommunityAttribute ?? 'community',
-						categoricalCommunities: sessionOptions.categoricalCommunities !== false,
-					};
+						return {
+							directed: Boolean(network.directed),
+							activeNodes: activeNodes.slice(),
+							edgePairs,
+							edgeWeights,
+							edgeWeightAttribute,
+							resolution: sessionOptions.resolution ?? 1,
+							seed: sessionOptions.seed ?? 0,
+							maxLevels: sessionOptions.maxLevels ?? 32,
+							maxPasses: sessionOptions.passes ?? sessionOptions.maxPasses ?? 8,
+							outNodeCommunityAttribute: sessionOptions.outNodeCommunityAttribute ?? 'community',
+							categoricalCommunities: sessionOptions.categoricalCommunities !== false,
+						};
+					}, { nodeIndices: true, edgeIndices: true, edgesView: true });
 				},
 				buildPayload: (snapshot) => {
 					const payload = {
@@ -2326,12 +2719,14 @@ class LeidenSession {
 					if (communities.length !== snapshot.activeNodes.length) {
 						throw new Error('Worker community payload does not match snapshot node count');
 					}
-					const { view, bumpVersion } = network.getNodeAttributeBuffer(outName);
-					view.fill(0);
-					for (let i = 0; i &lt; snapshot.activeNodes.length; i += 1) {
-						view[snapshot.activeNodes[i]] = communities[i];
-					}
-					bumpVersion();
+					network.withBufferAccess(() => {
+						const { view, bumpVersion } = network.getNodeAttributeBuffer(outName);
+						view.fill(0);
+						for (let i = 0; i &lt; snapshot.activeNodes.length; i += 1) {
+							view[snapshot.activeNodes[i]] = communities[i];
+						}
+						bumpVersion();
+					});
 					this._finalized = true;
 				},
 			};
@@ -2618,11 +3013,16 @@ class ConnectedComponentsSession {
 		const outNodeComponentAttribute = options.outNodeComponentAttribute
 			?? this.options?.outNodeComponentAttribute
 			?? null;
-		const outPtr = module._malloc(network.nodeCapacity * Uint32Array.BYTES_PER_ELEMENT);
+		const output = network._resolveNodeMetricOutputAttribute(
+			outNodeComponentAttribute,
+			AttributeType.UnsignedInteger,
+			'UnsignedInteger'
+		);
+		const outPtr = output?.pointer ?? module._malloc(network.nodeCapacity * Uint32Array.BYTES_PER_ELEMENT);
 		const componentCountPtr = module._malloc(Uint32Array.BYTES_PER_ELEMENT);
 		const largestComponentSizePtr = module._malloc(Uint32Array.BYTES_PER_ELEMENT);
 		if (!outPtr || !componentCountPtr || !largestComponentSizePtr) {
-			if (outPtr) module._free(outPtr);
+			if (!output &amp;&amp; outPtr) module._free(outPtr);
 			if (componentCountPtr) module._free(componentCountPtr);
 			if (largestComponentSizePtr) module._free(largestComponentSizePtr);
 			throw new Error('Failed to allocate connected components finalize buffers');
@@ -2644,9 +3044,11 @@ class ConnectedComponentsSession {
 			);
 			componentCount = module.HEAPU32[componentCountPtr / Uint32Array.BYTES_PER_ELEMENT] ?? 0;
 			largestComponentSize = module.HEAPU32[largestComponentSizePtr / Uint32Array.BYTES_PER_ELEMENT] ?? 0;
-			valuesByNode = new Uint32Array(module.HEAPU32.buffer, outPtr, network.nodeCapacity).slice();
+			valuesByNode = network._copyUint32NodeValuesFromPointer(outPtr);
 		} finally {
-			module._free(outPtr);
+			if (!output) {
+				module._free(outPtr);
+			}
 			module._free(componentCountPtr);
 			module._free(largestComponentSizePtr);
 		}
@@ -2654,18 +3056,8 @@ class ConnectedComponentsSession {
 			throw new Error('Connected-components session is not ready to finalize (run step() until done)');
 		}
 
-		if (outNodeComponentAttribute) {
-			if (!network._nodeAttributes.has(outNodeComponentAttribute)) {
-				network.defineNodeAttribute(outNodeComponentAttribute, AttributeType.UnsignedInteger, 1);
-			} else {
-				const meta = network._nodeAttributes.get(outNodeComponentAttribute);
-				if (meta &amp;&amp; meta.type !== AttributeType.UnsignedInteger) {
-					throw new Error(`Node attribute "${outNodeComponentAttribute}" must be UnsignedInteger`);
-				}
-			}
-			const { view, bumpVersion } = network.getNodeAttributeBuffer(outNodeComponentAttribute);
-			view.set(valuesByNode);
-			bumpVersion();
+		if (output) {
+			network._bumpAttributeVersion('node', output.name, { op: 'set' });
 		}
 
 		this._finalized = true;
@@ -2771,10 +3163,15 @@ class CorenessSession {
 		const outNodeCorenessAttribute = options.outNodeCorenessAttribute
 			?? this.options?.outNodeCorenessAttribute
 			?? null;
-		const outPtr = module._malloc(network.nodeCapacity * Uint32Array.BYTES_PER_ELEMENT);
+		const output = network._resolveNodeMetricOutputAttribute(
+			outNodeCorenessAttribute,
+			AttributeType.UnsignedInteger,
+			'UnsignedInteger'
+		);
+		const outPtr = output?.pointer ?? module._malloc(network.nodeCapacity * Uint32Array.BYTES_PER_ELEMENT);
 		const maxCorePtr = module._malloc(Uint32Array.BYTES_PER_ELEMENT);
 		if (!outPtr || !maxCorePtr) {
-			if (outPtr) module._free(outPtr);
+			if (!output &amp;&amp; outPtr) module._free(outPtr);
 			if (maxCorePtr) module._free(maxCorePtr);
 			throw new Error('Failed to allocate coreness finalize buffers');
 		}
@@ -2791,27 +3188,19 @@ class CorenessSession {
 				maxCorePtr
 			);
 			maxCore = module.HEAPU32[maxCorePtr / Uint32Array.BYTES_PER_ELEMENT] ?? 0;
-			valuesByNode = new Uint32Array(module.HEAPU32.buffer, outPtr, network.nodeCapacity).slice();
+			valuesByNode = network._copyUint32NodeValuesFromPointer(outPtr);
 		} finally {
-			module._free(outPtr);
+			if (!output) {
+				module._free(outPtr);
+			}
 			module._free(maxCorePtr);
 		}
 		if (!ok) {
 			throw new Error('Coreness session is not ready to finalize (run step() until done)');
 		}
 
-		if (outNodeCorenessAttribute) {
-			if (!network._nodeAttributes.has(outNodeCorenessAttribute)) {
-				network.defineNodeAttribute(outNodeCorenessAttribute, AttributeType.UnsignedInteger, 1);
-			} else {
-				const meta = network._nodeAttributes.get(outNodeCorenessAttribute);
-				if (meta &amp;&amp; meta.type !== AttributeType.UnsignedInteger) {
-					throw new Error(`Node attribute "${outNodeCorenessAttribute}" must be UnsignedInteger`);
-				}
-			}
-			const { view, bumpVersion } = network.getNodeAttributeBuffer(outNodeCorenessAttribute);
-			view.set(valuesByNode);
-			bumpVersion();
+		if (output) {
+			network._bumpAttributeVersion('node', output.name, { op: 'set' });
 		}
 
 		this._finalized = true;
@@ -2952,6 +3341,169 @@ export class HeliosNetwork extends BaseEventTarget {
 	}
 
 	/**
+	 * Hydrates a network instance from a GML container.
+	 *
+	 * @param {Uint8Array|ArrayBuffer|string|Blob|Response} source - Serialized payload or Node file path.
+	 * @param {object} [options]
+	 * @param {object} [options.module] - Optional WASM module to reuse.
+	 * @returns {Promise&lt;HeliosNetwork>} Newly constructed network.
+	 */
+	static async fromGML(source, options = {}) {
+		return HeliosNetwork._fromSerialized(source, 'gml', options);
+	}
+
+	/**
+	 * Hydrates a network instance from a node-link JSON document.
+	 *
+	 * Accepts a JSON string, Node.js filesystem path, `Blob`/`Response`, bytes,
+	 * or a plain JavaScript object already parsed from JSON.
+	 *
+	 * @param {Uint8Array|ArrayBuffer|string|Blob|Response|object} source - Node-link JSON payload, object, or Node file path.
+	 * @param {object} [options]
+	 * @param {object} [options.module] - Optional WASM module to reuse.
+	 * @returns {Promise&lt;HeliosNetwork>} Newly constructed network.
+	 */
+	static async fromNodeLinkJSON(source, options = {}) {
+		const { module: providedModule } = options;
+		const module = providedModule || await getModule();
+		moduleInstance = module;
+
+		let document = source;
+		if (!isPlainObject(source)) {
+			const text = await resolveInputText(source);
+			try {
+				document = JSON.parse(text);
+			} catch (error) {
+				throw new Error(`Failed to parse node-link JSON: ${error?.message || String(error)}`);
+			}
+		}
+		if (!isPlainObject(document)) {
+			throw new Error('Node-link JSON root must be an object');
+		}
+
+		const warnings = [];
+		const nodeReservedKeys = new Set(['id']);
+		const edgeReservedKeys = new Set(['source', 'target']);
+
+		const normalizeNodeRecord = (record, index) => {
+			if (!isPlainObject(record)) {
+				warnings.push(`Node-link JSON skipped non-object node at position ${index}`);
+				return null;
+			}
+			const normalized = { ...record };
+			if (normalized.id === undefined || normalized.id === null) {
+				normalized.id = `__helios_node_${index}`;
+				warnings.push(`Node-link JSON synthesized an id for node at position ${index}`);
+			}
+			return normalized;
+		};
+		const normalizeLinkRecord = (record, index) => {
+			if (!isPlainObject(record)) {
+				warnings.push(`Node-link JSON skipped non-object link at position ${index}`);
+				return null;
+			}
+			if (record.source === undefined || record.source === null || record.target === undefined || record.target === null) {
+				warnings.push(`Node-link JSON skipped link at position ${index} because source/target is missing`);
+				return null;
+			}
+			return { ...record };
+		};
+
+		const nodeInput = document.nodes ?? [];
+		if (!Array.isArray(nodeInput)) {
+			throw new Error('Node-link JSON "nodes" must be an array when present');
+		}
+		const linkInput = document.links ?? document.edges ?? [];
+		if (!Array.isArray(linkInput)) {
+			throw new Error('Node-link JSON "links" or "edges" must be an array when present');
+		}
+
+		const normalizedNodes = nodeInput.map(normalizeNodeRecord).filter(Boolean);
+		const normalizedLinks = linkInput.map(normalizeLinkRecord).filter(Boolean);
+		const seenNodeIds = new Set();
+		for (const record of normalizedNodes) {
+			const key = nodeLinkIdKey(record.id);
+			if (seenNodeIds.has(key)) {
+				const original = nodeLinkIdString(record.id);
+				let suffix = 1;
+				let replacement = `${original}#${suffix}`;
+				while (seenNodeIds.has(nodeLinkIdKey(replacement))) {
+					suffix += 1;
+					replacement = `${original}#${suffix}`;
+				}
+				record.id = replacement;
+				warnings.push(`Node-link JSON renamed duplicate node id ${original} to ${replacement}`);
+			}
+			seenNodeIds.add(nodeLinkIdKey(record.id));
+		}
+
+		const nodeRecords = ensureNodeLinkEndpoints(normalizedNodes, normalizedLinks, warnings);
+		const network = await HeliosNetwork.create({
+			module,
+			directed: Boolean(document.directed),
+		});
+
+		try {
+			const nodeIndices = network.addNodes(nodeRecords.length);
+			const nodeIdToIndex = new Map();
+			for (let i = 0; i &lt; nodeRecords.length; i += 1) {
+				nodeIdToIndex.set(nodeLinkIdKey(nodeRecords[i].id), nodeIndices[i]);
+			}
+
+			const edgePairs = [];
+			for (const record of normalizedLinks) {
+				const from = nodeIdToIndex.get(nodeLinkIdKey(record.source));
+				const to = nodeIdToIndex.get(nodeLinkIdKey(record.target));
+				if (from === undefined || to === undefined) {
+					warnings.push(`Node-link JSON skipped a link because endpoint lookup failed (${nodeLinkIdString(record.source)} -> ${nodeLinkIdString(record.target)})`);
+					continue;
+				}
+				edgePairs.push({ from, to });
+			}
+			const edgeIndices = edgePairs.length ? network.addEdges(edgePairs) : new Uint32Array();
+
+			const graphRecord = isPlainObject(document.graph)
+				? document.graph
+				: isPlainObject(document.network)
+					? document.network
+					: {};
+			if (document.graph !== undefined &amp;&amp; !isPlainObject(document.graph)) {
+				warnings.push('Node-link JSON ignored top-level "graph" because it is not an object');
+			}
+			if (document.network !== undefined &amp;&amp; !isPlainObject(document.network)) {
+				warnings.push('Node-link JSON ignored top-level "network" because it is not an object');
+			}
+
+			const nodeAnalysis = inferNodeLinkSchemas(nodeRecords, nodeReservedKeys, { allowMultiCategory: true });
+			const edgeAnalysis = inferNodeLinkSchemas(normalizedLinks, edgeReservedKeys, { allowMultiCategory: true });
+			const graphAnalysis = inferNodeLinkSchemas([graphRecord], new Set(), { allowMultiCategory: true });
+			warnings.push(...nodeAnalysis.warnings, ...edgeAnalysis.warnings, ...graphAnalysis.warnings);
+
+			if (nodeAnalysis.schemas.has('_original_ids_')) {
+				nodeAnalysis.schemas.delete('_original_ids_');
+				warnings.push('Node-link JSON reserved "_original_ids_" during load and replaced the input payload with imported node ids');
+			}
+
+			applyNodeLinkAttributes('node', network, nodeRecords, nodeIndices, nodeAnalysis.schemas, nodeReservedKeys);
+			applyNodeLinkAttributes('edge', network, normalizedLinks, edgeIndices, edgeAnalysis.schemas, edgeReservedKeys);
+			applyNodeLinkAttributes('network', network, [graphRecord], [0], graphAnalysis.schemas, new Set());
+
+			network.defineNodeAttribute('_original_ids_', AttributeType.String, 1);
+			for (let i = 0; i &lt; nodeRecords.length; i += 1) {
+				network.setNodeStringAttribute('_original_ids_', nodeIndices[i], nodeLinkIdString(nodeRecords[i].id));
+			}
+		} catch (error) {
+			network.dispose();
+			throw error;
+		}
+
+		for (const warning of warnings) {
+			console.warn(`[Helios serialization] ${warning}`);
+		}
+		return network;
+	}
+
+	/**
 	 * Wraps an existing native network pointer.
 	 *
 	 * @param {object} module - Active Helios WASM module.
@@ -2971,14 +3523,29 @@ export class HeliosNetwork extends BaseEventTarget {
 		this._nodeAttributes = new Map();
 		this._edgeAttributes = new Map();
 		this._networkAttributes = new Map();
-		this._bufferSessionDepth = 0;
-		this._nodeToEdgePassthrough = new Map();
-		this._nodeAttributeDependents = new Map();
+			this._bufferSessionDepth = 0;
+			this._nodeToEdgePassthrough = new Map();
+			this._nodeAttributeDependents = new Map();
+			this._pendingPassthroughSourceUpdates = new Set();
+			this._pendingPassthroughFullRefresh = false;
 		this._nodeTopologyVersion = 0;
 		this._edgeTopologyVersion = 0;
+		this._activeNodeIndexOrderVersion = 0;
+		this._activeEdgeIndexOrderVersion = 0;
 		this._activeNodeIndexBuffer = { ptr: 0, capacity: 0, count: 0, version: 0, dirty: true };
 		this._activeEdgeIndexBuffer = { ptr: 0, capacity: 0, count: 0, version: 0, dirty: true };
+		this._activeNodeIndexDirtyRange = null;
+		this._activeEdgeIndexDirtyRange = null;
 		this._localVersions = new Map();
+		this._layoutStrengthMetric = {
+			name: LAYOUT_STRENGTH_ATTRIBUTE,
+			edgeWeightAttribute: null,
+			edgeWeightVersion: 0,
+			topologyNode: 0,
+			topologyEdge: 0,
+			dirty: true,
+			initialized: false,
+		};
 
 		this._nodeValidRangeCache = null;
 		this._edgeValidRangeCache = null;
@@ -3198,6 +3765,9 @@ export class HeliosNetwork extends BaseEventTarget {
 			throw new Error('No buffer access session to end');
 		}
 		this._bufferSessionDepth -= 1;
+		if (this._bufferSessionDepth === 0) {
+			this._flushPendingPassthroughUpdates();
+		}
 	}
 
 	/**
@@ -3207,9 +3777,12 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * @param {function(): T} fn - Callback to execute.
 	 * @returns {T} Callback result.
 	 */
-	withBufferAccess(fn) {
+	withBufferAccess(fn, options = null) {
 		this.startBufferAccess();
 		try {
+			if (options) {
+				this._prepareBufferAccess(options);
+			}
 			return fn();
 		} finally {
 			this.endBufferAccess();
@@ -3224,6 +3797,25 @@ export class HeliosNetwork extends BaseEventTarget {
 	_assertCanAllocate(operation) {
 		if (this._bufferSessionDepth > 0) {
 			throw new Error(`Cannot perform ${operation} during buffer access (run it before calling startBufferAccess)`);
+		}
+	}
+
+	_assertInsideBufferAccess(operation) {
+		if (this._bufferSessionDepth &lt;= 0) {
+			throw new Error(`Cannot access ${operation} outside buffer access (wrap it in withBufferAccess(...))`);
+		}
+	}
+
+	_prepareBufferAccess(options = {}) {
+		if (options.nodeIndices) {
+			this._ensureActiveIndexBuffer('node');
+		}
+		if (options.edgeIndices) {
+			this._ensureActiveIndexBuffer('edge');
+		}
+		if (options.edgesView) {
+			this._ensureActive();
+			this.module._CXNetworkEdgesBuffer(this.ptr);
 		}
 	}
 
@@ -3295,12 +3887,15 @@ export class HeliosNetwork extends BaseEventTarget {
 		}
 		if (scope === 'node') {
 			this._activeNodeIndexBuffer.dirty = true;
+			this._activeNodeIndexDirtyRange = null;
 			if (cascadeEdges) {
 				this._activeEdgeIndexBuffer.dirty = true;
+				this._activeEdgeIndexDirtyRange = null;
 				this._refreshTopologyVersions('edge');
 			}
 		} else if (scope === 'edge') {
 			this._activeEdgeIndexBuffer.dirty = true;
+			this._activeEdgeIndexDirtyRange = null;
 		}
 	}
 
@@ -3409,6 +4004,7 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * @returns {Uint32Array}
 	 */
 	get nodeIndices() {
+		this._assertInsideBufferAccess('active node indices');
 		return this._getActiveIndexView('node');
 	}
 
@@ -3445,13 +4041,120 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * @returns {Uint32Array}
 	 */
 	get edgeIndices() {
+		this._assertInsideBufferAccess('active edge indices');
 		return this._getActiveIndexView('edge');
+	}
+
+	_promoteActiveRenderOrder(scope, indices, functionName, extraArgs = []) {
+		this._ensureActive();
+		this._assertCanAllocate('active index render-order promotion');
+		const fn = this.module?.[functionName];
+		const list = Array.from(indices || [])
+			.map((value) => Number(value))
+			.filter((value) => Number.isInteger(value) &amp;&amp; value >= 0);
+		if (!list.length) {
+			const buffer = scope === 'node' ? this._activeNodeIndexBuffer : this._activeEdgeIndexBuffer;
+			return {
+				changed: false,
+				start: 0,
+				count: 0,
+				version: buffer.version,
+			};
+		}
+		if (typeof fn !== 'function') {
+			throw new Error(`This WASM build does not expose ${functionName}`);
+		}
+		const indicesPtr = this.module._malloc(list.length * Uint32Array.BYTES_PER_ELEMENT);
+		const rangePtr = this.module._malloc(2 * Uint32Array.BYTES_PER_ELEMENT);
+		if (!indicesPtr || !rangePtr) {
+			if (indicesPtr) this.module._free(indicesPtr);
+			if (rangePtr) this.module._free(rangePtr);
+			throw new Error('Failed to allocate render-order promotion scratch buffers');
+		}
+		try {
+			this.module.HEAPU32.set(list, indicesPtr >>> 2);
+			this.module.HEAPU32[rangePtr >>> 2] = 0;
+			this.module.HEAPU32[(rangePtr >>> 2) + 1] = 0;
+			const ok = fn.call(
+				this.module,
+				this.ptr,
+				indicesPtr,
+				list.length,
+				...extraArgs,
+				rangePtr,
+				rangePtr + Uint32Array.BYTES_PER_ELEMENT,
+			);
+			if (!ok) {
+				return { changed: false, start: 0, count: 0, version: this._ensureActiveIndexBuffer(scope).version };
+			}
+			const start = this.module.HEAPU32[rangePtr >>> 2] >>> 0;
+			const count = this.module.HEAPU32[(rangePtr >>> 2) + 1] >>> 0;
+			if (count > 0) {
+				if (scope === 'node') this._activeNodeIndexOrderVersion = this._nextLocalVersion('render-order:node');
+				else this._activeEdgeIndexOrderVersion = this._nextLocalVersion('render-order:edge');
+			}
+			const buffer = this._ensureActiveIndexBuffer(scope);
+			if (count > 0) {
+				this._mergeActiveIndexDirtyRange(scope, start, count, buffer.version);
+			}
+			return {
+				changed: count > 0,
+				start,
+				count,
+				version: buffer.version,
+			};
+		} finally {
+			this.module._free(indicesPtr);
+			this.module._free(rangePtr);
+		}
+	}
+
+	/**
+	 * Moves active nodes to the end of the native active index order.
+	 *
+	 * @param {Iterable&lt;number>|Uint32Array} indices - Node indices to promote.
+	 * @returns {object} Dirty range metadata.
+	 */
+	promoteActiveNodesToRenderEnd(indices) {
+		return this._promoteActiveRenderOrder('node', indices, '_CXNetworkPromoteActiveNodesToRenderEnd');
+	}
+
+	/**
+	 * Moves active edges to the end of the native active index order.
+	 *
+	 * @param {Iterable&lt;number>|Uint32Array} indices - Edge indices to promote.
+	 * @returns {object} Dirty range metadata.
+	 */
+	promoteActiveEdgesToRenderEnd(indices) {
+		return this._promoteActiveRenderOrder('edge', indices, '_CXNetworkPromoteActiveEdgesToRenderEnd');
+	}
+
+	/**
+	 * Moves active edges incident to the supplied nodes to the end of the native active edge order.
+	 *
+	 * @param {Iterable&lt;number>|Uint32Array} nodeIndices - Node indices whose incident active edges should be promoted.
+	 * @param {object} [options]
+	 * @param {string|number} [options.direction='both'] - out/in/both direction.
+	 * @returns {object} Dirty range metadata.
+	 */
+	promoteActiveEdgesForNodesToRenderEnd(nodeIndices, options = {}) {
+		const rawDirection = options?.direction ?? 'both';
+		const direction = rawDirection === 'out'
+			? NeighborDirection.Out
+			: (rawDirection === 'in' ? NeighborDirection.In : (rawDirection === 'both' ? NeighborDirection.Both : Number(rawDirection)));
+		return this._promoteActiveRenderOrder(
+			'edge',
+			nodeIndices,
+			'_CXNetworkPromoteActiveEdgesForNodesToRenderEnd',
+			[Number.isFinite(direction) ? direction : NeighborDirection.Both],
+		);
 	}
 
 	/**
 	 * @returns {Uint32Array} Flattened `[from, to]` edge pairs.
 	 */
 	get edgesView() {
+		this._assertInsideBufferAccess('edge endpoints');
 		this._ensureActive();
 		const ptr = this.module._CXNetworkEdgesBuffer(this.ptr);
 		return new Uint32Array(this.module.HEAPU32.buffer, ptr, this.edgeCapacity * 2);
@@ -3717,6 +4420,10 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * Removes a node attribute and its storage.
 	 */
 	removeNodeAttribute(name) {
+		if (String(name) === this._layoutStrengthMetric?.name) {
+			this._layoutStrengthMetric.initialized = false;
+			this._layoutStrengthMetric.dirty = true;
+		}
 		this._removeAttribute('node', name);
 	}
 
@@ -3724,6 +4431,9 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * Removes an edge attribute and its storage.
 	 */
 	removeEdgeAttribute(name) {
+		if (String(name) === this._layoutStrengthMetric?.edgeWeightAttribute) {
+			this._markLayoutStrengthDirty();
+		}
 		this._removeAttribute('edge', name);
 	}
 
@@ -3851,8 +4561,8 @@ export class HeliosNetwork extends BaseEventTarget {
 	}
 
 	/**
-	 * @private
 	 * Writes active indices into a caller-provided WASM buffer.
+	 * @private
 	 */
 	_writeActiveIndices(target, writer, label) {
 		this._ensureActive();
@@ -3975,7 +4685,12 @@ export class HeliosNetwork extends BaseEventTarget {
 	 *
 	 * @param {string} name - Node attribute name.
 	 * @param {Float32Array|number[]} target - Target values (length = nodeCapacity * dimension).
-	 * @param {{elapsedMs?:number,layoutElapsedMs?:number,smoothing?:number,minDisplacementRatio?:number,emitEvent?:boolean}} [options]
+	 * @param {object} [options]
+	 * @param {number} [options.elapsedMs]
+	 * @param {number} [options.layoutElapsedMs]
+	 * @param {number} [options.smoothing]
+	 * @param {number} [options.minDisplacementRatio]
+	 * @param {boolean} [options.emitEvent]
 	 * @returns {boolean} True when further interpolation steps are recommended.
 	 */
 	interpolateNodeAttribute(name, target, options = {}) {
@@ -4077,6 +4792,29 @@ export class HeliosNetwork extends BaseEventTarget {
 	}
 
 	/**
+	 * Serializes the network into a GML document.
+	 *
+	 * Lossy cases such as renamed keys or skipped unsupported attributes are
+	 * surfaced as warnings through the console.
+	 *
+	 * @param {SaveSerializedOptions} [options]
+	 * @returns {Promise&lt;Uint8Array|ArrayBuffer|string|Blob|undefined>} Serialized payload or void when writing directly to disk.
+	 */
+	async saveGML(options = {}) {
+		return this._saveSerialized('gml', options);
+	}
+
+	/**
+	 * Serializes the network into a node-link JSON document.
+	 *
+	 * @param {SaveSerializedOptions} [options]
+	 * @returns {Promise&lt;Uint8Array|ArrayBuffer|string|Blob|undefined>} Serialized payload or void when writing directly to disk.
+	 */
+	async saveNodeLinkJSON(options = {}) {
+		return this._saveSerialized('node-link-json', options);
+	}
+
+	/**
 	 * Adds nodes to the network, returning their indices.
 	 *
 	 * @param {number} count - Number of nodes to add.
@@ -4108,6 +4846,7 @@ export class HeliosNetwork extends BaseEventTarget {
 		this.module._free(ptr);
 		this._markAllPassthroughEdgesDirty();
 		this._bumpTopology('node');
+		this._handleLayoutStrengthNodesAdded(indices);
 		const topology = this.getTopologyVersions();
 		this.emit(HELIOS_NETWORK_EVENTS.nodesAdded, {
 			indices,
@@ -4148,6 +4887,7 @@ export class HeliosNetwork extends BaseEventTarget {
 		if (array.length === 0) {
 			return;
 		}
+		const layoutStrengthRemoval = this._snapshotLayoutStrengthNodeRemoval(array);
 		const ptr = this.module._malloc(array.length * 4);
 		if (!ptr) {
 			throw new Error('Failed to allocate memory for node removal');
@@ -4178,6 +4918,7 @@ export class HeliosNetwork extends BaseEventTarget {
 		}
 		this._markAllPassthroughEdgesDirty();
 		this._bumpTopology('node', true); // removing nodes also removes incident edges
+		this._handleLayoutStrengthNodesRemoved(array, layoutStrengthRemoval);
 		const topology = this.getTopologyVersions();
 		this.emit(HELIOS_NETWORK_EVENTS.nodesRemoved, {
 			indices: array,
@@ -4282,6 +5023,7 @@ export class HeliosNetwork extends BaseEventTarget {
 		this.module._free(outPtr);
 		this._markAllPassthroughEdgesDirty();
 		this._bumpTopology('edge');
+		this._handleLayoutStrengthEdgesAdded(indices);
 		const topology = this.getTopologyVersions();
 		this.emit(HELIOS_NETWORK_EVENTS.edgesAdded, {
 			indices,
@@ -4323,6 +5065,7 @@ export class HeliosNetwork extends BaseEventTarget {
 		if (array.length === 0) {
 			return;
 		}
+		const layoutStrengthRemoval = this._snapshotLayoutStrengthEdgeRemoval(array);
 		const ptr = this.module._malloc(array.length * 4);
 		if (!ptr) {
 			throw new Error('Failed to allocate memory for edge removal');
@@ -4353,6 +5096,7 @@ export class HeliosNetwork extends BaseEventTarget {
 		}
 		this._markAllPassthroughEdgesDirty();
 		this._bumpTopology('edge');
+		this._handleLayoutStrengthEdgesRemoved(layoutStrengthRemoval);
 		const topology = this.getTopologyVersions();
 		this.emit(HELIOS_NETWORK_EVENTS.edgesRemoved, {
 			indices: array,
@@ -4432,7 +5176,7 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * @param {boolean} [options.includeEdges=true] - Include traversed edge ids.
 	 * @param {boolean} [options.includeSourceNodes=true] - Allow source nodes in results.
 	 * @param {boolean} [options.asSelector=false] - Return selectors instead of arrays.
-	 * @returns {(Uint32Array|NodeSelector)|{nodes:(Uint32Array|NodeSelector),edges:(Uint32Array|EdgeSelector)}}
+	 * @returns {Uint32Array|NodeSelector|object}
 	 */
 	getNeighborsForNodes(sourceNodes, options = {}) {
 		const {
@@ -4461,7 +5205,7 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * @param {boolean} [options.includeEdges=true] - Include traversed edge ids.
 	 * @param {boolean} [options.includeSourceNodes=false] - Allow source nodes in results.
 	 * @param {boolean} [options.asSelector=false] - Return selectors instead of arrays.
-	 * @returns {(Uint32Array|NodeSelector)|{nodes:(Uint32Array|NodeSelector),edges:(Uint32Array|EdgeSelector)}}
+	 * @returns {Uint32Array|NodeSelector|object}
 	 */
 	getNeighborsAtLevel(sourceNodes, level, options = {}) {
 		const {
@@ -4495,7 +5239,7 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * @param {boolean} [options.includeEdges=true] - Include traversed edge ids.
 	 * @param {boolean} [options.includeSourceNodes=false] - Allow source nodes in results.
 	 * @param {boolean} [options.asSelector=false] - Return selectors instead of arrays.
-	 * @returns {(Uint32Array|NodeSelector)|{nodes:(Uint32Array|NodeSelector),edges:(Uint32Array|EdgeSelector)}}
+	 * @returns {Uint32Array|NodeSelector|object}
 	 */
 	getNeighborsUpToLevel(sourceNodes, maxLevel, options = {}) {
 		const {
@@ -4638,6 +5382,7 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * @returns {{nodes: Uint32Array, edges: Uint32Array}} Neighbor information.
 	 */
 	_readNeighborContainer(containerPtr) {
+		this._assertCanAllocate('neighbor container hydration');
 		const count = this.module._CXNeighborContainerCount(containerPtr);
 		if (!count) {
 			return { nodes: new Uint32Array(), edges: new Uint32Array() };
@@ -4659,6 +5404,130 @@ export class HeliosNetwork extends BaseEventTarget {
 	}
 
 	/**
+	 * Defines or updates one node attribute and returns the network for chaining.
+	 *
+	 * Missing attributes are defined from `options.type` / `options.dimension`,
+	 * or inferred from the provided scalar, array-like value, or callback result.
+	 * Array-like values are indexed by active ordinal by default; pass
+	 * `{ indexBy: 'id' }` to index them by node id instead.
+	 *
+	 * @param {string} name - Attribute identifier.
+	 * @param {*|function(*, number, number, HeliosNetwork): *} valueOrFn - Scalar, array-like values, or callback.
+	 * @param {AttributeWriteOptions} [options] - Optional type, dimension, and indexing controls.
+	 * @returns {HeliosNetwork} This network.
+	 * @remarks This is the recommended API for normal application code. It performs
+	 * any needed allocation before writing values, so callers do not need to manage
+	 * WASM typed-array view lifetime directly. Use `withBufferAccess(...)` only when
+	 * you intentionally want the lower-level fast path for very large writes.
+	 * @example
+	 * net
+	 *   .nodeAttribute('weight', 1)
+	 *   .nodeAttribute('label', (_current, id) => `node-${id}`, { type: 'string' });
+	 */
+	nodeAttribute(name, valueOrFn, options = {}) {
+		return this._setAttributeValues('node', [name], valueOrFn, options);
+	}
+
+	/**
+	 * Defines or updates one edge attribute and returns the network for chaining.
+	 *
+	 * @param {string} name - Attribute identifier.
+	 * @param {*|function(*, number, number, HeliosNetwork): *} valueOrFn - Scalar, array-like values, or callback.
+	 * @param {AttributeWriteOptions} [options] - Optional type, dimension, and indexing controls.
+	 * @returns {HeliosNetwork} This network.
+	 * @remarks Array-like values are aligned to the active edge ordinal by default.
+	 * Pass `{ indexBy: 'id' }` when your values are keyed by stable edge id instead.
+	 * For bulk streaming writes into existing typed arrays, use the explicit buffer API.
+	 * @example
+	 * net.edgeAttribute('capacity', [10, 20, 30]);
+	 */
+	edgeAttribute(name, valueOrFn, options = {}) {
+		return this._setAttributeValues('edge', [name], valueOrFn, options);
+	}
+
+	/**
+	 * Defines or updates several node attributes and returns the network for chaining.
+	 *
+	 * `valuesOrFn` may be an object keyed by attribute name, an array of per-attribute
+	 * scalar values, or a callback returning either an array aligned with `names` or
+	 * an object keyed by attribute name.
+	 *
+	 * @param {string[]} names - Attribute identifiers.
+	 * @param {object|Array|function(object, number, number, HeliosNetwork): (Array|object)} valuesOrFn - Sources for each attribute.
+	 * @param {AttributeWriteOptions} [options] - Optional type, dimension, and indexing controls.
+	 * @returns {HeliosNetwork} This network.
+	 * @remarks Use this when multiple node attributes come from the same row,
+	 * parser, or derived calculation. The callback receives current values, node id,
+	 * active ordinal, and the network, and may return either an array aligned with
+	 * `names` or an object keyed by attribute name.
+	 * @example
+	 * net.nodeAttributes(['x', 'y'], (_current, _id, ordinal) => [ordinal, ordinal * 2]);
+	 */
+	nodeAttributes(names, valuesOrFn, options = {}) {
+		return this._setAttributeValues('node', names, valuesOrFn, options);
+	}
+
+	/**
+	 * Defines or updates several edge attributes and returns the network for chaining.
+	 *
+	 * @param {string[]} names - Attribute identifiers.
+	 * @param {object|Array|function(object, number, number, HeliosNetwork): (Array|object)} valuesOrFn - Sources for each attribute.
+	 * @param {AttributeWriteOptions} [options] - Optional type, dimension, and indexing controls.
+	 * @returns {HeliosNetwork} This network.
+	 * @remarks Use this when edge attributes are loaded from edge-table rows or
+	 * generated together. The helper keeps schema definition, value conversion, and
+	 * version updates in one call.
+	 * @example
+	 * net.edgeAttributes(['weight', 'visible'], { weight: [1, 2], visible: true });
+	 */
+	edgeAttributes(names, valuesOrFn, options = {}) {
+		return this._setAttributeValues('edge', names, valuesOrFn, options);
+	}
+
+	/**
+	 * Defines or updates one network-level attribute and returns the network for chaining.
+	 *
+	 * Network attributes store one graph-wide value at id/ordinal `0`. Missing
+	 * attributes are defined from `options.type` / `options.dimension`, or inferred
+	 * from the provided value or callback result.
+	 *
+	 * @param {string} name - Attribute identifier.
+	 * @param {*|function(*, number, number, HeliosNetwork): *} valueOrFn - Scalar, vector, or callback.
+	 * @param {AttributeWriteOptions} [options] - Optional type and dimension controls.
+	 * @returns {HeliosNetwork} This network.
+	 * @remarks Network attributes store graph-wide metadata such as titles,
+	 * coordinate bounds, import provenance, or visualization defaults. They have one
+	 * logical value and do not iterate over nodes or edges.
+	 * @example
+	 * net
+	 *   .networkAttribute('title', 'Example graph')
+	 *   .networkAttribute('bounds', [0, 1], { type: 'float', dimension: 2 });
+	 */
+	networkAttribute(name, valueOrFn, options = {}) {
+		return this._setAttributeValues('network', [name], valueOrFn, options);
+	}
+
+	/**
+	 * Defines or updates several network-level attributes and returns the network for chaining.
+	 *
+	 * `valuesOrFn` may be an object keyed by attribute name, an array aligned with
+	 * `names`, or a callback returning either an array aligned with `names` or an
+	 * object keyed by attribute name.
+	 *
+	 * @param {string[]} names - Attribute identifiers.
+	 * @param {object|Array|function(object, number, number, HeliosNetwork): (Array|object)} valuesOrFn - Sources for each attribute.
+	 * @param {AttributeWriteOptions} [options] - Optional type and dimension controls.
+	 * @returns {HeliosNetwork} This network.
+	 * @remarks Use this for compact graph-wide metadata updates, for example when
+	 * loading a saved dataset and setting title, source, units, and bounds together.
+	 * @example
+	 * net.networkAttributes(['title', 'version'], { title: 'Example', version: 1 });
+	 */
+	networkAttributes(names, valuesOrFn, options = {}) {
+		return this._setAttributeValues('network', names, valuesOrFn, options);
+	}
+
+	/**
 	 * Defines a node attribute backed by linear WASM memory.
 	 *
 	 * @param {string} name - Attribute identifier.
@@ -4671,8 +5540,10 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * const net = await HeliosNetwork.create({ initialNodes: 2 });
 	 * net.defineNodeAttribute('weight', AttributeType.Float);
 	 *
-	 * const weightBuffer = net.getNodeAttributeBuffer('weight').view;
-	 * weightBuffer[0] = 1.5;
+	 * net.withBufferAccess(() => {
+	 *   const weightBuffer = net.getNodeAttributeBuffer('weight').view;
+	 *   weightBuffer[0] = 1.5;
+	 * });
 	 */
 	defineNodeAttribute(name, type, dimension = 1) {
 		this._defineAttribute('node', name, type, dimension, this.module._CXNetworkDefineNodeAttribute);
@@ -4690,8 +5561,10 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * net.addNodes(2);
 	 * net.defineEdgeAttribute('capacity', AttributeType.Integer);
 	 * const edges = net.addEdges([[0, 1]]);
-	 * const capacity = net.getEdgeAttributeBuffer('capacity').view;
-	 * capacity[edges[0]] = 10n;
+	 * net.withBufferAccess(() => {
+	 *   const capacity = net.getEdgeAttributeBuffer('capacity').view;
+	 *   capacity[edges[0]] = 10;
+	 * });
 	 */
 	defineEdgeAttribute(name, type, dimension = 1) {
 		this._defineAttribute('edge', name, type, dimension, this.module._CXNetworkDefineEdgeAttribute);
@@ -4707,8 +5580,10 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * @example
 	 * const net = await HeliosNetwork.create();
 	 * net.defineNetworkAttribute('temperature', AttributeType.Float);
-	 * const networkValues = net.getNetworkAttributeBuffer('temperature').view;
-	 * networkValues[0] = 21.5;
+	 * net.withBufferAccess(() => {
+	 *   const networkValues = net.getNetworkAttributeBuffer('temperature').view;
+	 *   networkValues[0] = 21.5;
+	 * });
 	 */
 	defineNetworkAttribute(name, type, dimension = 1) {
 		this._defineAttribute('network', name, type, dimension, this.module._CXNetworkDefineNetworkAttribute);
@@ -4858,8 +5733,9 @@ export class HeliosNetwork extends BaseEventTarget {
 	/**
 	 * Returns categorical dictionary entries for a node attribute.
 	 * @param {string} name - Attribute identifier.
-	 * @param {{sortById?:boolean}=} options - Optional sort control.
-	 * @returns {{entries:{id:number,label:string}[], ids:number[], labels:string[]}}
+	 * @param {object} [options] - Optional sort control.
+	 * @param {boolean} [options.sortById]
+	 * @returns {object} Dictionary entries, ids, and labels.
 	 */
 	getNodeAttributeCategoryDictionary(name, options) {
 		return this._getAttributeCategoryDictionary('node', name, options);
@@ -4868,8 +5744,9 @@ export class HeliosNetwork extends BaseEventTarget {
 	/**
 	 * Returns categorical dictionary entries for an edge attribute.
 	 * @param {string} name - Attribute identifier.
-	 * @param {{sortById?:boolean}=} options - Optional sort control.
-	 * @returns {{entries:{id:number,label:string}[], ids:number[], labels:string[]}}
+	 * @param {object} [options] - Optional sort control.
+	 * @param {boolean} [options.sortById]
+	 * @returns {object} Dictionary entries, ids, and labels.
 	 */
 	getEdgeAttributeCategoryDictionary(name, options) {
 		return this._getAttributeCategoryDictionary('edge', name, options);
@@ -4878,8 +5755,9 @@ export class HeliosNetwork extends BaseEventTarget {
 	/**
 	 * Returns categorical dictionary entries for a network attribute.
 	 * @param {string} name - Attribute identifier.
-	 * @param {{sortById?:boolean}=} options - Optional sort control.
-	 * @returns {{entries:{id:number,label:string}[], ids:number[], labels:string[]}}
+	 * @param {object} [options] - Optional sort control.
+	 * @param {boolean} [options.sortById]
+	 * @returns {object} Dictionary entries, ids, and labels.
 	 */
 	getNetworkAttributeCategoryDictionary(name, options) {
 		return this._getAttributeCategoryDictionary('network', name, options);
@@ -4888,8 +5766,9 @@ export class HeliosNetwork extends BaseEventTarget {
 	/**
 	 * Replaces the categorical dictionary for a node attribute.
 	 * @param {string} name - Attribute identifier.
-	 * @param {(string|{id:number,label:string})[]} entries - Labels or {id,label} entries.
-	 * @param {{remapExisting?:boolean}=} options - When true, remaps stored codes to the new ids.
+	 * @param {Array.&lt;string|object>} entries - Labels or {id,label} entries.
+	 * @param {object} [options] - Dictionary update options.
+	 * @param {boolean} [options.remapExisting] - When true, remaps stored codes to the new ids.
 	 * @returns {boolean} Whether the update succeeded.
 	 */
 	setNodeAttributeCategoryDictionary(name, entries, options) {
@@ -4899,8 +5778,9 @@ export class HeliosNetwork extends BaseEventTarget {
 	/**
 	 * Replaces the categorical dictionary for an edge attribute.
 	 * @param {string} name - Attribute identifier.
-	 * @param {(string|{id:number,label:string})[]} entries - Labels or {id,label} entries.
-	 * @param {{remapExisting?:boolean}=} options - When true, remaps stored codes to the new ids.
+	 * @param {Array.&lt;string|object>} entries - Labels or {id,label} entries.
+	 * @param {object} [options] - Dictionary update options.
+	 * @param {boolean} [options.remapExisting] - When true, remaps stored codes to the new ids.
 	 * @returns {boolean} Whether the update succeeded.
 	 */
 	setEdgeAttributeCategoryDictionary(name, entries, options) {
@@ -4910,8 +5790,9 @@ export class HeliosNetwork extends BaseEventTarget {
 	/**
 	 * Replaces the categorical dictionary for a network attribute.
 	 * @param {string} name - Attribute identifier.
-	 * @param {(string|{id:number,label:string})[]} entries - Labels or {id,label} entries.
-	 * @param {{remapExisting?:boolean}=} options - When true, remaps stored codes to the new ids.
+	 * @param {Array.&lt;string|object>} entries - Labels or {id,label} entries.
+	 * @param {object} [options] - Dictionary update options.
+	 * @param {boolean} [options.remapExisting] - When true, remaps stored codes to the new ids.
 	 * @returns {boolean} Whether the update succeeded.
 	 */
 	setNetworkAttributeCategoryDictionary(name, entries, options) {
@@ -5051,34 +5932,43 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * @param {function} defineFn - Bound native function that declares the attribute.
 	 * @throws {Error} When the attribute exists already or the native call fails.
 	 */
-	_defineAttribute(scope, name, type, dimension, defineFn) {
-		this._assertCanAllocate(`define ${scope} attribute`);
-		this._ensureActive();
-		const metaMap = this._attributeMap(scope);
-		if (metaMap.has(name)) {
-			throw new Error(`Attribute "${name}" already defined on ${scope}`);
-		}
-		const cstr = new CString(this.module, name);
-		try {
-			const success = defineFn.call(this.module, this.ptr, cstr.ptr, type, dimension);
-			if (!success) {
-				throw new Error(`Failed to define ${scope} attribute "${name}"`);
+		_defineAttribute(scope, name, type, dimension, defineFn) {
+			this._assertCanAllocate(`define ${scope} attribute`);
+			this._ensureActive();
+			const metaMap = this._attributeMap(scope);
+			if (metaMap.has(name)) {
+				throw new Error(`Attribute "${name}" already defined on ${scope}`);
 			}
-		} finally {
-			cstr.dispose();
-		}
-		metaMap.set(name, {
-			type,
+			const cstr = new CString(this.module, name);
+			const getter = scope === 'node'
+				? this.module._CXNetworkGetNodeAttribute
+				: scope === 'edge'
+					? this.module._CXNetworkGetEdgeAttribute
+					: this.module._CXNetworkGetNetworkAttribute;
+			let attributePtr = 0;
+			try {
+				const success = defineFn.call(this.module, this.ptr, cstr.ptr, type, dimension);
+				if (!success) {
+					throw new Error(`Failed to define ${scope} attribute "${name}"`);
+				}
+				attributePtr = getter?.call(this.module, this.ptr, cstr.ptr) >>> 0;
+			} finally {
+				cstr.dispose();
+			}
+			metaMap.set(name, {
+				type,
 			dimension,
-			complex: COMPLEX_ATTRIBUTE_TYPES.has(type),
-			jsStore: new Map(),
-			stringPointers: new Map(),
-			nextHandle: 1,
-		});
-		this._emitAttributeEvent(HELIOS_NETWORK_EVENTS.attributeDefined, {
-			scope,
-			name,
-			type,
+				complex: COMPLEX_ATTRIBUTE_TYPES.has(type),
+				jsStore: new Map(),
+				stringPointers: new Map(),
+				nextHandle: 1,
+				attributePtr,
+				stride: attributePtr ? this.module._CXAttributeStride(attributePtr) : 0,
+			});
+			this._emitAttributeEvent(HELIOS_NETWORK_EVENTS.attributeDefined, {
+				scope,
+				name,
+				type,
 			dimension,
 			version: this._getAttributeVersion(scope, name),
 		});
@@ -5093,10 +5983,13 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * const net = await HeliosNetwork.create();
 	 * net.defineNodeAttribute('flag', AttributeType.Boolean);
 	 * const nodes = net.addNodes(1);
-	 * const attribute = net.getNodeAttributeBuffer('flag');
-	 * attribute.view[nodes[0]] = 1;
+	 * net.withBufferAccess(() => {
+	 *   const attribute = net.getNodeAttributeBuffer('flag');
+	 *   attribute.view[nodes[0]] = 1;
+	 * });
 	 */
 	getNodeAttributeBuffer(name) {
+		this._assertInsideBufferAccess(`node attribute buffer ${name}`);
 		return this._getAttributeBuffer('node', name);
 	}
 
@@ -5110,10 +6003,13 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * net.addNodes(2);
 	 * net.defineEdgeAttribute('capacity', AttributeType.Double);
 	 * const edges = net.addEdges([[0, 1]]);
-	 * const attribute = net.getEdgeAttributeBuffer('capacity');
-	 * attribute.view[edges[0]] = 12.5;
+	 * net.withBufferAccess(() => {
+	 *   const attribute = net.getEdgeAttributeBuffer('capacity');
+	 *   attribute.view[edges[0]] = 12.5;
+	 * });
 	 */
 	getEdgeAttributeBuffer(name) {
+		this._assertInsideBufferAccess(`edge attribute buffer ${name}`);
 		return this._getAttributeBuffer('edge', name);
 	}
 
@@ -5125,10 +6021,13 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * @example
 	 * const net = await HeliosNetwork.create();
 	 * net.defineNetworkAttribute('version', AttributeType.UnsignedInteger);
-	 * const attribute = net.getNetworkAttributeBuffer('version');
-	 * attribute.view[0] = 1n;
+	 * net.withBufferAccess(() => {
+	 *   const attribute = net.getNetworkAttributeBuffer('version');
+	 *   attribute.view[0] = 1;
+	 * });
 	 */
 	getNetworkAttributeBuffer(name) {
+		this._assertInsideBufferAccess(`network attribute buffer ${name}`);
 		return this._getAttributeBuffer('network', name);
 	}
 
@@ -5410,18 +6309,25 @@ export class HeliosNetwork extends BaseEventTarget {
 		this._setMultiCategoryBuffers('network', name, offsets, ids, weights);
 	}
 
-	_getAttributeVersion(scope, name) {
-		const versionFn = this.module._CXAttributeVersion;
-		if (typeof versionFn !== 'function') {
-			return this._localVersions.get(`attr:${scope}:${name}`) || 0;
-		}
-		this._ensureActive();
-		const meta = this._ensureAttributeMetadata(scope, name);
-		if (!meta) {
-			throw new Error(`Unknown ${scope} attribute "${name}"`);
-		}
-		const attributePtr = meta.attributePtr >>> 0;
-		const version = attributePtr ? this._normalizeVersion(versionFn.call(this.module, attributePtr)) : 0;
+		_getAttributeVersion(scope, name) {
+			const versionFn = this.module._CXAttributeVersion;
+			if (typeof versionFn !== 'function') {
+				return this._localVersions.get(`attr:${scope}:${name}`) || 0;
+			}
+			this._ensureActive();
+			const metaMap = this._attributeMap(scope);
+			let meta = metaMap.get(name) || null;
+			if (!meta?.attributePtr || meta.attributePtr &lt;= 0) {
+				if (this._bufferSessionDepth > 0) {
+					return this._localVersions.get(`attr:${scope}:${name}`) || 0;
+				}
+				meta = this._ensureAttributeMetadata(scope, name);
+			}
+			if (!meta) {
+				throw new Error(`Unknown ${scope} attribute "${name}"`);
+			}
+			const attributePtr = meta.attributePtr >>> 0;
+			const version = attributePtr ? this._normalizeVersion(versionFn.call(this.module, attributePtr)) : 0;
 		return version ?? 0;
 	}
 
@@ -5843,7 +6749,8 @@ export class HeliosNetwork extends BaseEventTarget {
 		const directDataFn = this.module._CXAttributeData;
 		if (typeof directDataFn === 'function' &amp;&amp; attributePtr) {
 			bufferPtr = directDataFn.call(this.module, attributePtr) >>> 0;
-		} else {
+		}
+		if (!bufferPtr) {
 			this._assertCanAllocate(`attribute buffer lookup for ${scope}:${name}`);
 			const cstr = new CString(this.module, name);
 			try {
@@ -5987,6 +6894,614 @@ export class HeliosNetwork extends BaseEventTarget {
 			return true;
 		}
 		return Boolean(this._ensureAttributeMetadata(scope, name));
+	}
+
+	_setAttributeValues(scope, namesInput, valuesOrFn, options = {}) {
+		this._assertCanAllocate(`set ${scope} attribute values`);
+		this._ensureActive();
+		const names = this._normalizeAttributeWriteNames(namesInput);
+		const indices = this._copyActiveIndicesForScope(scope);
+		const sourceByName = typeof valuesOrFn === 'function'
+			? this._evaluateAttributeCallbackSources(scope, names, valuesOrFn, indices)
+			: this._normalizeAttributeWriteSources(scope, names, valuesOrFn, indices, options);
+		const plans = [];
+		for (const name of names) {
+			plans.push(this._resolveAttributeWritePlan(scope, name, sourceByName.get(name), options, indices));
+		}
+		const numericPlans = plans.filter((plan) => plan.meta.type !== AttributeType.String);
+		const complexPlans = numericPlans.filter((plan) => COMPLEX_ATTRIBUTE_TYPES.has(plan.meta.type));
+		const primitivePlans = numericPlans.filter((plan) => !COMPLEX_ATTRIBUTE_TYPES.has(plan.meta.type));
+		const stringPlans = plans.filter((plan) => plan.meta.type === AttributeType.String);
+		this._writeNumericAttributePlans(scope, primitivePlans, indices);
+		this._writeComplexAttributePlans(scope, complexPlans, indices);
+		this._writeStringAttributePlans(scope, stringPlans, indices);
+		return this;
+	}
+
+	_normalizeAttributeWriteNames(namesInput) {
+		const rawNames = Array.isArray(namesInput) ? namesInput : [namesInput];
+		if (rawNames.length === 0) {
+			throw new Error('At least one attribute name is required');
+		}
+		const names = rawNames.map((name) => {
+			const normalized = String(name ?? '').trim();
+			if (!normalized) {
+				throw new Error('Attribute names must be non-empty strings');
+			}
+			return normalized;
+		});
+		if (new Set(names).size !== names.length) {
+			throw new Error('Attribute names must be unique');
+		}
+		return names;
+	}
+
+	_copyActiveIndicesForScope(scope) {
+		if (scope === 'network') {
+			return Uint32Array.of(0);
+		}
+		return this.withBufferAccess(
+			() => (scope === 'node' ? this.nodeIndices.slice() : this.edgeIndices.slice()),
+			scope === 'node' ? { nodeIndices: true } : { edgeIndices: true },
+		);
+	}
+
+	_evaluateAttributeCallbackSources(scope, names, callback, indices) {
+		const multi = names.length > 1;
+		const currentByName = this._readCurrentAttributeValues(scope, names, indices);
+		const sourceByName = new Map(names.map((name) => [name, new Array(indices.length)]));
+		for (let ordinal = 0; ordinal &lt; indices.length; ordinal += 1) {
+			const id = indices[ordinal] >>> 0;
+			let current;
+			if (multi) {
+				current = {};
+				for (const name of names) {
+					current[name] = currentByName.get(name)?.[ordinal] ?? null;
+				}
+			} else {
+				current = currentByName.get(names[0])?.[ordinal] ?? null;
+			}
+			const result = callback(current, id, ordinal, this);
+			if (multi) {
+				const split = this._splitMultiAttributeRecord(names, result);
+				for (const name of names) {
+					sourceByName.get(name)[ordinal] = split.get(name);
+				}
+			} else {
+				sourceByName.get(names[0])[ordinal] = result;
+			}
+		}
+		return sourceByName;
+	}
+
+	_normalizeAttributeWriteSources(scope, names, valuesOrFn, indices, options = {}) {
+		if (names.length === 1) {
+			return new Map([[names[0], valuesOrFn]]);
+		}
+		if (this._isAttributeKeyedSource(valuesOrFn, names)) {
+			const sources = new Map();
+			for (const name of names) {
+				if (!Object.prototype.hasOwnProperty.call(valuesOrFn, name)) {
+					throw new Error(`Missing value source for attribute "${name}"`);
+				}
+				sources.set(name, valuesOrFn[name]);
+			}
+			return sources;
+		}
+		if (this._isPerAttributeArraySource(valuesOrFn, names, indices.length)) {
+			const sources = new Map();
+			for (let i = 0; i &lt; names.length; i += 1) {
+				sources.set(names[i], valuesOrFn[i]);
+			}
+			return sources;
+		}
+		if (!this._isArrayLikeAttributeSource(valuesOrFn) &amp;&amp; !this._isRecordObject(valuesOrFn)) {
+			return new Map(names.map((name) => [name, valuesOrFn]));
+		}
+		const sources = new Map(names.map((name) => [name, new Array(indices.length)]));
+		const indexMode = this._normalizeAttributeWriteIndexMode(options);
+		for (let ordinal = 0; ordinal &lt; indices.length; ordinal += 1) {
+			const id = indices[ordinal] >>> 0;
+			const record = this._resolveAttributeSourceValue(valuesOrFn, id, ordinal, {
+				dimension: names.length,
+				indexMode,
+				activeCount: indices.length,
+				capacity: this._capacityForScope(scope),
+				broadcastVector: false,
+			});
+			const split = this._splitMultiAttributeRecord(names, record);
+			for (const name of names) {
+				sources.get(name)[ordinal] = split.get(name);
+			}
+		}
+		return sources;
+	}
+
+	_isAttributeKeyedSource(source, names) {
+		if (source == null || ArrayBuffer.isView(source) || Array.isArray(source) || typeof source !== 'object') {
+			return false;
+		}
+		return names.some((name) => Object.prototype.hasOwnProperty.call(source, name));
+	}
+
+	_isPerAttributeArraySource(source, names, activeCount) {
+		if (!(Array.isArray(source) || ArrayBuffer.isView(source)) || source.length !== names.length) {
+			return false;
+		}
+		if (Array.isArray(source) &amp;&amp; activeCount === source.length) {
+			const firstRecord = source.find((entry) => entry != null);
+			if (Array.isArray(firstRecord) || ArrayBuffer.isView(firstRecord) || this._isRecordObject(firstRecord)) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	_isRecordObject(value) {
+		return value !== null
+			&amp;&amp; typeof value === 'object'
+			&amp;&amp; !Array.isArray(value)
+			&amp;&amp; !ArrayBuffer.isView(value);
+	}
+
+	_splitMultiAttributeRecord(names, record) {
+		const values = new Map();
+		if (Array.isArray(record) || ArrayBuffer.isView(record)) {
+			if (record.length &lt; names.length) {
+				throw new Error(`Multi-attribute callback must return at least ${names.length} values`);
+			}
+			for (let i = 0; i &lt; names.length; i += 1) {
+				values.set(names[i], record[i]);
+			}
+			return values;
+		}
+		if (this._isRecordObject(record)) {
+			for (const name of names) {
+				if (!Object.prototype.hasOwnProperty.call(record, name)) {
+					throw new Error(`Multi-attribute callback result is missing "${name}"`);
+				}
+				values.set(name, record[name]);
+			}
+			return values;
+		}
+		if (names.length === 1) {
+			values.set(names[0], record);
+			return values;
+		}
+		throw new Error('Multi-attribute values must be arrays or objects keyed by attribute name');
+	}
+
+	_readCurrentAttributeValues(scope, names, indices) {
+		const result = new Map(names.map((name) => [name, new Array(indices.length).fill(null)]));
+		if (indices.length === 0) {
+			return result;
+		}
+		const readable = [];
+		for (const name of names) {
+			const meta = this._ensureAttributeMetadata(scope, name);
+			if (!meta || !this._isWritableAttributeType(meta.type)) {
+				continue;
+			}
+			this._attributePointers(scope, name, meta);
+			readable.push({ name, meta });
+		}
+		if (readable.length === 0) {
+			return result;
+		}
+		this.withBufferAccess(() => {
+			for (const entry of readable) {
+				const buffer = scope === 'node'
+					? this.getNodeAttributeBuffer(entry.name)
+					: scope === 'edge'
+						? this.getEdgeAttributeBuffer(entry.name)
+						: this.getNetworkAttributeBuffer(entry.name);
+				const values = result.get(entry.name);
+				for (let ordinal = 0; ordinal &lt; indices.length; ordinal += 1) {
+					values[ordinal] = this._readAttributeValueFromBuffer(buffer, indices[ordinal] >>> 0);
+				}
+			}
+		});
+		return result;
+	}
+
+	_readAttributeValueFromBuffer(buffer, id) {
+		const dimension = Math.max(1, buffer.dimension || 1);
+		if (typeof buffer.get === 'function' &amp;&amp; !buffer.view) {
+			return buffer.get(id);
+		}
+		if (buffer.type === AttributeType.String) {
+			return buffer.getString(id);
+		}
+		const offset = id * dimension;
+		if (dimension === 1) {
+			const value = buffer.view[offset];
+			return buffer.type === AttributeType.Boolean ? Boolean(value) : value;
+		}
+		const values = new Array(dimension);
+		for (let component = 0; component &lt; dimension; component += 1) {
+			const value = buffer.view[offset + component];
+			values[component] = buffer.type === AttributeType.Boolean ? Boolean(value) : value;
+		}
+		return values;
+	}
+
+	_resolveAttributeWritePlan(scope, name, source, options, indices) {
+		const explicitType = this._normalizeAttributeWriteType(options?.type);
+		const explicitDimension = this._normalizeAttributeWriteDimension(options?.dimension);
+		let meta = this._ensureAttributeMetadata(scope, name);
+		if (!meta) {
+			const inferred = this._inferAttributeWriteSchema(source, scope);
+			const type = explicitType ?? inferred.type;
+			const dimension = explicitDimension ?? inferred.dimension;
+			this._defineAttributeForScope(scope, name, type, dimension);
+			meta = this._ensureAttributeMetadata(scope, name);
+		} else {
+			if (explicitType != null &amp;&amp; meta.type !== explicitType) {
+				throw new Error(`Attribute "${name}" on ${scope} already has type ${meta.type}, not ${explicitType}`);
+			}
+			if (explicitDimension != null &amp;&amp; Math.max(1, meta.dimension || 1) !== explicitDimension) {
+				throw new Error(`Attribute "${name}" on ${scope} already has dimension ${meta.dimension}, not ${explicitDimension}`);
+			}
+		}
+		if (!meta) {
+			throw new Error(`Failed to resolve ${scope} attribute "${name}"`);
+		}
+		if (!this._isWritableAttributeType(meta.type)) {
+			throw new Error(`Attribute "${name}" on ${scope} has unsupported type ${meta.type} for high-level writes`);
+		}
+		if (meta.type === AttributeType.String &amp;&amp; Math.max(1, meta.dimension || 1) !== 1) {
+			throw new Error('High-level string attribute writes require dimension 1');
+		}
+		const pointers = this._attributePointers(scope, name, meta);
+		return {
+			name,
+			meta,
+			pointer: pointers.pointer,
+			source,
+			indexMode: this._normalizeAttributeWriteIndexMode(options),
+			activeCount: indices.length,
+			capacity: this._capacityForScope(scope),
+		};
+	}
+
+	_defineAttributeForScope(scope, name, type, dimension) {
+		if (scope === 'node') {
+			this.defineNodeAttribute(name, type, dimension);
+		} else if (scope === 'edge') {
+			this.defineEdgeAttribute(name, type, dimension);
+		} else {
+			this.defineNetworkAttribute(name, type, dimension);
+		}
+	}
+
+	_normalizeAttributeWriteType(type) {
+		if (type == null) {
+			return null;
+		}
+		if (typeof type === 'number' &amp;&amp; Number.isFinite(type)) {
+			return type | 0;
+		}
+		if (typeof type === 'string') {
+			const key = type.trim().toLowerCase().replace(/[\s_]+/g, '');
+			if (Object.prototype.hasOwnProperty.call(AttributeTypeNameMap, key)) {
+				return AttributeTypeNameMap[key];
+			}
+		}
+		throw new Error(`Unsupported attribute type "${type}"`);
+	}
+
+	_normalizeAttributeWriteDimension(dimension) {
+		if (dimension == null) {
+			return null;
+		}
+		const value = Number(dimension);
+		if (!Number.isFinite(value) || value &lt; 1) {
+			throw new Error('Attribute dimension must be a positive integer');
+		}
+		return Math.floor(value);
+	}
+
+	_normalizeAttributeWriteIndexMode(options = {}) {
+		const raw = options?.indexBy ?? options?.indexMode ?? options?.indexedBy ?? 'ordinal';
+		if (raw == null) {
+			return 'ordinal';
+		}
+		const normalized = String(raw).trim().toLowerCase();
+		if (normalized === 'ordinal' || normalized === 'active' || normalized === 'position') {
+			return 'ordinal';
+		}
+		if (normalized === 'id' || normalized === 'index' || normalized === 'node' || normalized === 'edge') {
+			return 'id';
+		}
+		if (normalized === 'auto') {
+			return 'auto';
+		}
+		throw new Error('Attribute write index mode must be "ordinal", "id", or "auto"');
+	}
+
+	_isWritableAttributeType(type) {
+		return type === AttributeType.String
+			|| type === AttributeType.Boolean
+			|| type === AttributeType.Float
+			|| type === AttributeType.Double
+			|| type === AttributeType.Integer
+			|| type === AttributeType.UnsignedInteger
+			|| type === AttributeType.Category
+			|| type === AttributeType.Data
+			|| type === AttributeType.Javascript
+			|| type === AttributeType.BigInteger
+			|| type === AttributeType.UnsignedBigInteger;
+	}
+
+	_inferAttributeWriteSchema(source, scope = 'node') {
+		const sample = scope === 'network' &amp;&amp; this._isArrayLikeAttributeSource(source)
+			? source
+			: this._firstAttributeSample(source);
+		return {
+			type: this._inferAttributeType(source, sample),
+			dimension: this._inferAttributeDimension(sample),
+		};
+	}
+
+	_firstAttributeSample(source) {
+		if (Array.isArray(source)) {
+			if (source.length === 0) {
+				return undefined;
+			}
+			return source[0];
+		}
+		if (ArrayBuffer.isView(source)) {
+			return source.length ? source[0] : undefined;
+		}
+		return source;
+	}
+
+	_inferAttributeType(source, sample) {
+		if (ArrayBuffer.isView(source)) {
+			if (source instanceof BigInt64Array) return AttributeType.BigInteger;
+			if (source instanceof BigUint64Array) return AttributeType.UnsignedBigInteger;
+			if (source instanceof Float64Array) return AttributeType.Double;
+			if (source instanceof Float32Array) return AttributeType.Float;
+			if (source instanceof Int8Array || source instanceof Int16Array || source instanceof Int32Array) return AttributeType.Integer;
+			if (source instanceof Uint8Array || source instanceof Uint8ClampedArray || source instanceof Uint16Array || source instanceof Uint32Array) return AttributeType.UnsignedInteger;
+		}
+		const scalar = this._firstScalarAttributeValue(sample);
+		if (typeof scalar === 'string') return AttributeType.String;
+		if (typeof scalar === 'boolean') return AttributeType.Boolean;
+		if (typeof scalar === 'bigint') return AttributeType.BigInteger;
+		if (typeof scalar === 'number') return AttributeType.Float;
+		if (scalar &amp;&amp; typeof scalar === 'object') return AttributeType.Javascript;
+		return AttributeType.Float;
+	}
+
+	_inferAttributeDimension(sample) {
+		if (Array.isArray(sample) || ArrayBuffer.isView(sample)) {
+			return Math.max(1, sample.length >>> 0);
+		}
+		return 1;
+	}
+
+	_firstScalarAttributeValue(value) {
+		if (Array.isArray(value) || ArrayBuffer.isView(value)) {
+			return value.length ? this._firstScalarAttributeValue(value[0]) : undefined;
+		}
+		return value;
+	}
+
+	_isArrayLikeAttributeSource(source) {
+		return Array.isArray(source) || ArrayBuffer.isView(source);
+	}
+
+	_resolveAttributeSourceValue(source, id, ordinal, context) {
+		if (!this._isArrayLikeAttributeSource(source)) {
+			return source;
+		}
+		const dimension = Math.max(1, context.dimension || 1);
+		const length = source.length >>> 0;
+		const broadcastVector = context.broadcastVector !== false;
+		if (broadcastVector &amp;&amp; dimension > 1 &amp;&amp; length === dimension &amp;&amp; !this._sourceHasRecordEntries(source)) {
+			return source;
+		}
+		const index = this._resolveAttributeSourceIndex(context.indexMode, source, id, ordinal, dimension, context.activeCount, context.capacity);
+		if (dimension > 1 &amp;&amp; !this._sourceHasRecordEntries(source)) {
+			const start = index * dimension;
+			const end = start + dimension;
+			if (end > length) {
+				throw new Error(`Attribute value source does not contain ${dimension} components for id ${id}`);
+			}
+			return typeof source.subarray === 'function' ? source.subarray(start, end) : source.slice(start, end);
+		}
+		if (index >= length) {
+			throw new Error(`Attribute value source does not contain an entry for id ${id}`);
+		}
+		return source[index];
+	}
+
+	_sourceHasRecordEntries(source) {
+		if (!Array.isArray(source) || source.length === 0) {
+			return false;
+		}
+		const first = source.find((entry) => entry != null);
+		return Array.isArray(first) || ArrayBuffer.isView(first) || this._isRecordObject(first);
+	}
+
+	_resolveAttributeSourceIndex(indexMode, source, id, ordinal, dimension, activeCount, capacity) {
+		if (indexMode === 'id') {
+			return id >>> 0;
+		}
+		if (indexMode === 'auto') {
+			const length = source.length >>> 0;
+			const activeLength = activeCount * Math.max(1, dimension || 1);
+			const capacityLength = capacity * Math.max(1, dimension || 1);
+			if (capacityLength > activeLength &amp;&amp; length >= capacityLength) {
+				return id >>> 0;
+			}
+		}
+		return ordinal >>> 0;
+	}
+
+	_writeNumericAttributePlans(scope, plans, indices) {
+		if (!plans.length || indices.length === 0) {
+			return;
+		}
+		this.withBufferAccess(() => {
+			const buffers = plans.map((plan) => ({
+				plan,
+				buffer: scope === 'node'
+					? this.getNodeAttributeBuffer(plan.name)
+					: scope === 'edge'
+						? this.getEdgeAttributeBuffer(plan.name)
+						: this.getNetworkAttributeBuffer(plan.name),
+			}));
+			for (let ordinal = 0; ordinal &lt; indices.length; ordinal += 1) {
+				const id = indices[ordinal] >>> 0;
+				for (const entry of buffers) {
+					const value = this._resolveAttributeSourceValue(entry.plan.source, id, ordinal, {
+						dimension: entry.buffer.dimension,
+						indexMode: entry.plan.indexMode,
+						activeCount: entry.plan.activeCount,
+						capacity: entry.plan.capacity,
+					});
+					this._writeNumericAttributeValue(entry.buffer, id, value, entry.plan.name);
+				}
+			}
+		});
+		for (const plan of plans) {
+			this._bumpAttributeVersion(scope, plan.name, { op: 'set' });
+		}
+	}
+
+	_writeComplexAttributePlans(scope, plans, indices) {
+		if (!plans.length || indices.length === 0) {
+			return;
+		}
+		this.withBufferAccess(() => {
+			for (const plan of plans) {
+				const view = new Uint32Array(this.module.HEAPU32.buffer, plan.pointer, this._capacityForScope(scope));
+				for (let ordinal = 0; ordinal &lt; indices.length; ordinal += 1) {
+					const id = indices[ordinal] >>> 0;
+					const value = this._resolveAttributeSourceValue(plan.source, id, ordinal, {
+						dimension: 1,
+						indexMode: plan.indexMode,
+						activeCount: plan.activeCount,
+						capacity: plan.capacity,
+					});
+					if (value == null) {
+						plan.meta.jsStore.delete(id);
+						view[id] = 0;
+						continue;
+					}
+					let entry = plan.meta.jsStore.get(id);
+					if (!entry) {
+						entry = { id: plan.meta.nextHandle++, value: null };
+						plan.meta.jsStore.set(id, entry);
+					}
+					entry.value = value;
+					view[id] = entry.id;
+				}
+			}
+		});
+		for (const plan of plans) {
+			this._bumpAttributeVersion(scope, plan.name, { op: 'set' });
+		}
+	}
+
+	_writeNumericAttributeValue(buffer, id, value, name) {
+		const dimension = Math.max(1, buffer.dimension || 1);
+		const offset = id * dimension;
+		const components = (Array.isArray(value) || ArrayBuffer.isView(value)) ? value : null;
+		if (components &amp;&amp; components.length &lt; dimension) {
+			throw new Error(`Attribute "${name}" expected ${dimension} components`);
+		}
+		for (let component = 0; component &lt; dimension; component += 1) {
+			const raw = components ? components[component] : value;
+			buffer.view[offset + component] = this._coerceNumericAttributeValue(buffer.type, raw);
+		}
+	}
+
+	_coerceNumericAttributeValue(type, value) {
+		if (type === AttributeType.Boolean) {
+			if (typeof value === 'string') {
+				const normalized = value.trim().toLowerCase();
+				return normalized === '' || normalized === '0' || normalized === 'false' || normalized === 'no' ? 0 : 1;
+			}
+			return value ? 1 : 0;
+		}
+		if (type === AttributeType.BigInteger || type === AttributeType.UnsignedBigInteger) {
+			if (typeof value === 'bigint') {
+				return value;
+			}
+			const numeric = Number(value ?? 0);
+			return BigInt(Number.isFinite(numeric) ? Math.trunc(numeric) : 0);
+		}
+		const numeric = Number(value ?? 0);
+		if (type === AttributeType.Integer || type === AttributeType.Category) {
+			return Number.isFinite(numeric) ? Math.trunc(numeric) : 0;
+		}
+		if (type === AttributeType.UnsignedInteger) {
+			return Number.isFinite(numeric) ? Math.max(0, Math.trunc(numeric)) : 0;
+		}
+		return numeric;
+	}
+
+	_writeStringAttributePlans(scope, plans, indices) {
+		if (!plans.length || indices.length === 0) {
+			return;
+		}
+		for (const plan of plans) {
+			const values = new Array(indices.length);
+			const ptrs = new Array(indices.length).fill(0);
+			for (let ordinal = 0; ordinal &lt; indices.length; ordinal += 1) {
+				const id = indices[ordinal] >>> 0;
+				const value = this._resolveAttributeSourceValue(plan.source, id, ordinal, {
+					dimension: 1,
+					indexMode: plan.indexMode,
+					activeCount: plan.activeCount,
+					capacity: plan.capacity,
+				});
+				values[ordinal] = value == null ? null : String(value);
+				if (values[ordinal] != null) {
+					ptrs[ordinal] = this._allocateStringAttributePointer(values[ordinal]);
+				}
+			}
+				let installed = false;
+				try {
+					this.withBufferAccess(() => {
+						const view = new Uint32Array(this.module.HEAPU32.buffer, plan.pointer, this._capacityForScope(scope));
+						for (let ordinal = 0; ordinal &lt; indices.length; ordinal += 1) {
+							const id = indices[ordinal] >>> 0;
+							const oldPtr = plan.meta.stringPointers.get(id);
+						view[id] = ptrs[ordinal] >>> 0;
+						if (oldPtr &amp;&amp; oldPtr !== ptrs[ordinal]) {
+							this.module._free(oldPtr);
+						}
+						if (ptrs[ordinal]) {
+							plan.meta.stringPointers.set(id, ptrs[ordinal]);
+						} else {
+							plan.meta.stringPointers.delete(id);
+						}
+					}
+				});
+				installed = true;
+			} finally {
+				if (!installed) {
+					for (const ptr of ptrs) {
+						if (ptr) this.module._free(ptr);
+					}
+				}
+			}
+			this._bumpAttributeVersion(scope, plan.name, { op: 'set' });
+		}
+	}
+
+	_allocateStringAttributePointer(value) {
+		const length = this.module.lengthBytesUTF8(value) + 1;
+		const ptr = this.module._malloc(length);
+		if (!ptr) {
+			throw new Error('Failed to allocate memory for string attribute');
+		}
+		this.module.stringToUTF8(value, ptr, length);
+		return ptr >>> 0;
 	}
 
 	/**
@@ -6143,7 +7658,7 @@ export class HeliosNetwork extends BaseEventTarget {
 
 	_normalizeNodeSelection(nodes) {
 		if (nodes == null) {
-			return this.nodeIndices;
+			return this.withBufferAccess(() => this.nodeIndices.slice(), { nodeIndices: true });
 		}
 		const source = ArrayBuffer.isView(nodes) ? nodes : Array.from(nodes);
 		const out = [];
@@ -6176,6 +7691,238 @@ export class HeliosNetwork extends BaseEventTarget {
 			values[i] = valuesByNode[nodeIndices[i]] >>> 0;
 		}
 		return { nodeIndices, values, valuesByNode };
+	}
+
+	_resolveNodeMetricOutputAttribute(name, type, label) {
+		if (!name) {
+			return null;
+		}
+		const attrName = String(name);
+		if (!this._nodeAttributes.has(attrName)) {
+			this.defineNodeAttribute(attrName, type, 1);
+		}
+		const meta = this._nodeAttributes.get(attrName) ?? this._ensureAttributeMetadata('node', attrName);
+		if (!meta) {
+			throw new Error(`Node attribute "${attrName}" is not defined`);
+		}
+		if (meta.type !== type) {
+			throw new Error(`Node attribute "${attrName}" must be ${label}`);
+		}
+		if ((meta.dimension ?? 1) !== 1) {
+			throw new Error(`Node attribute "${attrName}" must have dimension 1`);
+		}
+		const pointers = this._attributePointers('node', attrName, meta);
+		return {
+			name: attrName,
+			pointer: pointers.pointer >>> 0,
+		};
+	}
+
+	_copyFloat32NodeValuesFromPointer(pointer) {
+		return this.withBufferAccess(
+			() => new Float32Array(this.module.HEAPF32.buffer, pointer, this.nodeCapacity).slice()
+		);
+	}
+
+	_normalizeLayoutStrengthEdgeWeightAttribute(edgeWeightAttribute = null) {
+		if (edgeWeightAttribute == null || edgeWeightAttribute === '') {
+			return null;
+		}
+		const name = String(edgeWeightAttribute).trim();
+		return name || null;
+	}
+
+	_layoutStrengthEdgeWeightVersion(edgeWeightAttribute = null) {
+		const name = this._normalizeLayoutStrengthEdgeWeightAttribute(edgeWeightAttribute);
+		if (!name) return 0;
+		if (!this.hasEdgeAttribute(name)) return -1;
+		return this.getEdgeAttributeVersion(name);
+	}
+
+	_layoutStrengthNeedsRebuild(edgeWeightAttribute = null) {
+		const metric = this._layoutStrengthMetric;
+		if (!metric?.initialized || metric.dirty || !this.hasNodeAttribute(metric.name)) {
+			return true;
+		}
+		const normalizedWeight = this._normalizeLayoutStrengthEdgeWeightAttribute(edgeWeightAttribute);
+		const topology = this.getTopologyVersions();
+		return (
+			metric.edgeWeightAttribute !== normalizedWeight
+			|| metric.edgeWeightVersion !== this._layoutStrengthEdgeWeightVersion(normalizedWeight)
+			|| metric.topologyNode !== topology.node
+			|| metric.topologyEdge !== topology.edge
+		);
+	}
+
+	_updateLayoutStrengthSnapshot(edgeWeightAttribute = null) {
+		const metric = this._layoutStrengthMetric;
+		const topology = this.getTopologyVersions();
+		metric.edgeWeightAttribute = this._normalizeLayoutStrengthEdgeWeightAttribute(edgeWeightAttribute);
+		metric.edgeWeightVersion = this._layoutStrengthEdgeWeightVersion(metric.edgeWeightAttribute);
+		metric.topologyNode = topology.node;
+		metric.topologyEdge = topology.edge;
+		metric.dirty = false;
+		metric.initialized = true;
+	}
+
+	_markLayoutStrengthDirty() {
+		if (this._layoutStrengthMetric?.initialized) {
+			this._layoutStrengthMetric.dirty = true;
+		}
+	}
+
+	/**
+	 * Internal resolver used by GPU layouts. It intentionally is not a public
+	 * measurement API; callers consume the returned sparse node attribute through
+	 * the normal indirect buffer path.
+	 *
+	 * @param {string|null} [edgeWeightAttribute=null]
+	 * @returns {object} Resolved layout-strength attribute metadata.
+	 */
+	__heliosResolveLayoutStrengthAttribute(edgeWeightAttribute = null) {
+		this._ensureActive();
+		const normalizedWeight = this._normalizeLayoutStrengthEdgeWeightAttribute(edgeWeightAttribute);
+		if (normalizedWeight &amp;&amp; !this.hasEdgeAttribute(normalizedWeight)) {
+			throw new Error(`Unknown edge attribute "${normalizedWeight}"`);
+		}
+		if (this._layoutStrengthNeedsRebuild(normalizedWeight)) {
+			this.measureStrength({
+				edgeWeightAttribute: normalizedWeight,
+				measure: StrengthMeasure.Sum,
+				outNodeAttribute: this._layoutStrengthMetric.name,
+			});
+			this._updateLayoutStrengthSnapshot(normalizedWeight);
+		}
+		return {
+			name: this._layoutStrengthMetric.name,
+			version: this.getNodeAttributeVersion(this._layoutStrengthMetric.name),
+			edgeWeightAttribute: normalizedWeight,
+		};
+	}
+
+	_readLayoutStrengthEdgeWeight(edgeId, edgeWeightAttribute, edgeWeightView = null) {
+		if (!edgeWeightAttribute) return 1;
+		const view = edgeWeightView ?? this._getAttributeBuffer('edge', edgeWeightAttribute).view;
+		const value = Number(view?.[edgeId]);
+		return Number.isFinite(value) ? value : 0;
+	}
+
+	_canDeltaUpdateLayoutStrength() {
+		const metric = this._layoutStrengthMetric;
+		if (!metric?.initialized || metric.dirty || !this.hasNodeAttribute(metric.name)) {
+			return false;
+		}
+		if (metric.edgeWeightVersion !== this._layoutStrengthEdgeWeightVersion(metric.edgeWeightAttribute)) {
+			metric.dirty = true;
+			return false;
+		}
+		return true;
+	}
+
+	_applyLayoutStrengthEdgeDeltas(records, sign = 1, zeroNodes = null) {
+		if (!records?.length &amp;&amp; !zeroNodes?.length) return;
+		if (!this._canDeltaUpdateLayoutStrength()) return;
+		const metric = this._layoutStrengthMetric;
+		this.withBufferAccess(() => {
+			const { view } = this.getNodeAttributeBuffer(metric.name);
+			for (const record of records ?? []) {
+				const source = record.source >>> 0;
+				const target = record.target >>> 0;
+				const delta = Number(record.weight) * sign;
+				if (!Number.isFinite(delta)) continue;
+				if (source &lt; this.nodeCapacity) view[source] = Math.max(0, (Number(view[source]) || 0) + delta);
+				if (target &lt; this.nodeCapacity) view[target] = Math.max(0, (Number(view[target]) || 0) + delta);
+			}
+			for (const node of zeroNodes ?? []) {
+				const nodeId = node >>> 0;
+				if (nodeId &lt; this.nodeCapacity) view[nodeId] = 0;
+			}
+		});
+		this._bumpAttributeVersion('node', metric.name, { op: 'set' });
+		this._updateLayoutStrengthSnapshot(metric.edgeWeightAttribute);
+	}
+
+	_snapshotLayoutStrengthEdges(edgeIds) {
+		if (!this._canDeltaUpdateLayoutStrength()) return null;
+		const metric = this._layoutStrengthMetric;
+		return this.withBufferAccess(() => {
+			const edgesView = this.edgesView;
+			const edgeWeightView = metric.edgeWeightAttribute
+				? this.getEdgeAttributeBuffer(metric.edgeWeightAttribute).view
+				: null;
+			const records = [];
+			for (const rawEdgeId of edgeIds) {
+				const edgeId = rawEdgeId >>> 0;
+				const base = edgeId * 2;
+				if (base + 1 >= edgesView.length) continue;
+				const source = edgesView[base] >>> 0;
+				const target = edgesView[base + 1] >>> 0;
+				if (source === target) continue;
+				records.push({
+					source,
+					target,
+					weight: this._readLayoutStrengthEdgeWeight(edgeId, metric.edgeWeightAttribute, edgeWeightView),
+				});
+			}
+			return records;
+		}, { edgeIndices: true, edgesView: true });
+	}
+
+	_snapshotLayoutStrengthEdgeRemoval(edgeIds) {
+		return this._snapshotLayoutStrengthEdges(edgeIds);
+	}
+
+	_snapshotLayoutStrengthNodeRemoval(nodeIds) {
+		if (!this._canDeltaUpdateLayoutStrength()) return null;
+		const removed = new Set(Array.from(nodeIds ?? [], (node) => node >>> 0));
+		if (!removed.size) return null;
+		const metric = this._layoutStrengthMetric;
+		return this.withBufferAccess(() => {
+			const edgeIndices = this.edgeIndices;
+			const edgesView = this.edgesView;
+			const edgeWeightView = metric.edgeWeightAttribute
+				? this.getEdgeAttributeBuffer(metric.edgeWeightAttribute).view
+				: null;
+			const records = [];
+			for (const rawEdgeId of edgeIndices) {
+				const edgeId = rawEdgeId >>> 0;
+				const base = edgeId * 2;
+				if (base + 1 >= edgesView.length) continue;
+				const source = edgesView[base] >>> 0;
+				const target = edgesView[base + 1] >>> 0;
+				if (source === target) continue;
+				if (!removed.has(source) &amp;&amp; !removed.has(target)) continue;
+				records.push({
+					source,
+					target,
+					weight: this._readLayoutStrengthEdgeWeight(edgeId, metric.edgeWeightAttribute, edgeWeightView),
+				});
+			}
+			return records;
+		}, { edgeIndices: true, edgesView: true });
+	}
+
+	_handleLayoutStrengthNodesAdded(nodeIds) {
+		this._applyLayoutStrengthEdgeDeltas([], 1, nodeIds);
+	}
+
+	_handleLayoutStrengthNodesRemoved(nodeIds, records) {
+		this._applyLayoutStrengthEdgeDeltas(records, -1, nodeIds);
+	}
+
+	_handleLayoutStrengthEdgesAdded(edgeIds) {
+		const records = this._snapshotLayoutStrengthEdges(edgeIds);
+		this._applyLayoutStrengthEdgeDeltas(records, 1);
+	}
+
+	_handleLayoutStrengthEdgesRemoved(records) {
+		this._applyLayoutStrengthEdgeDeltas(records, -1);
+	}
+
+	_copyUint32NodeValuesFromPointer(pointer) {
+		return this.withBufferAccess(
+			() => new Uint32Array(this.module.HEAPU32.buffer, pointer, this.nodeCapacity).slice()
+		);
 	}
 
 	_copyFloat32NodeValuesToWasm(values) {
@@ -6484,8 +8231,10 @@ export class HeliosNetwork extends BaseEventTarget {
 	_disposeActiveIndexBuffer(scope) {
 		if (scope === 'node') {
 			this._activeNodeIndexBuffer = { ptr: 0, capacity: 0, count: 0, version: 0, dirty: true };
+			this._activeNodeIndexDirtyRange = null;
 		} else {
 			this._activeEdgeIndexBuffer = { ptr: 0, capacity: 0, count: 0, version: 0, dirty: true };
+			this._activeEdgeIndexDirtyRange = null;
 		}
 	}
 
@@ -6498,7 +8247,9 @@ export class HeliosNetwork extends BaseEventTarget {
 		const countReader = scope === 'node'
 			? this.module._CXNetworkActiveNodeIndexCount
 			: this.module._CXNetworkActiveEdgeIndexCount;
-		const version = scope === 'node' ? this._nodeTopologyVersion : this._edgeTopologyVersion;
+		const topologyVersion = scope === 'node' ? this._nodeTopologyVersion : this._edgeTopologyVersion;
+		const orderVersion = scope === 'node' ? this._activeNodeIndexOrderVersion : this._activeEdgeIndexOrderVersion;
+		const version = `${topologyVersion}:${orderVersion}`;
 		const buffer = scope === 'node' ? this._activeNodeIndexBuffer : this._activeEdgeIndexBuffer;
 
 		if (typeof pointerReader !== 'function' || typeof countReader !== 'function') {
@@ -6523,6 +8274,28 @@ export class HeliosNetwork extends BaseEventTarget {
 			configurable: true,
 		});
 		return view;
+	}
+
+	_mergeActiveIndexDirtyRange(scope, start, count, version) {
+		if (!(count > 0)) return;
+		const current = scope === 'node' ? this._activeNodeIndexDirtyRange : this._activeEdgeIndexDirtyRange;
+		const nextStart = Math.max(0, Math.floor(Number(start) || 0));
+		const nextEnd = nextStart + Math.max(0, Math.floor(Number(count) || 0));
+		const mergedStart = current ? Math.min(current.start, nextStart) : nextStart;
+		const mergedEnd = current ? Math.max(current.start + current.count, nextEnd) : nextEnd;
+		const merged = {
+			start: mergedStart,
+			count: mergedEnd - mergedStart,
+			version,
+		};
+		if (scope === 'node') this._activeNodeIndexDirtyRange = merged;
+		else this._activeEdgeIndexDirtyRange = merged;
+	}
+
+	getActiveIndexDirtyRange(scope) {
+		if (scope === 'node') return this._activeNodeIndexDirtyRange ? { ...this._activeNodeIndexDirtyRange } : null;
+		if (scope === 'edge') return this._activeEdgeIndexDirtyRange ? { ...this._activeEdgeIndexDirtyRange } : null;
+		return null;
 	}
 
 	_ensureAttributeMetadata(scope, name) {
@@ -6631,28 +8404,36 @@ export class HeliosNetwork extends BaseEventTarget {
 		if (!meta || meta.type !== AttributeType.String) {
 			throw new Error(`Attribute "${name}" on ${scope} is not a string attribute`);
 		}
-		const { pointer } = this._attributePointers(scope, name, meta);
-		const capacity = this._capacityForScope(scope);
-		const view = new Uint32Array(this.module.HEAPU32.buffer, pointer, capacity * meta.dimension);
-		const oldPtr = meta.stringPointers.get(index);
-		if (oldPtr) {
-			this.module._free(oldPtr);
+		const newPtr = value == null ? 0 : this._allocateStringAttributePointer(String(value));
+		let installed = false;
+		try {
+			const { pointer } = this._attributePointers(scope, name, meta);
+			const capacity = this._capacityForScope(scope);
+			const view = new Uint32Array(this.module.HEAPU32.buffer, pointer, capacity * meta.dimension);
+			const oldPtr = meta.stringPointers.get(index);
+			if (value == null) {
+				view[index] = 0;
+				if (oldPtr) {
+					this.module._free(oldPtr);
+				}
+				meta.stringPointers.delete(index);
+				installed = true;
+				this._bumpAttributeVersion(scope, name, { op: 'clear', index });
+				return;
+			}
+			view[index] = newPtr;
+			if (oldPtr &amp;&amp; oldPtr !== newPtr) {
+				this.module._free(oldPtr);
+			}
+			meta.stringPointers.set(index, newPtr);
+			installed = true;
+			this._bumpAttributeVersion(scope, name, { op: 'set', index });
+		} catch (error) {
+			if (!installed &amp;&amp; newPtr) {
+				this.module._free(newPtr);
+			}
+			throw error;
 		}
-		if (value == null) {
-			view[index] = 0;
-			meta.stringPointers.delete(index);
-			this._bumpAttributeVersion(scope, name, { op: 'clear', index });
-			return;
-		}
-		const length = this.module.lengthBytesUTF8(value) + 1;
-		const ptr = this.module._malloc(length);
-		if (!ptr) {
-			throw new Error('Failed to allocate memory for string attribute');
-		}
-		this.module.stringToUTF8(value, ptr, length);
-		meta.stringPointers.set(index, ptr);
-		view[index] = ptr;
-		this._bumpAttributeVersion(scope, name, { op: 'set', index });
 	}
 
 	/**
@@ -6752,7 +8533,8 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * - result sets are captured as `varName = ADD_NODES ...` or `varName = ADD_EDGES ...`.
 	 *
 	 * @param {string} text - Batch payload.
-	 * @param {{stopOnError?: boolean}=} [options]
+	 * @param {object} [options]
+	 * @param {boolean} [options.stopOnError]
 	 * @returns {{results:Array, variables:Object}} Execution results and captured variables.
 	 */
 	applyTextBatch(text, options = {}) {
@@ -6873,30 +8655,34 @@ export class HeliosNetwork extends BaseEventTarget {
 						const dict = scope === 'edge'
 							? this.getEdgeAttributeCategoryDictionary(name)
 							: this.getNodeAttributeCategoryDictionary(name);
-						for (let i = 0; i &lt; resolvedIds.length; i += 1) {
-							const label = attrValues[i];
-							const id = dict[label];
-							if (id == null) {
-								throw new Error(`Category label "${label}" not found`);
-							}
+						this.withBufferAccess(() => {
 							const buffer = scope === 'edge'
 								? this.getEdgeAttributeBuffer(name)
 								: this.getNodeAttributeBuffer(name);
-							buffer.view[resolvedIds[i]] = id;
-						}
+							for (let i = 0; i &lt; resolvedIds.length; i += 1) {
+								const label = attrValues[i];
+								const id = dict[label];
+								if (id == null) {
+									throw new Error(`Category label "${label}" not found`);
+								}
+								buffer.view[resolvedIds[i]] = id;
+							}
+						});
 					} else {
-						const buffer = scope === 'edge'
-							? this.getEdgeAttributeBuffer(name)
-							: this.getNodeAttributeBuffer(name);
-						if (buffer.type === AttributeType.Data || buffer.type === AttributeType.Javascript || buffer.type === AttributeType.MultiCategory) {
-							throw new Error('Unsupported attribute type for text batches');
-						}
 						if (parsedValues.type !== 'number') {
 							throw new Error('Numeric attributes require numeric values');
 						}
-						for (let i = 0; i &lt; resolvedIds.length; i += 1) {
-							buffer.view[resolvedIds[i]] = attrValues[i];
-						}
+						this.withBufferAccess(() => {
+							const buffer = scope === 'edge'
+								? this.getEdgeAttributeBuffer(name)
+								: this.getNodeAttributeBuffer(name);
+							if (buffer.type === AttributeType.Data || buffer.type === AttributeType.Javascript || buffer.type === AttributeType.MultiCategory) {
+								throw new Error('Unsupported attribute type for text batches');
+							}
+							for (let i = 0; i &lt; resolvedIds.length; i += 1) {
+								buffer.view[resolvedIds[i]] = attrValues[i];
+							}
+						});
 					}
 					result.ok = true;
 				} else {
@@ -6942,7 +8728,8 @@ export class HeliosNetwork extends BaseEventTarget {
 	 *   u32[idCount] ids, f64[valueCount] values
 	 *
 	 * @param {ArrayBuffer|Uint8Array} data - Binary batch.
-	 * @param {{stopOnError?: boolean}=} [options]
+	 * @param {object} [options]
+	 * @param {boolean} [options.stopOnError]
 	 * @returns {{results:Array, slots:Map&lt;number, Uint32Array>}} Execution results and result slots.
 	 */
 	applyBinaryBatch(data, options = {}) {
@@ -7085,30 +8872,34 @@ export class HeliosNetwork extends BaseEventTarget {
 						const dict = scope === 'edge'
 							? this.getEdgeAttributeCategoryDictionary(name)
 							: this.getNodeAttributeCategoryDictionary(name);
-						const buffer = scope === 'edge'
-							? this.getEdgeAttributeBuffer(name)
-							: this.getNodeAttributeBuffer(name);
-						for (let i = 0; i &lt; resolvedIds.length; i += 1) {
-							const label = attrValues[i];
-							const id = dict[label];
-							if (id == null) {
-								throw new Error(`Category label \"${label}\" not found`);
+						this.withBufferAccess(() => {
+							const buffer = scope === 'edge'
+								? this.getEdgeAttributeBuffer(name)
+								: this.getNodeAttributeBuffer(name);
+							for (let i = 0; i &lt; resolvedIds.length; i += 1) {
+								const label = attrValues[i];
+								const id = dict[label];
+								if (id == null) {
+									throw new Error(`Category label \"${label}\" not found`);
+								}
+								buffer.view[resolvedIds[i]] = id;
 							}
-							buffer.view[resolvedIds[i]] = id;
-						}
+						});
 					} else {
 						if (valueType !== 0) {
 							throw new Error('Numeric attributes require numeric values');
 						}
-						const buffer = scope === 'edge'
-							? this.getEdgeAttributeBuffer(name)
-							: this.getNodeAttributeBuffer(name);
-						if (buffer.type === AttributeType.Data || buffer.type === AttributeType.Javascript || buffer.type === AttributeType.MultiCategory) {
-							throw new Error('Unsupported attribute type for binary batches');
-						}
-						for (let i = 0; i &lt; resolvedIds.length; i += 1) {
-							buffer.view[resolvedIds[i]] = attrValues[i];
-						}
+						this.withBufferAccess(() => {
+							const buffer = scope === 'edge'
+								? this.getEdgeAttributeBuffer(name)
+								: this.getNodeAttributeBuffer(name);
+							if (buffer.type === AttributeType.Data || buffer.type === AttributeType.Javascript || buffer.type === AttributeType.MultiCategory) {
+								throw new Error('Unsupported attribute type for binary batches');
+							}
+							for (let i = 0; i &lt; resolvedIds.length; i += 1) {
+								buffer.view[resolvedIds[i]] = attrValues[i];
+							}
+						});
 					}
 					result.ok = true;
 				} else {
@@ -7133,7 +8924,8 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * Selects nodes matching a query expression.
 	 *
 	 * @param {string} whereExpr - Query expression.
-	 * @param {{asSelector?: boolean}=} [options] - Selector return control.
+	 * @param {object} [options] - Selector return control.
+	 * @param {boolean} [options.asSelector]
 	 * @returns {Uint32Array|NodeSelector} Matching node indices or selector proxy.
 	 */
 	selectNodes(whereExpr, options = {}) {
@@ -7170,7 +8962,8 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * Selects edges matching a query expression.
 	 *
 	 * @param {string} whereExpr - Query expression.
-	 * @param {{asSelector?: boolean}=} [options] - Selector return control.
+	 * @param {object} [options] - Selector return control.
+	 * @param {boolean} [options.asSelector]
 	 * @returns {Uint32Array|EdgeSelector} Matching edge indices or selector proxy.
 	 */
 	selectEdges(whereExpr, options = {}) {
@@ -7292,25 +9085,27 @@ export class HeliosNetwork extends BaseEventTarget {
 
 		const dimension = Math.max(1, Math.floor(info.dimension || 1));
 		const component = Math.min(Math.max(0, Math.floor(order.component || 0)), dimension - 1);
-		const values = scope === 'edge'
-			? this.getEdgeAttributeBuffer(attributeName).view
-			: this.getNodeAttributeBuffer(attributeName).view;
 		const sign = order.descending ? -1 : 1;
 		const indexStride = dimension;
 
-		sorted.sort((a, b) => {
-			const valueA = Number(values[a * indexStride + component]);
-			const valueB = Number(values[b * indexStride + component]);
-			const finiteA = Number.isFinite(valueA);
-			const finiteB = Number.isFinite(valueB);
-			if (finiteA &amp;&amp; finiteB) {
-				if (valueA &lt; valueB) return -1 * sign;
-				if (valueA > valueB) return 1 * sign;
+		this.withBufferAccess(() => {
+			const values = scope === 'edge'
+				? this.getEdgeAttributeBuffer(attributeName).view
+				: this.getNodeAttributeBuffer(attributeName).view;
+			sorted.sort((a, b) => {
+				const valueA = Number(values[a * indexStride + component]);
+				const valueB = Number(values[b * indexStride + component]);
+				const finiteA = Number.isFinite(valueA);
+				const finiteB = Number.isFinite(valueB);
+				if (finiteA &amp;&amp; finiteB) {
+					if (valueA &lt; valueB) return -1 * sign;
+					if (valueA > valueB) return 1 * sign;
+					return a - b;
+				}
+				if (finiteA) return -1;
+				if (finiteB) return 1;
 				return a - b;
-			}
-			if (finiteA) return -1;
-			if (finiteB) return 1;
-			return a - b;
+			});
 		});
 
 		return Uint32Array.from(sorted);
@@ -7577,6 +9372,9 @@ export class HeliosNetwork extends BaseEventTarget {
 
 	_copyNodeToEdgeAttribute(sourceName, destinationName, endpointMode, doubleWidth, cachedMeta = null, cachedPointers = null) {
 		this._ensureActive();
+		if (this.nodeCount === 0 || this.edgeCount === 0) {
+			return;
+		}
 		const sourceMeta = cachedMeta?.sourceMeta ?? this._ensureAttributeMetadata('node', sourceName);
 		const targetMeta = cachedMeta?.targetMeta ?? this._ensureAttributeMetadata('edge', destinationName);
 		if (!sourceMeta || !targetMeta) {
@@ -7596,36 +9394,38 @@ export class HeliosNetwork extends BaseEventTarget {
 		if (targetComponents !== expectedTargetComponents) {
 			throw new Error(`Edge attribute "${destinationName}" must have dimension ${expectedTargetComponents}`);
 		}
-		const sourceBuffer = this.getNodeAttributeBuffer(sourceName);
-		const targetBuffer = this.getEdgeAttributeBuffer(destinationName);
-		if (sourceBuffer.view.constructor !== targetBuffer.view.constructor) {
-			throw new Error('Source and destination attribute storage types must match');
-		}
-		const sourceStrideBytes = cachedMeta?.sourceStrideBytes ?? sourceBuffer.stride;
-		const targetStrideBytes = cachedMeta?.targetStrideBytes ?? targetBuffer.stride;
-		const sourceStride = cachedMeta?.sourceStride ?? Math.max(1, Math.floor(sourceStrideBytes / sourceBuffer.view.BYTES_PER_ELEMENT));
-		const targetStride = cachedMeta?.targetStride ?? Math.max(1, Math.floor(targetStrideBytes / targetBuffer.view.BYTES_PER_ELEMENT));
-		const expectedStride = endpointMode === -1
-			? sourceStride * 2
-			: (doubleWidth ? sourceStride * 2 : sourceStride);
-		if (targetStride !== expectedStride) {
-			throw new Error(`Edge attribute "${destinationName}" stride does not match expected dimension ${expectedStride}`);
-		}
-		const duplicateSingleEndpoint = endpointMode !== -1 &amp;&amp; doubleWidth;
-		const sourcePointers = cachedPointers?.sourcePointers ?? this._attributePointers('node', sourceName, sourceMeta);
-		const targetPointers = cachedPointers?.targetPointers ?? this._attributePointers('edge', destinationName, targetMeta);
-		if (typeof this.module._CXNetworkCopyNodeAttributesToEdgeAttributes !== 'function') {
-			throw new Error('CXNetworkCopyNodeAttributesToEdgeAttributes is unavailable in this WASM build');
-		}
-		this.module._CXNetworkCopyNodeAttributesToEdgeAttributes(
-			this.ptr,
-			sourcePointers.pointer,
-			sourceStrideBytes,
-			targetPointers.pointer,
-			targetStrideBytes,
-			endpointMode,
-			duplicateSingleEndpoint ? 1 : 0
-		);
+		this.withBufferAccess(() => {
+			const sourceBuffer = this.getNodeAttributeBuffer(sourceName);
+			const targetBuffer = this.getEdgeAttributeBuffer(destinationName);
+			if (sourceBuffer.view.constructor !== targetBuffer.view.constructor) {
+				throw new Error('Source and destination attribute storage types must match');
+			}
+			const sourceStrideBytes = cachedMeta?.sourceStrideBytes ?? sourceBuffer.stride;
+			const targetStrideBytes = cachedMeta?.targetStrideBytes ?? targetBuffer.stride;
+			const sourceStride = cachedMeta?.sourceStride ?? Math.max(1, Math.floor(sourceStrideBytes / sourceBuffer.view.BYTES_PER_ELEMENT));
+			const targetStride = cachedMeta?.targetStride ?? Math.max(1, Math.floor(targetStrideBytes / targetBuffer.view.BYTES_PER_ELEMENT));
+			const expectedStride = endpointMode === -1
+				? sourceStride * 2
+				: (doubleWidth ? sourceStride * 2 : sourceStride);
+			if (targetStride !== expectedStride) {
+				throw new Error(`Edge attribute "${destinationName}" stride does not match expected dimension ${expectedStride}`);
+			}
+			const duplicateSingleEndpoint = endpointMode !== -1 &amp;&amp; doubleWidth;
+			const sourcePointers = cachedPointers?.sourcePointers ?? this._attributePointers('node', sourceName, sourceMeta);
+			const targetPointers = cachedPointers?.targetPointers ?? this._attributePointers('edge', destinationName, targetMeta);
+			if (typeof this.module._CXNetworkCopyNodeAttributesToEdgeAttributes !== 'function') {
+				throw new Error('CXNetworkCopyNodeAttributesToEdgeAttributes is unavailable in this WASM build');
+			}
+			this.module._CXNetworkCopyNodeAttributesToEdgeAttributes(
+				this.ptr,
+				sourcePointers.pointer,
+				sourceStrideBytes,
+				targetPointers.pointer,
+				targetStrideBytes,
+				endpointMode,
+				duplicateSingleEndpoint ? 1 : 0
+			);
+		});
 		this._bumpAttributeVersion('edge', destinationName, { op: 'copy' });
 	}
 
@@ -7648,6 +9448,10 @@ export class HeliosNetwork extends BaseEventTarget {
 	}
 
 	_markPassthroughEdgesDirtyForNode(sourceName) {
+		if (this._bufferSessionDepth > 0) {
+			this._pendingPassthroughSourceUpdates.add(sourceName);
+			return;
+		}
 		const dependents = this._nodeAttributeDependents.get(sourceName);
 		if (!dependents) return;
 		for (const edgeName of dependents) {
@@ -7659,11 +9463,33 @@ export class HeliosNetwork extends BaseEventTarget {
 	}
 
 	_markAllPassthroughEdgesDirty() {
+		if (this._bufferSessionDepth > 0) {
+			this._pendingPassthroughFullRefresh = true;
+			this._pendingPassthroughSourceUpdates.clear();
+			return;
+		}
 		for (const edgeName of this._nodeToEdgePassthrough.keys()) {
 			const entry = this._nodeToEdgePassthrough.get(edgeName);
 			if (entry) {
 				this._copyNodeToEdgeAttribute(entry.sourceName, edgeName, entry.endpointMode, entry.doubleWidth);
 			}
+		}
+	}
+
+	_flushPendingPassthroughUpdates() {
+		if (this._pendingPassthroughFullRefresh) {
+			this._pendingPassthroughFullRefresh = false;
+			this._pendingPassthroughSourceUpdates.clear();
+			this._markAllPassthroughEdgesDirty();
+			return;
+		}
+		if (!this._pendingPassthroughSourceUpdates.size) {
+			return;
+		}
+		const sources = [...this._pendingPassthroughSourceUpdates];
+		this._pendingPassthroughSourceUpdates.clear();
+		for (const sourceName of sources) {
+			this._markPassthroughEdgesDirtyForNode(sourceName);
 		}
 	}
 
@@ -7689,8 +9515,10 @@ export class HeliosNetwork extends BaseEventTarget {
 			throw new Error('CXNetworkCompact is not available in this WASM build. Rebuild the module to enable compact().');
 		}
 
-		const nodeIndices = this.nodeIndices;
-		const edgeIndices = this.edgeIndices;
+		const { nodeIndices, edgeIndices } = this.withBufferAccess(() => ({
+			nodeIndices: this.nodeIndices.slice(),
+			edgeIndices: this.edgeIndices.slice(),
+		}), { nodeIndices: true, edgeIndices: true });
 		const nodeRemap = this._buildRemapFromIndices(nodeIndices);
 		const edgeRemap = this._buildRemapFromIndices(edgeIndices);
 
@@ -7764,6 +9592,7 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * @param {object} [options]
 	 * @param {(number|string)} [options.direction='both'] - out/in/both
 	 * @param {Array&lt;number>|TypedArray|null} [options.nodes=null] - Optional node subset.
+	 * @param {string|null} [options.outNodeAttribute=null] - Optional node attribute name to store degree values.
 	 * @returns {{nodeIndices:Uint32Array, values:Float32Array, valuesByNode:Float32Array, direction:number}}
 	 */
 	measureDegree(options = {}) {
@@ -7774,7 +9603,8 @@ export class HeliosNetwork extends BaseEventTarget {
 		}
 
 		const direction = this._normalizeNeighborDirection(options.direction ?? 'both');
-		const outPtr = this.module._malloc(this.nodeCapacity * Float32Array.BYTES_PER_ELEMENT);
+		const output = this._resolveNodeMetricOutputAttribute(options.outNodeAttribute ?? null, AttributeType.Float, 'Float');
+		const outPtr = output?.pointer ?? this.module._malloc(this.nodeCapacity * Float32Array.BYTES_PER_ELEMENT);
 		if (!outPtr) {
 			throw new Error('Failed to allocate WASM buffer for degree measurement');
 		}
@@ -7783,11 +9613,16 @@ export class HeliosNetwork extends BaseEventTarget {
 			if (!ok) {
 				throw new Error('Degree measurement failed');
 			}
-			const valuesByNode = new Float32Array(this.module.HEAPF32.buffer, outPtr, this.nodeCapacity).slice();
+			const valuesByNode = this._copyFloat32NodeValuesFromPointer(outPtr);
+			if (output) {
+				this._bumpAttributeVersion('node', output.name, { op: 'set' });
+			}
 			const result = this._collectNodeMetricResult(valuesByNode, options.nodes ?? null);
 			return { ...result, direction };
 		} finally {
-			this.module._free(outPtr);
+			if (!output) {
+				this.module._free(outPtr);
+			}
 		}
 	}
 
@@ -7799,6 +9634,7 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * @param {(number|string)} [options.direction='both'] - out/in/both
 	 * @param {(number|string)} [options.measure='sum'] - sum/average/maximum/minimum
 	 * @param {Array&lt;number>|TypedArray|null} [options.nodes=null] - Optional node subset.
+	 * @param {string|null} [options.outNodeAttribute=null] - Optional node attribute name to store strength values.
 	 * @returns {{nodeIndices:Uint32Array, values:Float32Array, valuesByNode:Float32Array, direction:number, measure:number}}
 	 */
 	measureStrength(options = {}) {
@@ -7811,8 +9647,9 @@ export class HeliosNetwork extends BaseEventTarget {
 		const direction = this._normalizeNeighborDirection(options.direction ?? 'both');
 		const measure = this._normalizeStrengthMeasure(options.measure ?? 'sum');
 		const edgeWeightAttribute = options.edgeWeightAttribute ?? null;
+		const output = this._resolveNodeMetricOutputAttribute(options.outNodeAttribute ?? null, AttributeType.Float, 'Float');
 		const weightName = edgeWeightAttribute ? new CString(this.module, String(edgeWeightAttribute)) : null;
-		const outPtr = this.module._malloc(this.nodeCapacity * Float32Array.BYTES_PER_ELEMENT);
+		const outPtr = output?.pointer ?? this.module._malloc(this.nodeCapacity * Float32Array.BYTES_PER_ELEMENT);
 		if (!outPtr) {
 			if (weightName) weightName.dispose();
 			throw new Error('Failed to allocate WASM buffer for strength measurement');
@@ -7828,11 +9665,16 @@ export class HeliosNetwork extends BaseEventTarget {
 			if (!ok) {
 				throw new Error('Strength measurement failed');
 			}
-			const valuesByNode = new Float32Array(this.module.HEAPF32.buffer, outPtr, this.nodeCapacity).slice();
+			const valuesByNode = this._copyFloat32NodeValuesFromPointer(outPtr);
+			if (output) {
+				this._bumpAttributeVersion('node', output.name, { op: 'set' });
+			}
 			const result = this._collectNodeMetricResult(valuesByNode, options.nodes ?? null);
 			return { ...result, direction, measure };
 		} finally {
-			this.module._free(outPtr);
+			if (!output) {
+				this.module._free(outPtr);
+			}
 			if (weightName) {
 				weightName.dispose();
 			}
@@ -7847,6 +9689,7 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * @param {string|null} [options.edgeWeightAttribute=null] - Required for weighted variants.
 	 * @param {(number|string)} [options.direction='both'] - out/in/both
 	 * @param {Array&lt;number>|TypedArray|null} [options.nodes=null] - Optional node subset.
+	 * @param {string|null} [options.outNodeAttribute=null] - Optional node attribute name to store local clustering values.
 	 * @returns {{nodeIndices:Uint32Array, values:Float32Array, valuesByNode:Float32Array, direction:number, variant:number}}
 	 */
 		measureLocalClusteringCoefficient(options = {}) {
@@ -7859,8 +9702,9 @@ export class HeliosNetwork extends BaseEventTarget {
 		const direction = this._normalizeNeighborDirection(options.direction ?? 'both');
 		const variant = this._normalizeClusteringVariant(options.variant ?? 'unweighted');
 		const edgeWeightAttribute = options.edgeWeightAttribute ?? null;
+		const output = this._resolveNodeMetricOutputAttribute(options.outNodeAttribute ?? null, AttributeType.Float, 'Float');
 		const weightName = edgeWeightAttribute ? new CString(this.module, String(edgeWeightAttribute)) : null;
-		const outPtr = this.module._malloc(this.nodeCapacity * Float32Array.BYTES_PER_ELEMENT);
+		const outPtr = output?.pointer ?? this.module._malloc(this.nodeCapacity * Float32Array.BYTES_PER_ELEMENT);
 		if (!outPtr) {
 			if (weightName) weightName.dispose();
 			throw new Error('Failed to allocate WASM buffer for clustering measurement');
@@ -7876,11 +9720,16 @@ export class HeliosNetwork extends BaseEventTarget {
 			if (!ok) {
 				throw new Error('Local clustering coefficient measurement failed');
 			}
-			const valuesByNode = new Float32Array(this.module.HEAPF32.buffer, outPtr, this.nodeCapacity).slice();
+			const valuesByNode = this._copyFloat32NodeValuesFromPointer(outPtr);
+			if (output) {
+				this._bumpAttributeVersion('node', output.name, { op: 'set' });
+			}
 			const result = this._collectNodeMetricResult(valuesByNode, options.nodes ?? null);
 			return { ...result, direction, variant };
 		} finally {
-			this.module._free(outPtr);
+			if (!output) {
+				this.module._free(outPtr);
+			}
 			if (weightName) {
 				weightName.dispose();
 			}
@@ -7909,12 +9758,16 @@ export class HeliosNetwork extends BaseEventTarget {
 				options.executionMode ?? 'single-thread',
 				MeasurementExecutionMode.SingleThread
 			);
-			const outNodeCorenessAttribute = options.outNodeCorenessAttribute ?? null;
+			const output = this._resolveNodeMetricOutputAttribute(
+				options.outNodeCorenessAttribute ?? null,
+				AttributeType.UnsignedInteger,
+				'UnsignedInteger'
+			);
 
-			const outPtr = this.module._malloc(this.nodeCapacity * Uint32Array.BYTES_PER_ELEMENT);
+			const outPtr = output?.pointer ?? this.module._malloc(this.nodeCapacity * Uint32Array.BYTES_PER_ELEMENT);
 			const maxCorePtr = this.module._malloc(Uint32Array.BYTES_PER_ELEMENT);
 			if (!outPtr || !maxCorePtr) {
-				if (outPtr) this.module._free(outPtr);
+				if (!output &amp;&amp; outPtr) this.module._free(outPtr);
 				if (maxCorePtr) this.module._free(maxCorePtr);
 				throw new Error('Failed to allocate WASM buffers for coreness measurement');
 			}
@@ -7934,24 +9787,16 @@ export class HeliosNetwork extends BaseEventTarget {
 					throw new Error('Coreness measurement failed');
 				}
 				maxCore = this.module.HEAPU32[maxCorePtr / Uint32Array.BYTES_PER_ELEMENT] ?? 0;
-				valuesByNode = new Uint32Array(this.module.HEAPU32.buffer, outPtr, this.nodeCapacity).slice();
+				valuesByNode = this._copyUint32NodeValuesFromPointer(outPtr);
 			} finally {
-				this.module._free(outPtr);
+				if (!output) {
+					this.module._free(outPtr);
+				}
 				this.module._free(maxCorePtr);
 			}
 
-			if (outNodeCorenessAttribute) {
-				if (!this._nodeAttributes.has(outNodeCorenessAttribute)) {
-					this.defineNodeAttribute(outNodeCorenessAttribute, AttributeType.UnsignedInteger, 1);
-				} else {
-					const meta = this._nodeAttributes.get(outNodeCorenessAttribute);
-					if (meta &amp;&amp; meta.type !== AttributeType.UnsignedInteger) {
-						throw new Error(`Node attribute "${outNodeCorenessAttribute}" must be UnsignedInteger`);
-					}
-				}
-				const { view, bumpVersion } = this.getNodeAttributeBuffer(outNodeCorenessAttribute);
-				view.set(valuesByNode);
-				bumpVersion();
+			if (output) {
+				this._bumpAttributeVersion('node', output.name, { op: 'set' });
 			}
 
 			const result = this._collectNodeMetricResultUint32(valuesByNode, options.nodes ?? null);
@@ -8009,6 +9854,7 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * @param {number} [options.tolerance=1e-6]
 	 * @param {Float32Array|Array&lt;number>|null} [options.initialValues=null] - Optional node-capacity-sized initial vector.
 	 * @param {Array&lt;number>|TypedArray|null} [options.nodes=null] - Optional node subset.
+	 * @param {string|null} [options.outNodeAttribute=null] - Optional node attribute name to store eigenvector values.
 	 * @returns {{nodeIndices:Uint32Array, values:Float32Array, valuesByNode:Float32Array, direction:number, eigenvalue:number, delta:number, iterations:number, converged:boolean}}
 	 */
 	measureEigenvectorCentrality(options = {}) {
@@ -8026,16 +9872,17 @@ export class HeliosNetwork extends BaseEventTarget {
 		const maxIterations = Math.max(1, (options.maxIterations ?? 100) | 0);
 		const tolerance = Number.isFinite(options.tolerance) ? Number(options.tolerance) : 1e-6;
 		const edgeWeightAttribute = options.edgeWeightAttribute ?? null;
+		const output = this._resolveNodeMetricOutputAttribute(options.outNodeAttribute ?? null, AttributeType.Float, 'Float');
 		const weightName = edgeWeightAttribute ? new CString(this.module, String(edgeWeightAttribute)) : null;
 		const initialInfo = this._copyFloat32NodeValuesToWasm(options.initialValues ?? null);
 
-		const outPtr = this.module._malloc(this.nodeCapacity * Float32Array.BYTES_PER_ELEMENT);
+		const outPtr = output?.pointer ?? this.module._malloc(this.nodeCapacity * Float32Array.BYTES_PER_ELEMENT);
 		const eigenvaluePtr = this.module._malloc(Float64Array.BYTES_PER_ELEMENT);
 		const deltaPtr = this.module._malloc(Float64Array.BYTES_PER_ELEMENT);
 		const iterationsPtr = this.module._malloc(Uint32Array.BYTES_PER_ELEMENT);
 		const convergedPtr = this.module._malloc(Uint32Array.BYTES_PER_ELEMENT);
 		if (!outPtr || !eigenvaluePtr || !deltaPtr || !iterationsPtr || !convergedPtr) {
-			if (outPtr) this.module._free(outPtr);
+			if (!output &amp;&amp; outPtr) this.module._free(outPtr);
 			if (eigenvaluePtr) this.module._free(eigenvaluePtr);
 			if (deltaPtr) this.module._free(deltaPtr);
 			if (iterationsPtr) this.module._free(iterationsPtr);
@@ -8069,7 +9916,10 @@ export class HeliosNetwork extends BaseEventTarget {
 				throw new Error('Eigenvector centrality measurement failed');
 			}
 
-			const valuesByNode = new Float32Array(this.module.HEAPF32.buffer, outPtr, this.nodeCapacity).slice();
+			const valuesByNode = this._copyFloat32NodeValuesFromPointer(outPtr);
+			if (output) {
+				this._bumpAttributeVersion('node', output.name, { op: 'set' });
+			}
 			const result = this._collectNodeMetricResult(valuesByNode, options.nodes ?? null);
 			const eigenvalue = this.module.HEAPF64[eigenvaluePtr / Float64Array.BYTES_PER_ELEMENT] ?? 0;
 			const delta = this.module.HEAPF64[deltaPtr / Float64Array.BYTES_PER_ELEMENT] ?? 0;
@@ -8084,7 +9934,9 @@ export class HeliosNetwork extends BaseEventTarget {
 				converged,
 			};
 		} finally {
-			this.module._free(outPtr);
+			if (!output) {
+				this.module._free(outPtr);
+			}
 			this.module._free(eigenvaluePtr);
 			this.module._free(deltaPtr);
 			this.module._free(iterationsPtr);
@@ -8107,6 +9959,7 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * @param {boolean} [options.accumulate=false] - Add into `initialValues` instead of resetting.
 	 * @param {Float32Array|Array&lt;number>|null} [options.initialValues=null] - Optional node-capacity-sized seed values.
 	 * @param {Array&lt;number>|TypedArray|null} [options.nodes=null] - Optional node subset for returned vector.
+	 * @param {string|null} [options.outNodeAttribute=null] - Optional node attribute name to store betweenness values.
 	 * @returns {{nodeIndices:Uint32Array, values:Float32Array, valuesByNode:Float32Array, processedSources:number, normalize:boolean, accumulate:boolean}}
 	 */
 	measureBetweennessCentrality(options = {}) {
@@ -8123,11 +9976,12 @@ export class HeliosNetwork extends BaseEventTarget {
 		const normalize = options.normalize !== false;
 		const accumulate = options.accumulate === true;
 		const edgeWeightAttribute = options.edgeWeightAttribute ?? null;
+		const output = this._resolveNodeMetricOutputAttribute(options.outNodeAttribute ?? null, AttributeType.Float, 'Float');
 		const weightName = edgeWeightAttribute ? new CString(this.module, String(edgeWeightAttribute)) : null;
 		const sourceInfo = this._copyIndicesToWasm(options.sourceNodes ?? null);
 		const initialInfo = this._copyFloat32NodeValuesToWasm(options.initialValues ?? null);
 
-		const outPtr = this.module._malloc(this.nodeCapacity * Float32Array.BYTES_PER_ELEMENT);
+		const outPtr = output?.pointer ?? this.module._malloc(this.nodeCapacity * Float32Array.BYTES_PER_ELEMENT);
 		if (!outPtr) {
 			if (weightName) weightName.dispose();
 			sourceInfo.dispose();
@@ -8158,7 +10012,10 @@ export class HeliosNetwork extends BaseEventTarget {
 				outPtr
 			) >>> 0;
 
-			const valuesByNode = new Float32Array(this.module.HEAPF32.buffer, outPtr, this.nodeCapacity).slice();
+			const valuesByNode = this._copyFloat32NodeValuesFromPointer(outPtr);
+			if (output) {
+				this._bumpAttributeVersion('node', output.name, { op: 'set' });
+			}
 			const result = this._collectNodeMetricResult(valuesByNode, options.nodes ?? null);
 			return {
 				...result,
@@ -8167,7 +10024,9 @@ export class HeliosNetwork extends BaseEventTarget {
 				accumulate,
 			};
 		} finally {
-			this.module._free(outPtr);
+			if (!output) {
+				this.module._free(outPtr);
+			}
 			if (weightName) {
 				weightName.dispose();
 			}
@@ -8195,11 +10054,15 @@ export class HeliosNetwork extends BaseEventTarget {
 		}
 
 		const mode = this._normalizeConnectedComponentsMode(options.mode ?? 'weak');
-		const outNodeComponentAttribute = options.outNodeComponentAttribute ?? null;
-		const outPtr = this.module._malloc(this.nodeCapacity * Uint32Array.BYTES_PER_ELEMENT);
+		const output = this._resolveNodeMetricOutputAttribute(
+			options.outNodeComponentAttribute ?? null,
+			AttributeType.UnsignedInteger,
+			'UnsignedInteger'
+		);
+		const outPtr = output?.pointer ?? this.module._malloc(this.nodeCapacity * Uint32Array.BYTES_PER_ELEMENT);
 		const largestComponentSizePtr = this.module._malloc(Uint32Array.BYTES_PER_ELEMENT);
 		if (!outPtr || !largestComponentSizePtr) {
-			if (outPtr) this.module._free(outPtr);
+			if (!output &amp;&amp; outPtr) this.module._free(outPtr);
 			if (largestComponentSizePtr) this.module._free(largestComponentSizePtr);
 			throw new Error('Failed to allocate WASM buffers for connected components measurement');
 		}
@@ -8216,24 +10079,16 @@ export class HeliosNetwork extends BaseEventTarget {
 				largestComponentSizePtr
 			) >>> 0;
 			largestComponentSize = this.module.HEAPU32[largestComponentSizePtr / Uint32Array.BYTES_PER_ELEMENT] ?? 0;
-			valuesByNode = new Uint32Array(this.module.HEAPU32.buffer, outPtr, this.nodeCapacity).slice();
+			valuesByNode = this._copyUint32NodeValuesFromPointer(outPtr);
 		} finally {
-			this.module._free(outPtr);
+			if (!output) {
+				this.module._free(outPtr);
+			}
 			this.module._free(largestComponentSizePtr);
 		}
 
-		if (outNodeComponentAttribute) {
-			if (!this._nodeAttributes.has(outNodeComponentAttribute)) {
-				this.defineNodeAttribute(outNodeComponentAttribute, AttributeType.UnsignedInteger, 1);
-			} else {
-				const meta = this._nodeAttributes.get(outNodeComponentAttribute);
-				if (meta &amp;&amp; meta.type !== AttributeType.UnsignedInteger) {
-					throw new Error(`Node attribute "${outNodeComponentAttribute}" must be UnsignedInteger`);
-				}
-			}
-			const { view, bumpVersion } = this.getNodeAttributeBuffer(outNodeComponentAttribute);
-			view.set(valuesByNode);
-			bumpVersion();
+		if (output) {
+			this._bumpAttributeVersion('node', output.name, { op: 'set' });
 		}
 
 		const result = this._collectNodeMetricResultUint32(valuesByNode, options.nodes ?? null);
@@ -8321,7 +10176,7 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * @param {number} [options.minSize=1] - Minimum number of nodes per returned component.
 	 * @param {boolean} [options.asNetworks=false] - Build one induced HeliosNetwork per component.
 	 * @param {string|null} [options.outNodeComponentAttribute='component'] - Attribute to store component ids before extraction (set null to skip).
-	 * @returns {Array&lt;{componentId:number,size:number,nodeIndices:Uint32Array,edgeIndices:Uint32Array,network?:HeliosNetwork}>}
+	 * @returns {Array.&lt;object>} Component records.
 	 */
 	extractConnectedComponents(options = {}) {
 		this._ensureActive();
@@ -8337,7 +10192,7 @@ export class HeliosNetwork extends BaseEventTarget {
 			outNodeComponentAttribute,
 		});
 		const valuesByNode = measured.valuesByNode;
-		const activeNodes = this.nodeIndices;
+		const activeNodes = this.withBufferAccess(() => this.nodeIndices.slice(), { nodeIndices: true });
 		const groups = new Map();
 		for (let i = 0; i &lt; activeNodes.length; i += 1) {
 			const node = activeNodes[i];
@@ -8388,7 +10243,7 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * @param {(number|string)} [options.mode='weak'] - weak/strong
 	 * @param {boolean} [options.asNetwork=true] - Return an induced network object when true.
 	 * @param {string|null} [options.outNodeComponentAttribute='component'] - Attribute to store component ids before extraction.
-	 * @returns {{componentId:number,size:number,nodeIndices:Uint32Array,edgeIndices:Uint32Array,network?:HeliosNetwork}|null}
+	 * @returns {object|null} Largest component record, or null when no component matches.
 	 */
 	extractLargestConnectedComponent(options = {}) {
 		const {
@@ -8788,6 +10643,12 @@ export class HeliosNetwork extends BaseEventTarget {
 				funcLabel = 'ReadXNet';
 				humanLabel = '.xnet';
 				break;
+			case 'gml':
+				extension = 'gml';
+				readFn = module._CXNetworkReadGML;
+				funcLabel = 'ReadGML';
+				humanLabel = '.gml';
+				break;
 			default:
 				throw new Error(`Unsupported serialization kind: ${kind}`);
 		}
@@ -8845,6 +10706,9 @@ export class HeliosNetwork extends BaseEventTarget {
 
 		if (!networkPtr) {
 			throw new Error(`Failed to read ${humanLabel} data`);
+		}
+		if (kind === 'gml') {
+			HeliosNetwork._emitSerializationWarning(module);
 		}
 		return HeliosNetwork._wrapNative(module, networkPtr);
 	}
@@ -8925,8 +10789,25 @@ export class HeliosNetwork extends BaseEventTarget {
 				filteredLabel = 'WriteXNetFiltered';
 				humanLabel = '.xnet';
 				break;
+			case 'gml':
+				writeFn = module._CXNetworkWriteGML;
+				filteredWriteFn = null;
+				funcLabel = 'WriteGML';
+				filteredLabel = null;
+				humanLabel = '.gml';
+				break;
+			case 'node-link-json':
+				writeFn = module._CXNetworkWriteNodeLinkJSON;
+				filteredWriteFn = null;
+				funcLabel = 'WriteNodeLinkJSON';
+				filteredLabel = null;
+				humanLabel = 'node-link JSON';
+				break;
 			default:
 				throw new Error(`Unsupported serialization kind: ${kind}`);
+		}
+		if (useFilters &amp;&amp; !filteredWriteFn) {
+			throw new Error(`${humanLabel} serialization does not support allowAttributes/ignoreAttributes filters`);
 		}
 		const selectedWriteFn = useFilters ? filteredWriteFn : writeFn;
 		const selectedLabel = useFilters ? filteredLabel : funcLabel;
@@ -9079,6 +10960,9 @@ export class HeliosNetwork extends BaseEventTarget {
 			}
 			throw new Error(`Failed to write ${humanLabel} data`);
 		}
+		if (kind === 'gml' || kind === 'node-link-json') {
+			HeliosNetwork._emitSerializationWarning(module);
+		}
 
 		let bytes = null;
 		if (canUseVirtualFS) {
@@ -9129,6 +11013,22 @@ export class HeliosNetwork extends BaseEventTarget {
 				: new Uint8Array(buffer);
 		}
 		return bytesToFormat(bytes, format);
+	}
+
+	static _emitSerializationWarning(module) {
+		const warningFn = module?._CXNetworkSerializationLastWarningMessage;
+		const decode = module?.UTF8ToString;
+		if (typeof warningFn !== 'function' || typeof decode !== 'function') {
+			return;
+		}
+		const ptr = warningFn.call(module);
+		if (!ptr) {
+			return;
+		}
+		const message = decode(ptr);
+		if (message) {
+			console.warn(`[Helios serialization] ${message}`);
+		}
 	}
 }
 

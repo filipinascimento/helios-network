@@ -4022,7 +4022,7 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * Moves active nodes to the end of the native active index order.
 	 *
 	 * @param {Iterable<number>|Uint32Array} indices - Node indices to promote.
-	 * @returns {{changed:boolean,start:number,count:number,version:string|number}}
+	 * @returns {object} Dirty range metadata.
 	 */
 	promoteActiveNodesToRenderEnd(indices) {
 		return this._promoteActiveRenderOrder('node', indices, '_CXNetworkPromoteActiveNodesToRenderEnd');
@@ -4032,7 +4032,7 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * Moves active edges to the end of the native active index order.
 	 *
 	 * @param {Iterable<number>|Uint32Array} indices - Edge indices to promote.
-	 * @returns {{changed:boolean,start:number,count:number,version:string|number}}
+	 * @returns {object} Dirty range metadata.
 	 */
 	promoteActiveEdgesToRenderEnd(indices) {
 		return this._promoteActiveRenderOrder('edge', indices, '_CXNetworkPromoteActiveEdgesToRenderEnd');
@@ -4042,8 +4042,9 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * Moves active edges incident to the supplied nodes to the end of the native active edge order.
 	 *
 	 * @param {Iterable<number>|Uint32Array} nodeIndices - Node indices whose incident active edges should be promoted.
-	 * @param {{direction?:'out'|'in'|'both'|number}} [options]
-	 * @returns {{changed:boolean,start:number,count:number,version:string|number}}
+	 * @param {object} [options]
+	 * @param {string|number} [options.direction='both'] - out/in/both direction.
+	 * @returns {object} Dirty range metadata.
 	 */
 	promoteActiveEdgesForNodesToRenderEnd(nodeIndices, options = {}) {
 		const rawDirection = options?.direction ?? 'both';
@@ -4469,8 +4470,8 @@ export class HeliosNetwork extends BaseEventTarget {
 	}
 
 	/**
-	 * @private
 	 * Writes active indices into a caller-provided WASM buffer.
+	 * @private
 	 */
 	_writeActiveIndices(target, writer, label) {
 		this._ensureActive();
@@ -4593,7 +4594,12 @@ export class HeliosNetwork extends BaseEventTarget {
 	 *
 	 * @param {string} name - Node attribute name.
 	 * @param {Float32Array|number[]} target - Target values (length = nodeCapacity * dimension).
-	 * @param {{elapsedMs?:number,layoutElapsedMs?:number,smoothing?:number,minDisplacementRatio?:number,emitEvent?:boolean}} [options]
+	 * @param {object} [options]
+	 * @param {number} [options.elapsedMs]
+	 * @param {number} [options.layoutElapsedMs]
+	 * @param {number} [options.smoothing]
+	 * @param {number} [options.minDisplacementRatio]
+	 * @param {boolean} [options.emitEvent]
 	 * @returns {boolean} True when further interpolation steps are recommended.
 	 */
 	interpolateNodeAttribute(name, target, options = {}) {
@@ -5079,7 +5085,7 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * @param {boolean} [options.includeEdges=true] - Include traversed edge ids.
 	 * @param {boolean} [options.includeSourceNodes=true] - Allow source nodes in results.
 	 * @param {boolean} [options.asSelector=false] - Return selectors instead of arrays.
-	 * @returns {(Uint32Array|NodeSelector)|{nodes:(Uint32Array|NodeSelector),edges:(Uint32Array|EdgeSelector)}}
+	 * @returns {Uint32Array|NodeSelector|object}
 	 */
 	getNeighborsForNodes(sourceNodes, options = {}) {
 		const {
@@ -5108,7 +5114,7 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * @param {boolean} [options.includeEdges=true] - Include traversed edge ids.
 	 * @param {boolean} [options.includeSourceNodes=false] - Allow source nodes in results.
 	 * @param {boolean} [options.asSelector=false] - Return selectors instead of arrays.
-	 * @returns {(Uint32Array|NodeSelector)|{nodes:(Uint32Array|NodeSelector),edges:(Uint32Array|EdgeSelector)}}
+	 * @returns {Uint32Array|NodeSelector|object}
 	 */
 	getNeighborsAtLevel(sourceNodes, level, options = {}) {
 		const {
@@ -5142,7 +5148,7 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * @param {boolean} [options.includeEdges=true] - Include traversed edge ids.
 	 * @param {boolean} [options.includeSourceNodes=false] - Allow source nodes in results.
 	 * @param {boolean} [options.asSelector=false] - Return selectors instead of arrays.
-	 * @returns {(Uint32Array|NodeSelector)|{nodes:(Uint32Array|NodeSelector),edges:(Uint32Array|EdgeSelector)}}
+	 * @returns {Uint32Array|NodeSelector|object}
 	 */
 	getNeighborsUpToLevel(sourceNodes, maxLevel, options = {}) {
 		const {
@@ -5636,8 +5642,9 @@ export class HeliosNetwork extends BaseEventTarget {
 	/**
 	 * Returns categorical dictionary entries for a node attribute.
 	 * @param {string} name - Attribute identifier.
-	 * @param {{sortById?:boolean}=} options - Optional sort control.
-	 * @returns {{entries:{id:number,label:string}[], ids:number[], labels:string[]}}
+	 * @param {object} [options] - Optional sort control.
+	 * @param {boolean} [options.sortById]
+	 * @returns {object} Dictionary entries, ids, and labels.
 	 */
 	getNodeAttributeCategoryDictionary(name, options) {
 		return this._getAttributeCategoryDictionary('node', name, options);
@@ -5646,8 +5653,9 @@ export class HeliosNetwork extends BaseEventTarget {
 	/**
 	 * Returns categorical dictionary entries for an edge attribute.
 	 * @param {string} name - Attribute identifier.
-	 * @param {{sortById?:boolean}=} options - Optional sort control.
-	 * @returns {{entries:{id:number,label:string}[], ids:number[], labels:string[]}}
+	 * @param {object} [options] - Optional sort control.
+	 * @param {boolean} [options.sortById]
+	 * @returns {object} Dictionary entries, ids, and labels.
 	 */
 	getEdgeAttributeCategoryDictionary(name, options) {
 		return this._getAttributeCategoryDictionary('edge', name, options);
@@ -5656,8 +5664,9 @@ export class HeliosNetwork extends BaseEventTarget {
 	/**
 	 * Returns categorical dictionary entries for a network attribute.
 	 * @param {string} name - Attribute identifier.
-	 * @param {{sortById?:boolean}=} options - Optional sort control.
-	 * @returns {{entries:{id:number,label:string}[], ids:number[], labels:string[]}}
+	 * @param {object} [options] - Optional sort control.
+	 * @param {boolean} [options.sortById]
+	 * @returns {object} Dictionary entries, ids, and labels.
 	 */
 	getNetworkAttributeCategoryDictionary(name, options) {
 		return this._getAttributeCategoryDictionary('network', name, options);
@@ -5666,8 +5675,9 @@ export class HeliosNetwork extends BaseEventTarget {
 	/**
 	 * Replaces the categorical dictionary for a node attribute.
 	 * @param {string} name - Attribute identifier.
-	 * @param {(string|{id:number,label:string})[]} entries - Labels or {id,label} entries.
-	 * @param {{remapExisting?:boolean}=} options - When true, remaps stored codes to the new ids.
+	 * @param {Array.<string|object>} entries - Labels or {id,label} entries.
+	 * @param {object} [options] - Dictionary update options.
+	 * @param {boolean} [options.remapExisting] - When true, remaps stored codes to the new ids.
 	 * @returns {boolean} Whether the update succeeded.
 	 */
 	setNodeAttributeCategoryDictionary(name, entries, options) {
@@ -5677,8 +5687,9 @@ export class HeliosNetwork extends BaseEventTarget {
 	/**
 	 * Replaces the categorical dictionary for an edge attribute.
 	 * @param {string} name - Attribute identifier.
-	 * @param {(string|{id:number,label:string})[]} entries - Labels or {id,label} entries.
-	 * @param {{remapExisting?:boolean}=} options - When true, remaps stored codes to the new ids.
+	 * @param {Array.<string|object>} entries - Labels or {id,label} entries.
+	 * @param {object} [options] - Dictionary update options.
+	 * @param {boolean} [options.remapExisting] - When true, remaps stored codes to the new ids.
 	 * @returns {boolean} Whether the update succeeded.
 	 */
 	setEdgeAttributeCategoryDictionary(name, entries, options) {
@@ -5688,8 +5699,9 @@ export class HeliosNetwork extends BaseEventTarget {
 	/**
 	 * Replaces the categorical dictionary for a network attribute.
 	 * @param {string} name - Attribute identifier.
-	 * @param {(string|{id:number,label:string})[]} entries - Labels or {id,label} entries.
-	 * @param {{remapExisting?:boolean}=} options - When true, remaps stored codes to the new ids.
+	 * @param {Array.<string|object>} entries - Labels or {id,label} entries.
+	 * @param {object} [options] - Dictionary update options.
+	 * @param {boolean} [options.remapExisting] - When true, remaps stored codes to the new ids.
 	 * @returns {boolean} Whether the update succeeded.
 	 */
 	setNetworkAttributeCategoryDictionary(name, entries, options) {
@@ -7674,7 +7686,7 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * the normal indirect buffer path.
 	 *
 	 * @param {string|null} [edgeWeightAttribute=null]
-	 * @returns {{name:string, version:number, edgeWeightAttribute:string|null}}
+	 * @returns {object} Resolved layout-strength attribute metadata.
 	 */
 	__heliosResolveLayoutStrengthAttribute(edgeWeightAttribute = null) {
 		this._ensureActive();
@@ -8430,7 +8442,8 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * - result sets are captured as `varName = ADD_NODES ...` or `varName = ADD_EDGES ...`.
 	 *
 	 * @param {string} text - Batch payload.
-	 * @param {{stopOnError?: boolean}=} [options]
+	 * @param {object} [options]
+	 * @param {boolean} [options.stopOnError]
 	 * @returns {{results:Array, variables:Object}} Execution results and captured variables.
 	 */
 	applyTextBatch(text, options = {}) {
@@ -8624,7 +8637,8 @@ export class HeliosNetwork extends BaseEventTarget {
 	 *   u32[idCount] ids, f64[valueCount] values
 	 *
 	 * @param {ArrayBuffer|Uint8Array} data - Binary batch.
-	 * @param {{stopOnError?: boolean}=} [options]
+	 * @param {object} [options]
+	 * @param {boolean} [options.stopOnError]
 	 * @returns {{results:Array, slots:Map<number, Uint32Array>}} Execution results and result slots.
 	 */
 	applyBinaryBatch(data, options = {}) {
@@ -8819,7 +8833,8 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * Selects nodes matching a query expression.
 	 *
 	 * @param {string} whereExpr - Query expression.
-	 * @param {{asSelector?: boolean}=} [options] - Selector return control.
+	 * @param {object} [options] - Selector return control.
+	 * @param {boolean} [options.asSelector]
 	 * @returns {Uint32Array|NodeSelector} Matching node indices or selector proxy.
 	 */
 	selectNodes(whereExpr, options = {}) {
@@ -8856,7 +8871,8 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * Selects edges matching a query expression.
 	 *
 	 * @param {string} whereExpr - Query expression.
-	 * @param {{asSelector?: boolean}=} [options] - Selector return control.
+	 * @param {object} [options] - Selector return control.
+	 * @param {boolean} [options.asSelector]
 	 * @returns {Uint32Array|EdgeSelector} Matching edge indices or selector proxy.
 	 */
 	selectEdges(whereExpr, options = {}) {
@@ -10069,7 +10085,7 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * @param {number} [options.minSize=1] - Minimum number of nodes per returned component.
 	 * @param {boolean} [options.asNetworks=false] - Build one induced HeliosNetwork per component.
 	 * @param {string|null} [options.outNodeComponentAttribute='component'] - Attribute to store component ids before extraction (set null to skip).
-	 * @returns {Array<{componentId:number,size:number,nodeIndices:Uint32Array,edgeIndices:Uint32Array,network?:HeliosNetwork}>}
+	 * @returns {Array.<object>} Component records.
 	 */
 	extractConnectedComponents(options = {}) {
 		this._ensureActive();
@@ -10136,7 +10152,7 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * @param {(number|string)} [options.mode='weak'] - weak/strong
 	 * @param {boolean} [options.asNetwork=true] - Return an induced network object when true.
 	 * @param {string|null} [options.outNodeComponentAttribute='component'] - Attribute to store component ids before extraction.
-	 * @returns {{componentId:number,size:number,nodeIndices:Uint32Array,edgeIndices:Uint32Array,network?:HeliosNetwork}|null}
+	 * @returns {object|null} Largest component record, or null when no component matches.
 	 */
 	extractLargestConnectedComponent(options = {}) {
 		const {
