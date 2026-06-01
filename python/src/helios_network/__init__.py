@@ -5,7 +5,7 @@ import enum
 from . import _core
 from ._conversions import from_igraph, from_networkx, to_igraph, to_networkx
 from ._node_link_json import read_node_link_json as _read_node_link_json
-from ._wrapper import Network
+from ._wrapper import NETWORK_EVENTS, Network, encode_binary_batch, mutation_events_to_text_batch
 
 
 class AttributeType(enum.IntEnum):
@@ -134,6 +134,7 @@ def __getattr__(name: str):
 
 __all__ = [
     "Network",
+    "NETWORK_EVENTS",
     "AttributeType",
     "AttributeScope",
     "CategorySortOrder",
@@ -154,4 +155,6 @@ __all__ = [
     "from_networkx",
     "to_igraph",
     "from_igraph",
+    "encode_binary_batch",
+    "mutation_events_to_text_batch",
 ]

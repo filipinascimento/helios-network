@@ -293,7 +293,11 @@ async function getModule(options = {}) {
 	if (!modulePromise) {
 		modulePromise = (async () => {
 			const moduleOptions = { ...options };
-			if (typeof moduleOptions.locateFile !== 'function') {
+			if (
+				isNodeRuntime()
+				&& !moduleOptions.wasmBinary
+				&& typeof moduleOptions.locateFile !== 'function'
+			) {
 				moduleOptions.locateFile = (path, scriptDirectory = '') => {
 					if (typeof path === 'string' && path.endsWith('.wasm')) {
 						if (scriptDirectory && scriptDirectory.includes('compiled')) {
@@ -520,11 +524,17 @@ const HELIOS_NETWORK_EVENTS = Object.freeze({
 	attributeDefined: 'attribute:defined',
 	attributeRemoved: 'attribute:removed',
 	attributeChanged: 'attribute:changed',
+	categoryChanged: 'category:changed',
 });
 
 const LAYOUT_STRENGTH_ATTRIBUTE = '_helios_layout_strength';
 
-const NODE_RUNTIME = typeof process !== 'undefined' && !!process.versions?.node;
+const NODE_RUNTIME = (
+	typeof process !== 'undefined'
+	&& !!process.versions?.node
+	&& typeof window === 'undefined'
+	&& typeof WorkerGlobalScope === 'undefined'
+);
 const VIRTUAL_TEMP_DIR = '/tmp/helios';
 
 let nodeFsModulePromise = null;
@@ -7980,6 +7990,12 @@ export class HeliosNetwork extends BaseEventTarget {
 			if (!ok) {
 				throw new Error(`Failed to update category dictionary for ${scope} attribute "${name}"`);
 			}
+			this._emitAttributeEvent(HELIOS_NETWORK_EVENTS.categoryChanged, {
+				scope,
+				name,
+				op: 'set_dictionary',
+				entries: labels.map((label, index) => ({ label, id: ids[index] })),
+			});
 			return true;
 		} finally {
 			nameCstr.dispose();
@@ -8493,7 +8509,17 @@ export class HeliosNetwork extends BaseEventTarget {
 				result.op = op;
 				const args = parseKeyValueArgs(tokens.slice(1).join(' '));
 
-				if (op === 'ADD_NODES') {
+				if (op === 'DEFINE_ATTRIBUTE') {
+					const scope = normalizeBatchScope(args.scope);
+					const name = args.name;
+					const type = normalizeBatchAttributeType(args.type);
+					const dimension = Number(args.dimension ?? 1) || 1;
+					if (!scope || !name) {
+						throw new Error('DEFINE_ATTRIBUTE requires scope and name');
+					}
+					defineBatchAttribute(this, scope, name, type, dimension);
+					result.ok = true;
+				} else if (op === 'ADD_NODES') {
 					const count = Number(args.n ?? args.count);
 					if (!Number.isFinite(count) || count < 0) {
 						throw new Error('ADD_NODES requires n=<count>');
@@ -8522,10 +8548,24 @@ export class HeliosNetwork extends BaseEventTarget {
 					}
 					result.ok = true;
 					result.result = edges;
-				} else if (op === 'SET_ATTR_VALUES') {
-					const scope = args.scope;
+				} else if (op === 'REMOVE_NODES') {
+					const ids = parseNumberList(args.ids).map((id) => id >>> 0);
+					this.removeNodes(ids);
+					result.ok = true;
+				} else if (op === 'REMOVE_EDGES') {
+					const ids = parseNumberList(args.ids).map((id) => id >>> 0);
+					this.removeEdges(ids);
+					result.ok = true;
+				} else if (op === 'SET_CATEGORY_DICTIONARY') {
+					const scope = normalizeBatchScope(args.scope);
 					const name = args.name;
-					const ids = parseNumberList(args.ids);
+					const entries = parseValueList(args.entries || args.labels).values;
+					setBatchCategoryDictionary(this, scope, name, entries);
+					result.ok = true;
+				} else if (op === 'SET_ATTR_VALUES') {
+					const scope = normalizeBatchScope(args.scope);
+					const name = args.name;
+					const ids = scope === 'network' && !args.ids ? [0] : parseNumberList(args.ids);
 					const parsedValues = parseValueList(args.values);
 					const values = parsedValues.values;
 					if (!scope || !name || !ids.length || !values.length) {
@@ -8534,10 +8574,6 @@ export class HeliosNetwork extends BaseEventTarget {
 					const resolvedIds = relative
 						? resolveIdsRelative(ids, resolveRelativeSet(relativeName, scope === 'edge' ? lastAddedEdges : lastAddedNodes, variables, scope))
 						: ids;
-					if (values.length !== 1 && values.length !== resolvedIds.length) {
-						throw new Error('SET_ATTR_VALUES values length must be 1 or match ids length');
-					}
-					const attrValues = values.length === 1 ? resolvedIds.map(() => values[0]) : values;
 					const metaMap = this._attributeMap(scope);
 					let meta = metaMap.get(name);
 					if (!meta) {
@@ -8546,9 +8582,12 @@ export class HeliosNetwork extends BaseEventTarget {
 					if (!meta) {
 						throw new Error(`Attribute "${name}" on ${scope} is not defined`);
 					}
-					if (meta.dimension && meta.dimension > 1) {
-						throw new Error('Vector attributes are not supported in text batches');
+					const dimension = Math.max(1, Number(meta.dimension) || 1);
+					const scalarValueCount = resolvedIds.length * dimension;
+					if (values.length !== 1 && values.length !== resolvedIds.length && values.length !== scalarValueCount) {
+						throw new Error('SET_ATTR_VALUES values length must be 1 or match ids length');
 					}
+					const attrValues = values.length === 1 ? resolvedIds.map(() => values[0]) : values;
 					if (meta.type === AttributeType.String) {
 						if (parsedValues.type !== 'string') {
 							throw new Error('String attributes require string values');
@@ -8556,41 +8595,48 @@ export class HeliosNetwork extends BaseEventTarget {
 						for (let i = 0; i < resolvedIds.length; i += 1) {
 							if (scope === 'edge') {
 								this.setEdgeStringAttribute(name, resolvedIds[i], attrValues[i]);
-							} else {
+							} else if (scope === 'node') {
 								this.setNodeStringAttribute(name, resolvedIds[i], attrValues[i]);
+							} else {
+								this.setNetworkStringAttribute(name, attrValues[i]);
 							}
 						}
 					} else if (meta.type === AttributeType.Category && parsedValues.type === 'string') {
-						const dict = scope === 'edge'
-							? this.getEdgeAttributeCategoryDictionary(name)
-							: this.getNodeAttributeCategoryDictionary(name);
+						const dict = getBatchCategoryDictionary(this, scope, name);
 						this.withBufferAccess(() => {
-							const buffer = scope === 'edge'
-								? this.getEdgeAttributeBuffer(name)
-								: this.getNodeAttributeBuffer(name);
+							const buffer = getBatchAttributeBuffer(this, scope, name);
 							for (let i = 0; i < resolvedIds.length; i += 1) {
 								const label = attrValues[i];
 								const id = dict[label];
 								if (id == null) {
 									throw new Error(`Category label "${label}" not found`);
 								}
-								buffer.view[resolvedIds[i]] = id;
+								buffer.view[resolvedIds[i] * dimension] = id;
 							}
+							buffer.bumpVersion();
 						});
 					} else {
 						if (parsedValues.type !== 'number') {
 							throw new Error('Numeric attributes require numeric values');
 						}
 						this.withBufferAccess(() => {
-							const buffer = scope === 'edge'
-								? this.getEdgeAttributeBuffer(name)
-								: this.getNodeAttributeBuffer(name);
+							const buffer = getBatchAttributeBuffer(this, scope, name);
 							if (buffer.type === AttributeType.Data || buffer.type === AttributeType.Javascript || buffer.type === AttributeType.MultiCategory) {
 								throw new Error('Unsupported attribute type for text batches');
 							}
 							for (let i = 0; i < resolvedIds.length; i += 1) {
-								buffer.view[resolvedIds[i]] = attrValues[i];
+								const base = resolvedIds[i] * dimension;
+								if (dimension === 1) {
+									buffer.view[base] = attrValues[i];
+								} else if (values.length === scalarValueCount) {
+									for (let component = 0; component < dimension; component += 1) {
+										buffer.view[base + component] = values[i * dimension + component];
+									}
+								} else {
+									throw new Error('Vector attribute values must be flattened by id');
+								}
 							}
+							buffer.bumpVersion();
 						});
 					}
 					result.ok = true;
@@ -8622,7 +8668,8 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * - u32 recordCount
 	 *
 	 * Record:
-	 * - u8 op (1=ADD_NODES, 2=ADD_EDGES, 3=SET_ATTR_VALUES)
+	 * - u8 op (1=ADD_NODES, 2=ADD_EDGES, 3=SET_ATTR_VALUES,
+	 *   4=REMOVE_NODES, 5=REMOVE_EDGES, 6=DEFINE_ATTRIBUTE, 7=SET_CATEGORY_DICTIONARY)
 	 * - u8 flags (bit0=relative)
 	 * - u16 reserved
 	 * - u32 resultSlot (0 = unused)
@@ -8635,6 +8682,10 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * - SET_ATTR_VALUES: u8 scope(0=node,1=edge), u8 valueType(0=f64), u16 reserved,
 	 *   u32 idCount, u32 valueCount, u32 baseSlot, u32 nameLen, u8[nameLen] name,
 	 *   u32[idCount] ids, f64[valueCount] values
+	 * - REMOVE_NODES / REMOVE_EDGES: u32 idCount, u32[idCount] ids
+	 * - DEFINE_ATTRIBUTE: u8 scope, u8 type, u16 reserved, u32 dimension, u32 nameLen, u8[nameLen] name
+	 * - SET_CATEGORY_DICTIONARY: u8 scope, u8 reserved, u16 reserved, u32 entryCount, u32 nameLen,
+	 *   u8[nameLen] name, repeated entries: u32 len, u8[len] label
 	 *
 	 * @param {ArrayBuffer|Uint8Array} data - Binary batch.
 	 * @param {object} [options]
@@ -8753,7 +8804,7 @@ export class HeliosNetwork extends BaseEventTarget {
 						throw new Error('Missing base slot for relative ids');
 					}
 					const resolvedIds = relative ? ids.map((id) => base[id]) : ids;
-					const scope = scopeId === 1 ? 'edge' : 'node';
+					const scope = scopeId === 1 ? 'edge' : scopeId === 2 ? 'network' : 'node';
 					const metaMap = this._attributeMap(scope);
 					let meta = metaMap.get(name);
 					if (!meta) {
@@ -8762,8 +8813,10 @@ export class HeliosNetwork extends BaseEventTarget {
 					if (!meta) {
 						throw new Error(`Attribute \"${name}\" on ${scope} is not defined`);
 					}
-					if (meta.dimension && meta.dimension > 1) {
-						throw new Error('Vector attributes are not supported in binary batches');
+					const dimension = Math.max(1, Number(meta.dimension) || 1);
+					const scalarValueCount = resolvedIds.length * dimension;
+					if (values.length !== 1 && values.length !== resolvedIds.length && values.length !== scalarValueCount) {
+						throw new Error('SET_ATTR_VALUES values length must be 1, match ids, or match ids * dimension');
 					}
 					const attrValues = values.length === 1 ? resolvedIds.map(() => values[0]) : values;
 					if (meta.type === AttributeType.String) {
@@ -8773,43 +8826,91 @@ export class HeliosNetwork extends BaseEventTarget {
 						for (let i = 0; i < resolvedIds.length; i += 1) {
 							if (scope === 'edge') {
 								this.setEdgeStringAttribute(name, resolvedIds[i], attrValues[i]);
-							} else {
+							} else if (scope === 'node') {
 								this.setNodeStringAttribute(name, resolvedIds[i], attrValues[i]);
+							} else {
+								this.setNetworkStringAttribute(name, attrValues[i]);
 							}
 						}
 					} else if (meta.type === AttributeType.Category && valueType === 1) {
-						const dict = scope === 'edge'
-							? this.getEdgeAttributeCategoryDictionary(name)
-							: this.getNodeAttributeCategoryDictionary(name);
+						const dict = getBatchCategoryDictionary(this, scope, name);
 						this.withBufferAccess(() => {
-							const buffer = scope === 'edge'
-								? this.getEdgeAttributeBuffer(name)
-								: this.getNodeAttributeBuffer(name);
+							const buffer = getBatchAttributeBuffer(this, scope, name);
 							for (let i = 0; i < resolvedIds.length; i += 1) {
 								const label = attrValues[i];
 								const id = dict[label];
 								if (id == null) {
 									throw new Error(`Category label \"${label}\" not found`);
 								}
-								buffer.view[resolvedIds[i]] = id;
+								buffer.view[resolvedIds[i] * dimension] = id;
 							}
+							buffer.bumpVersion();
 						});
 					} else {
 						if (valueType !== 0) {
 							throw new Error('Numeric attributes require numeric values');
 						}
 						this.withBufferAccess(() => {
-							const buffer = scope === 'edge'
-								? this.getEdgeAttributeBuffer(name)
-								: this.getNodeAttributeBuffer(name);
+							const buffer = getBatchAttributeBuffer(this, scope, name);
 							if (buffer.type === AttributeType.Data || buffer.type === AttributeType.Javascript || buffer.type === AttributeType.MultiCategory) {
 								throw new Error('Unsupported attribute type for binary batches');
 							}
 							for (let i = 0; i < resolvedIds.length; i += 1) {
-								buffer.view[resolvedIds[i]] = attrValues[i];
+								const baseIndex = resolvedIds[i] * dimension;
+								if (dimension === 1) {
+									buffer.view[baseIndex] = attrValues[i];
+								} else if (values.length === scalarValueCount) {
+									for (let component = 0; component < dimension; component += 1) {
+										buffer.view[baseIndex + component] = values[i * dimension + component];
+									}
+								} else {
+									throw new Error('Vector attribute values must be flattened by id');
+								}
 							}
+							buffer.bumpVersion();
 						});
 					}
+					result.ok = true;
+				} else if (op === 4 || op === 5) {
+					const idCount = readU32();
+					const ids = [];
+					for (let i = 0; i < idCount; i += 1) {
+						ids.push(readU32());
+					}
+					if (op === 4) this.removeNodes(ids);
+					else this.removeEdges(ids);
+					result.ok = true;
+				} else if (op === 6) {
+					const scopeId = readU8();
+					const type = readU8();
+					readU16();
+					const dimension = readU32();
+					const nameLen = readU32();
+					const nameBytes = bytes.subarray(offset, offset + nameLen);
+					offset += nameLen;
+					const name = new TextDecoder().decode(nameBytes);
+					const scope = scopeId === 1 ? 'edge' : scopeId === 2 ? 'network' : 'node';
+					defineBatchAttribute(this, scope, name, type, dimension);
+					result.ok = true;
+				} else if (op === 7) {
+					const scopeId = readU8();
+					readU8();
+					readU16();
+					const entryCount = readU32();
+					const nameLen = readU32();
+					const nameBytes = bytes.subarray(offset, offset + nameLen);
+					offset += nameLen;
+					const name = new TextDecoder().decode(nameBytes);
+					const decoder = new TextDecoder();
+					const labels = [];
+					for (let i = 0; i < entryCount; i += 1) {
+						const len = readU32();
+						const chunk = bytes.subarray(offset, offset + len);
+						offset += len;
+						labels.push(decoder.decode(chunk));
+					}
+					const scope = scopeId === 1 ? 'edge' : scopeId === 2 ? 'network' : 'node';
+					setBatchCategoryDictionary(this, scope, name, labels);
 					result.ok = true;
 				} else {
 					throw new Error(`Unsupported op ${op}`);
@@ -10996,6 +11097,50 @@ function parseKeyValueArgs(text) {
 		args[key] = value;
 	}
 	return args;
+}
+
+function normalizeBatchScope(scope) {
+	if (scope === 0 || scope === '0') return 'node';
+	if (scope === 1 || scope === '1') return 'edge';
+	if (scope === 2 || scope === '2') return 'network';
+	if (typeof scope !== 'string') return null;
+	const normalized = scope.trim().toLowerCase();
+	if (normalized === 'graph') return 'network';
+	if (normalized === 'node' || normalized === 'edge' || normalized === 'network') return normalized;
+	return null;
+}
+
+function normalizeBatchAttributeType(type) {
+	if (type == null || type === '') return AttributeType.Double;
+	const numeric = Number(type);
+	if (Number.isFinite(numeric)) return numeric;
+	const key = String(type).trim();
+	return AttributeType[key] ?? AttributeType.Double;
+}
+
+function defineBatchAttribute(network, scope, name, type, dimension) {
+	if (network._attributeMap(scope).has(name)) return;
+	if (scope === 'edge') network.defineEdgeAttribute(name, type, dimension);
+	else if (scope === 'network') network.defineNetworkAttribute(name, type, dimension);
+	else network.defineNodeAttribute(name, type, dimension);
+}
+
+function getBatchAttributeBuffer(network, scope, name) {
+	if (scope === 'edge') return network.getEdgeAttributeBuffer(name);
+	if (scope === 'network') return network.getNetworkAttributeBuffer(name);
+	return network.getNodeAttributeBuffer(name);
+}
+
+function getBatchCategoryDictionary(network, scope, name) {
+	if (scope === 'edge') return network.getEdgeAttributeCategoryDictionary(name);
+	if (scope === 'network') return network.getNetworkAttributeCategoryDictionary(name);
+	return network.getNodeAttributeCategoryDictionary(name);
+}
+
+function setBatchCategoryDictionary(network, scope, name, entries) {
+	if (scope === 'edge') return network.setEdgeAttributeCategoryDictionary(name, entries);
+	if (scope === 'network') return network.setNetworkAttributeCategoryDictionary(name, entries);
+	return network.setNodeAttributeCategoryDictionary(name, entries);
 }
 
 function parseNumberList(value) {

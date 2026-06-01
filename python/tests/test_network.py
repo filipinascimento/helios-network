@@ -18,6 +18,7 @@ from helios_network import (
     read_node_link_json,
     read_xnet,
     read_zxnet,
+    encode_binary_batch,
 )
 
 
@@ -32,6 +33,47 @@ def test_network_add_remove_counts():
 
     network.remove_nodes([nodes[2]])
     assert network.node_count() == 2
+
+
+def test_network_mutation_events_and_journal():
+    network = Network(directed=False)
+    seen = []
+    network.on_any(lambda event: seen.append((event["type"], event["detail"])))
+
+    nodes = network.add_nodes(2)
+    network.add_edges([(nodes[0], nodes[1])])
+    network.nodes["weight"] = [1.0, 2.0]
+
+    assert [entry[0] for entry in seen if entry[0] != "topology:changed"] == [
+        "nodes:added",
+        "edges:added",
+        "attribute:defined",
+        "attribute:changed",
+    ]
+    journal = network.mutation_journal()
+    assert any(entry["type"] == "nodes:added" for entry in journal)
+    drained = network.drain_mutation_journal()
+    assert drained
+    assert network.mutation_journal() == []
+
+
+def test_network_batch_coalesces_mutations():
+    network = Network(directed=False)
+    seen = []
+    network.on_any(lambda event: seen.append(event))
+
+    with network.batch():
+        nodes = network.add_nodes(3)
+        network.add_edges([(nodes[0], nodes[1])])
+        network.nodes["label"] = ["a", "b", "c"]
+
+    assert [event["type"] for event in seen] == ["batch:applied"]
+    batch = seen[0]["detail"]
+    assert "ADD_NODES n=3" in batch["text"]
+    assert "ADD_EDGES pairs=[(" in batch["text"]
+    assert any(record["op"] == "SET_ATTR_VALUES" for record in batch["records"])
+    encoded = encode_binary_batch(batch["events"])
+    assert encoded.startswith(b"HNPB")
 
 
 def test_attribute_set_get():

@@ -8,7 +8,11 @@ Supported commands:
 
 - `ADD_NODES n=<count>`
 - `ADD_EDGES pairs=[(a,b),...]`
+- `REMOVE_NODES ids=[...]`
+- `REMOVE_EDGES ids=[...]`
+- `DEFINE_ATTRIBUTE scope=node|edge|network name=<attr> type=<type-id-or-name> dimension=<n>`
 - `SET_ATTR_VALUES scope=node|edge name=<attr> ids=[...] values=[...]`
+- `SET_CATEGORY_DICTIONARY scope=node|edge|network name=<attr> entries=["label",...]`
 
 Relative ids:
 
@@ -28,6 +32,8 @@ SET_ATTR_VALUES scope=node name=label ids=[1,3] values=["a","b"] ! relative newI
 Notes:
 - String attributes accept quoted string values.
 - Categorical attributes accept numeric ids or string labels (labels must exist in the category dictionary).
+- `scope=network` is supported by `DEFINE_ATTRIBUTE`, `SET_ATTR_VALUES`, and `SET_CATEGORY_DICTIONARY`; omit `ids` or use `ids=[0]`.
+- Vector attribute values are encoded as flattened component values ordered by id.
 
 ## Binary Batch (MVP)
 
@@ -41,7 +47,14 @@ Notes:
 
 ### Record
 
-- `u8` op (1=ADD_NODES, 2=ADD_EDGES, 3=SET_ATTR_VALUES)
+- `u8` op:
+  - `1=ADD_NODES`
+  - `2=ADD_EDGES`
+  - `3=SET_ATTR_VALUES`
+  - `4=REMOVE_NODES`
+  - `5=REMOVE_EDGES`
+  - `6=DEFINE_ATTRIBUTE`
+  - `7=SET_CATEGORY_DICTIONARY`
 - `u8` flags (bit0 = relative)
 - `u16` reserved
 - `u32` resultSlot (0 = unused)
@@ -62,7 +75,7 @@ Notes:
 
 **SET_ATTR_VALUES**
 
-- `u8` scope (0=node, 1=edge)
+- `u8` scope (0=node, 1=edge, 2=network)
 - `u8` valueType (0=f64, 1=utf8 string)
 - `u16` reserved
 - `u32` idCount
@@ -74,8 +87,33 @@ Notes:
 - valueType 0: `f64[valueCount]` values
 - valueType 1: repeat `valueCount` times: `u32 len`, `u8[len]` bytes
 
+**REMOVE_NODES / REMOVE_EDGES**
+
+- `u32 idCount`
+- `u32[idCount] ids`
+
+**DEFINE_ATTRIBUTE**
+
+- `u8` scope (0=node, 1=edge, 2=network)
+- `u8` type
+- `u16` reserved
+- `u32` dimension
+- `u32 nameLen`
+- `u8[nameLen] name`
+
+**SET_CATEGORY_DICTIONARY**
+
+- `u8` scope (0=node, 1=edge, 2=network)
+- `u8` reserved
+- `u16` reserved
+- `u32 entryCount`
+- `u32 nameLen`
+- `u8[nameLen] name`
+- repeat `entryCount` times: `u32 len`, `u8[len] label`
+
 Notes:
 - `valueCount` can be 1 (broadcast) or match `idCount`.
+- For vector attributes, `valueCount` can also match `idCount * dimension`.
 - When `relative` is set, ids/pairs are treated as indices into `baseSlot`.
 - String attributes require valueType 1.
 - Categorical attributes accept either numeric ids (valueType 0) or string labels (valueType 1).

@@ -312,3 +312,124 @@ test('can apply binary batch with result slots', async () => {
 
 	network.dispose();
 });
+
+test('can apply extended text batch operations', async () => {
+	const network = await HeliosNetwork.create({ directed: false });
+
+	const batch = `
+DEFINE_ATTRIBUTE scope=node name=xy type=2 dimension=2
+DEFINE_ATTRIBUTE scope=network name=title type=0 dimension=1
+ADD_NODES n=2
+ADD_EDGES pairs=[(0,1)]
+SET_ATTR_VALUES scope=node name=xy ids=[0,1] values=[1,2,3,4]
+SET_ATTR_VALUES scope=network name=title ids=[0] values=["demo"]
+REMOVE_EDGES ids=[0]
+`;
+
+	const { results } = network.applyTextBatch(batch);
+	expect(results.every((entry) => entry.ok)).toBe(true);
+	expect(network.nodeCount).toBe(2);
+	expect(network.edgeCount).toBe(0);
+	expect(network.getNetworkStringAttribute('title')).toBe('demo');
+	network.withBufferAccess(() => {
+		const xy = network.getNodeAttributeBuffer('xy').view;
+		expect(Array.from(xy.slice(0, 4))).toEqual([1, 2, 3, 4]);
+	});
+
+	network.dispose();
+});
+
+test('can apply extended binary batch operations', async () => {
+	const network = await HeliosNetwork.create({ directed: false });
+	const encoder = new TextEncoder();
+	const records = [];
+
+	const defineAttribute = (scope, name, type, dimension) => {
+		const nameBytes = encoder.encode(name);
+		const payload = new ArrayBuffer(1 + 1 + 2 + 4 + 4 + nameBytes.length);
+		const view = new DataView(payload);
+		let off = 0;
+		view.setUint8(off++, scope);
+		view.setUint8(off++, type);
+		view.setUint16(off, 0, true); off += 2;
+		view.setUint32(off, dimension, true); off += 4;
+		view.setUint32(off, nameBytes.length, true); off += 4;
+		new Uint8Array(payload, off).set(nameBytes);
+		records.push({ op: 6, flags: 0, slot: 0, payload: new Uint8Array(payload) });
+	};
+
+	const addNodes = (count) => {
+		const payload = new ArrayBuffer(4);
+		new DataView(payload).setUint32(0, count, true);
+		records.push({ op: 1, flags: 0, slot: 0, payload: new Uint8Array(payload) });
+	};
+
+	const setValues = (scope, name, ids, values) => {
+		const nameBytes = encoder.encode(name);
+		const payloadLen = 1 + 1 + 2 + 4 + 4 + 4 + 4 + nameBytes.length + ids.length * 4 + values.length * 8;
+		const payload = new ArrayBuffer(payloadLen);
+		const view = new DataView(payload);
+		let off = 0;
+		view.setUint8(off++, scope);
+		view.setUint8(off++, 0);
+		view.setUint16(off, 0, true); off += 2;
+		view.setUint32(off, ids.length, true); off += 4;
+		view.setUint32(off, values.length, true); off += 4;
+		view.setUint32(off, 0, true); off += 4;
+		view.setUint32(off, nameBytes.length, true); off += 4;
+		new Uint8Array(payload, off, nameBytes.length).set(nameBytes); off += nameBytes.length;
+		for (const id of ids) {
+			view.setUint32(off, id, true); off += 4;
+		}
+		for (const value of values) {
+			view.setFloat64(off, value, true); off += 8;
+		}
+		records.push({ op: 3, flags: 0, slot: 0, payload: new Uint8Array(payload) });
+	};
+
+	const removeNodes = (ids) => {
+		const payload = new ArrayBuffer(4 + ids.length * 4);
+		const view = new DataView(payload);
+		let off = 0;
+		view.setUint32(off, ids.length, true); off += 4;
+		for (const id of ids) {
+			view.setUint32(off, id, true); off += 4;
+		}
+		records.push({ op: 4, flags: 0, slot: 0, payload: new Uint8Array(payload) });
+	};
+
+	defineAttribute(0, 'xy', AttributeType.Float, 2);
+	addNodes(3);
+	setValues(0, 'xy', [0, 1, 2], [1, 2, 3, 4, 5, 6]);
+	removeNodes([2]);
+
+	const headerLen = 4 + 1 + 1 + 2 + 4;
+	const totalLen = records.reduce((sum, rec) => sum + 1 + 1 + 2 + 4 + 4 + rec.payload.length, headerLen);
+	const buffer = new ArrayBuffer(totalLen);
+	const bytes = new Uint8Array(buffer);
+	const view = new DataView(buffer);
+	let offset = 0;
+	bytes.set([72, 78, 80, 66], offset); offset += 4;
+	view.setUint8(offset++, 1);
+	view.setUint8(offset++, 0);
+	view.setUint16(offset, 0, true); offset += 2;
+	view.setUint32(offset, records.length, true); offset += 4;
+	for (const rec of records) {
+		view.setUint8(offset++, rec.op);
+		view.setUint8(offset++, rec.flags);
+		view.setUint16(offset, 0, true); offset += 2;
+		view.setUint32(offset, rec.slot, true); offset += 4;
+		view.setUint32(offset, rec.payload.length, true); offset += 4;
+		bytes.set(rec.payload, offset); offset += rec.payload.length;
+	}
+
+	const result = network.applyBinaryBatch(buffer);
+	expect(result.results.every((entry) => entry.ok)).toBe(true);
+	expect(network.nodeCount).toBe(2);
+	network.withBufferAccess(() => {
+		const xy = network.getNodeAttributeBuffer('xy').view;
+		expect(Array.from(xy.slice(0, 4))).toEqual([1, 2, 3, 4]);
+	});
+
+	network.dispose();
+});

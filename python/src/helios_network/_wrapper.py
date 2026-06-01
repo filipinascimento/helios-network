@@ -1,9 +1,51 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
+import os
+import struct
+import tempfile
 import warnings
 from typing import Iterable, List, Sequence
 
 from . import _core
+
+
+NETWORK_EVENTS = {
+    "topology_changed": "topology:changed",
+    "nodes_added": "nodes:added",
+    "nodes_removed": "nodes:removed",
+    "edges_added": "edges:added",
+    "edges_removed": "edges:removed",
+    "attribute_defined": "attribute:defined",
+    "attribute_removed": "attribute:removed",
+    "attribute_changed": "attribute:changed",
+    "category_changed": "category:changed",
+    "batch_applied": "batch:applied",
+}
+
+_SCOPE_NAMES = {
+    _core.SCOPE_NODE: "node",
+    _core.SCOPE_EDGE: "edge",
+    _core.SCOPE_NETWORK: "network",
+}
+
+_SCOPE_IDS = {value: key for key, value in _SCOPE_NAMES.items()}
+
+_ATTRIBUTE_TYPE_NAMES = {
+    _core.ATTR_STRING: "String",
+    _core.ATTR_BOOLEAN: "Boolean",
+    _core.ATTR_FLOAT: "Float",
+    _core.ATTR_INTEGER: "Integer",
+    _core.ATTR_UNSIGNED_INTEGER: "UnsignedInteger",
+    _core.ATTR_DOUBLE: "Double",
+    _core.ATTR_CATEGORY: "Category",
+    _core.ATTR_DATA: "Data",
+    _core.ATTR_JAVASCRIPT: "Javascript",
+    _core.ATTR_BIG_INTEGER: "BigInteger",
+    _core.ATTR_UNSIGNED_BIG_INTEGER: "UnsignedBigInteger",
+    _core.ATTR_MULTI_CATEGORY: "MultiCategory",
+    _core.ATTR_UNKNOWN: "Unknown",
+}
 
 
 class Network:
@@ -50,6 +92,11 @@ class Network:
         self.network = NetworkAttributeCollection(self)
         self.graph = self.network
         self.attributes = self.network
+        self._event_handlers = {}
+        self._any_event_handlers = []
+        self._mutation_journal = []
+        self._batch_depth = 0
+        self._pending_mutations = []
 
     def __getattr__(self, name):
         """
@@ -100,6 +147,309 @@ class Network:
         if not isinstance(name, str):
             raise TypeError("Attribute name must be a string")
         self._core.set_attribute_value(_core.SCOPE_NETWORK, name, 0, value)
+        self._emit_attribute_changed(_core.SCOPE_NETWORK, name, [0], [value])
+
+    def on(self, event_type: str, handler):
+        """Register a network event handler and return an unsubscribe callback."""
+        if not isinstance(event_type, str) or not event_type:
+            raise TypeError("Event type must be a non-empty string")
+        if not callable(handler):
+            raise TypeError("Event handler must be callable")
+        handlers = self._event_handlers.setdefault(event_type, [])
+        handlers.append(handler)
+
+        def unsubscribe():
+            self.off(event_type, handler)
+
+        return unsubscribe
+
+    def off(self, event_type: str, handler):
+        """Remove an event handler previously registered with `on`."""
+        handlers = self._event_handlers.get(event_type)
+        if not handlers:
+            return
+        try:
+            handlers.remove(handler)
+        except ValueError:
+            return
+        if not handlers:
+            self._event_handlers.pop(event_type, None)
+
+    def on_any(self, handler):
+        """Register a handler that receives every emitted event."""
+        if not callable(handler):
+            raise TypeError("Event handler must be callable")
+        self._any_event_handlers.append(handler)
+
+        def unsubscribe():
+            try:
+                self._any_event_handlers.remove(handler)
+            except ValueError:
+                pass
+
+        return unsubscribe
+
+    def emit(self, event_type: str, detail=None):
+        """Emit an event immediately to matching and catch-all handlers."""
+        event = {"type": event_type, "detail": detail, "target": self}
+        for handler in list(self._event_handlers.get(event_type, [])):
+            handler(event)
+        for handler in list(self._any_event_handlers):
+            handler(event)
+        return event
+
+    def begin_batch(self):
+        """Begin coalescing mutation events into one `batch:applied` event."""
+        self._batch_depth += 1
+        return self
+
+    def end_batch(self):
+        """End a mutation batch and emit the coalesced event at outermost depth."""
+        if self._batch_depth <= 0:
+            raise RuntimeError("No active mutation batch")
+        self._batch_depth -= 1
+        if self._batch_depth == 0 and self._pending_mutations:
+            events = self._pending_mutations
+            self._pending_mutations = []
+            detail = {
+                "events": [_public_event_payload(event) for event in events],
+                "records": [event["record"] for event in events if event.get("record")],
+            }
+            detail["text"] = mutation_events_to_text_batch(detail["events"])
+            self._record_and_emit(NETWORK_EVENTS["batch_applied"], detail)
+        return self
+
+    @contextmanager
+    def batch(self):
+        """Context manager that coalesces mutations until the block exits."""
+        self.begin_batch()
+        try:
+            yield self
+        finally:
+            self.end_batch()
+
+    def mutation_journal(self):
+        """Return a copy of mutation events emitted since the last drain."""
+        return list(self._mutation_journal)
+
+    def drain_mutation_journal(self):
+        """Return and clear the mutation journal."""
+        journal = list(self._mutation_journal)
+        self._mutation_journal.clear()
+        return journal
+
+    def add_nodes(self, count: int):
+        old_node_count = self._core.node_count()
+        old_edge_count = self._core.edge_count()
+        indices = self._core.add_nodes(int(count))
+        detail = {
+            "indices": list(indices),
+            "count": len(indices),
+            "old_node_count": old_node_count,
+            "node_count": self._core.node_count(),
+            "old_edge_count": old_edge_count,
+            "edge_count": self._core.edge_count(),
+        }
+        self._emit_mutation(NETWORK_EVENTS["nodes_added"], detail, {
+            "op": "ADD_NODES",
+            "count": len(indices),
+            "indices": list(indices),
+        })
+        self._emit_mutation(NETWORK_EVENTS["topology_changed"], {
+            "kind": "nodes",
+            "op": "added",
+            "node_count": detail["node_count"],
+            "edge_count": detail["edge_count"],
+        })
+        return indices
+
+    def remove_nodes(self, indices):
+        ids = [int(index) for index in indices]
+        old_node_count = self._core.node_count()
+        old_edge_count = self._core.edge_count()
+        result = self._core.remove_nodes(ids)
+        detail = {
+            "indices": ids,
+            "count": len(ids),
+            "old_node_count": old_node_count,
+            "node_count": self._core.node_count(),
+            "old_edge_count": old_edge_count,
+            "edge_count": self._core.edge_count(),
+        }
+        self._emit_mutation(NETWORK_EVENTS["nodes_removed"], detail, {
+            "op": "REMOVE_NODES",
+            "ids": ids,
+        })
+        self._emit_mutation(NETWORK_EVENTS["topology_changed"], {
+            "kind": "nodes",
+            "op": "removed",
+            "node_count": detail["node_count"],
+            "edge_count": detail["edge_count"],
+        })
+        return result
+
+    def add_edges(self, edge_list):
+        pairs = [(int(source), int(target)) for source, target in edge_list]
+        old_node_count = self._core.node_count()
+        old_edge_count = self._core.edge_count()
+        indices = self._core.add_edges(pairs)
+        detail = {
+            "indices": list(indices),
+            "pairs": pairs,
+            "count": len(indices),
+            "old_node_count": old_node_count,
+            "node_count": self._core.node_count(),
+            "old_edge_count": old_edge_count,
+            "edge_count": self._core.edge_count(),
+        }
+        self._emit_mutation(NETWORK_EVENTS["edges_added"], detail, {
+            "op": "ADD_EDGES",
+            "pairs": pairs,
+            "indices": list(indices),
+        })
+        self._emit_mutation(NETWORK_EVENTS["topology_changed"], {
+            "kind": "edges",
+            "op": "added",
+            "node_count": detail["node_count"],
+            "edge_count": detail["edge_count"],
+        })
+        return indices
+
+    def remove_edges(self, indices):
+        ids = [int(index) for index in indices]
+        old_node_count = self._core.node_count()
+        old_edge_count = self._core.edge_count()
+        result = self._core.remove_edges(ids)
+        detail = {
+            "indices": ids,
+            "count": len(ids),
+            "old_node_count": old_node_count,
+            "node_count": self._core.node_count(),
+            "old_edge_count": old_edge_count,
+            "edge_count": self._core.edge_count(),
+        }
+        self._emit_mutation(NETWORK_EVENTS["edges_removed"], detail, {
+            "op": "REMOVE_EDGES",
+            "ids": ids,
+        })
+        self._emit_mutation(NETWORK_EVENTS["topology_changed"], {
+            "kind": "edges",
+            "op": "removed",
+            "node_count": detail["node_count"],
+            "edge_count": detail["edge_count"],
+        })
+        return result
+
+    def define_attribute(self, scope, name: str, attr_type, dimension=1):
+        return _define_attribute_helper(self, _coerce_scope(scope), name, attr_type, dimension)
+
+    def set_attribute_value(self, scope, name: str, index: int, value):
+        scope_id = _coerce_scope(scope)
+        _ensure_attribute(self, scope_id, name, value)
+        self._core.set_attribute_value(scope_id, name, int(index), value)
+        self._emit_attribute_changed(scope_id, name, [int(index)], [value])
+
+    def get_attribute_value(self, scope, name: str, index: int):
+        return self._core.get_attribute_value(_coerce_scope(scope), name, int(index))
+
+    def categorize_attribute(self, scope, name: str, **kwargs):
+        result = self._core.categorize_attribute(_coerce_scope(scope), name, **kwargs)
+        self._emit_category_changed(_coerce_scope(scope), name, "categorize")
+        return result
+
+    def decategorize_attribute(self, scope, name: str, **kwargs):
+        result = self._core.decategorize_attribute(_coerce_scope(scope), name, **kwargs)
+        self._emit_category_changed(_coerce_scope(scope), name, "decategorize")
+        return result
+
+    def set_category_dictionary(self, scope, name: str, entries, **kwargs):
+        result = self._core.set_category_dictionary(_coerce_scope(scope), name, entries, **kwargs)
+        self._emit_category_changed(_coerce_scope(scope), name, "set_dictionary", entries=entries)
+        return result
+
+    def to_bxnet_bytes(self):
+        return self._serialized_bytes("bxnet")
+
+    def to_zxnet_bytes(self, compression: int = 6):
+        return self._serialized_bytes("zxnet", compression=compression)
+
+    def _serialized_bytes(self, kind: str, compression: int = 6):
+        suffix = f".{kind}"
+        fd, path = tempfile.mkstemp(suffix=suffix)
+        os.close(fd)
+        try:
+            if kind == "bxnet":
+                self._core.save_bxnet(path)
+            elif kind == "zxnet":
+                self._core.save_zxnet(path, int(compression))
+            elif kind == "xnet":
+                self._core.save_xnet(path)
+            else:
+                raise ValueError(f"Unsupported serialization kind: {kind}")
+            with open(path, "rb") as handle:
+                return handle.read()
+        finally:
+            try:
+                os.unlink(path)
+            except FileNotFoundError:
+                pass
+
+    def _emit_attribute_defined(self, scope, name: str, attr_type, dimension: int):
+        detail = {
+            "scope": _scope_name(scope),
+            "name": name,
+            "type": int(attr_type),
+            "type_name": _ATTRIBUTE_TYPE_NAMES.get(int(attr_type), str(attr_type)),
+            "dimension": int(dimension or 1),
+        }
+        self._emit_mutation(NETWORK_EVENTS["attribute_defined"], detail, {
+            "op": "DEFINE_ATTRIBUTE",
+            **detail,
+        })
+
+    def _emit_attribute_changed(self, scope, name: str, ids, values):
+        detail = {
+            "scope": _scope_name(scope),
+            "name": name,
+            "ids": [int(item) for item in ids],
+            "values": _jsonable_values(values),
+        }
+        self._emit_mutation(NETWORK_EVENTS["attribute_changed"], detail, {
+            "op": "SET_ATTR_VALUES",
+            **detail,
+        })
+
+    def _emit_category_changed(self, scope, name: str, op: str, **extra):
+        detail = {
+            "scope": _scope_name(scope),
+            "name": name,
+            "op": op,
+            **extra,
+        }
+        self._emit_mutation(NETWORK_EVENTS["category_changed"], detail, {
+            "op": "CATEGORY_CHANGE",
+            "category_op": op,
+            "scope": detail["scope"],
+            "name": name,
+            **extra,
+        })
+
+    def _emit_mutation(self, event_type: str, detail, record=None):
+        event = {"type": event_type, "detail": detail}
+        if record is not None:
+            event["record"] = record
+        if self._batch_depth > 0:
+            self._pending_mutations.append(event)
+            return event
+        self._record_and_emit(event_type, detail, record=record)
+        return event
+
+    def _record_and_emit(self, event_type: str, detail, record=None):
+        journal_entry = {"type": event_type, "detail": detail}
+        if record is not None:
+            journal_entry["record"] = record
+        self._mutation_journal.append(journal_entry)
+        return self.emit(event_type, detail)
 
     def edge_pairs(self):
         """
@@ -385,7 +735,16 @@ class Network:
                 result["op"] = op
                 args = _parse_key_value_args(" ".join(tokens[1:]))
 
-                if op == "ADD_NODES":
+                if op == "DEFINE_ATTRIBUTE":
+                    scope = _coerce_scope(args.get("scope"))
+                    name = args.get("name")
+                    attr_type = _coerce_attribute_type(args.get("type"))
+                    dimension = int(args.get("dimension") or 1)
+                    if not name:
+                        raise ValueError("DEFINE_ATTRIBUTE requires name")
+                    self.define_attribute(scope, name, attr_type, dimension)
+                    result["ok"] = True
+                elif op == "ADD_NODES":
                     count = int(args.get("n") or args.get("count") or 0)
                     if count < 0:
                         raise ValueError("ADD_NODES requires n=<count>")
@@ -410,10 +769,26 @@ class Network:
                         variables[var_name] = edges
                     result["ok"] = True
                     result["result"] = edges
+                elif op == "REMOVE_NODES":
+                    ids = [int(value) for value in _parse_number_list(args.get("ids", ""))]
+                    self.remove_nodes(ids)
+                    result["ok"] = True
+                elif op == "REMOVE_EDGES":
+                    ids = [int(value) for value in _parse_number_list(args.get("ids", ""))]
+                    self.remove_edges(ids)
+                    result["ok"] = True
+                elif op == "SET_CATEGORY_DICTIONARY":
+                    scope = _coerce_scope(args.get("scope"))
+                    name = args.get("name")
+                    entries, value_kind = _parse_value_list(args.get("entries") or args.get("labels") or "")
+                    if not name or value_kind != "string":
+                        raise ValueError("SET_CATEGORY_DICTIONARY requires string entries")
+                    self.set_category_dictionary(scope, name, entries)
+                    result["ok"] = True
                 elif op == "SET_ATTR_VALUES":
                     scope = args.get("scope")
                     name = args.get("name")
-                    ids = _parse_number_list(args.get("ids", ""))
+                    ids = [0] if scope in ("network", "graph") and not args.get("ids") else _parse_number_list(args.get("ids", ""))
                     values, value_kind = _parse_value_list(args.get("values", ""))
                     if not scope or not name or not ids or not values:
                         raise ValueError("SET_ATTR_VALUES requires scope, name, ids, and values")
@@ -425,28 +800,30 @@ class Network:
                             scope,
                         )
                         ids = _resolve_ids_relative(ids, relative_set)
-                    if len(values) not in (1, len(ids)):
-                        raise ValueError("SET_ATTR_VALUES values length must be 1 or match ids length")
+                    scope_id = _coerce_scope(scope)
+                    info = self._core.attribute_info(scope_id, name)
+                    dimension = int(info.get("dimension") or 1)
                     if len(values) == 1:
                         values = [values[0] for _ in ids]
-
-                    scope_id = _core.SCOPE_EDGE if scope == "edge" else _core.SCOPE_NODE
-                    info = self._core.attribute_info(scope_id, name)
-                    if info.get("dimension", 1) and info["dimension"] > 1:
-                        raise ValueError("Vector attributes are not supported in text batches")
+                    elif dimension > 1 and len(values) == len(ids) * dimension:
+                        values = [values[i * dimension:(i + 1) * dimension] for i in range(len(ids))]
+                    elif len(values) != len(ids):
+                        raise ValueError("SET_ATTR_VALUES values length must be 1, match ids, or match ids * dimension")
+                    elif dimension > 1:
+                        raise ValueError("Vector text batches require flattened values matching ids * dimension")
                     attr_type = info.get("type")
                     if value_kind == "string" and attr_type == _core.ATTR_STRING:
                         for idx, value in zip(ids, values):
-                            self._core.set_attribute_value(scope_id, name, int(idx), value)
+                            self.set_attribute_value(scope_id, name, int(idx), value)
                     elif value_kind == "string" and attr_type == _core.ATTR_CATEGORY:
                         mapping = self._core.get_category_dictionary(scope_id, name)
                         for idx, label in zip(ids, values):
                             if label not in mapping:
                                 raise ValueError(f"Category label '{label}' not found")
-                            self._core.set_attribute_value(scope_id, name, int(idx), int(mapping[label]))
+                            self.set_attribute_value(scope_id, name, int(idx), int(mapping[label]))
                     elif value_kind == "number":
                         for idx, value in zip(ids, values):
-                            self._core.set_attribute_value(scope_id, name, int(idx), value)
+                            self.set_attribute_value(scope_id, name, int(idx), value)
                     else:
                         raise ValueError("Values are incompatible with attribute type")
                     result["ok"] = True
@@ -460,6 +837,125 @@ class Network:
                 continue
             results.append(result)
         return {"results": results, "variables": variables}
+
+    def apply_binary_batch(self, data, stop_on_error: bool = True):
+        """Apply the Helios binary mutation batch protocol to this network."""
+        payload = bytes(data)
+        if payload[:4] != b"HNPB":
+            raise ValueError("Invalid batch magic")
+        version, _flags, _reserved, record_count = struct.unpack_from("<BBHI", payload, 4)
+        if version != 1:
+            raise ValueError(f"Unsupported batch version {version}")
+        offset = 12
+        results = []
+        slots = {}
+        for record_index in range(record_count):
+            result = {"record": record_index, "ok": False}
+            try:
+                op, flags, _reserved, result_slot, payload_len = struct.unpack_from("<BBHII", payload, offset)
+                offset += 12
+                payload_start = offset
+                relative = bool(flags & 0x1)
+                if op == 1:
+                    (count,) = struct.unpack_from("<I", payload, offset)
+                    ids = self.add_nodes(count)
+                    if result_slot:
+                        slots[result_slot] = ids
+                    result["ok"] = True
+                    result["result"] = ids
+                elif op == 2:
+                    pair_count, base_slot = struct.unpack_from("<II", payload, offset)
+                    offset += 8
+                    base = slots.get(base_slot) if relative else None
+                    if relative and base is None:
+                        raise ValueError("Missing base slot for relative edge pairs")
+                    pairs = []
+                    for _ in range(pair_count):
+                        a, b = struct.unpack_from("<II", payload, offset)
+                        offset += 8
+                        pairs.append((base[a], base[b]) if relative else (a, b))
+                    edges = self.add_edges(pairs)
+                    if result_slot:
+                        slots[result_slot] = edges
+                    result["ok"] = True
+                    result["result"] = edges
+                elif op == 3:
+                    scope_id, value_type, _reserved = struct.unpack_from("<BBH", payload, offset)
+                    offset += 4
+                    id_count, value_count, base_slot, name_len = struct.unpack_from("<IIII", payload, offset)
+                    offset += 16
+                    name = payload[offset:offset + name_len].decode("utf-8")
+                    offset += name_len
+                    ids = list(struct.unpack_from(f"<{id_count}I", payload, offset)) if id_count else []
+                    offset += id_count * 4
+                    values = []
+                    if value_type == 0:
+                        values = list(struct.unpack_from(f"<{value_count}d", payload, offset)) if value_count else []
+                        offset += value_count * 8
+                    elif value_type == 1:
+                        for _ in range(value_count):
+                            (length,) = struct.unpack_from("<I", payload, offset)
+                            offset += 4
+                            values.append(payload[offset:offset + length].decode("utf-8"))
+                            offset += length
+                    else:
+                        raise ValueError("Unsupported value type")
+                    base = slots.get(base_slot) if relative else None
+                    if relative and base is None:
+                        raise ValueError("Missing base slot for relative ids")
+                    resolved_ids = [base[index] for index in ids] if relative else ids
+                    scope = _scope_name(scope_id)
+                    text = (
+                        "SET_ATTR_VALUES "
+                        f"scope={scope} name={name} ids={_format_list(resolved_ids)} values={_format_list(values)}"
+                    )
+                    applied = self.apply_text_batch(text, stop_on_error=True)
+                    if not all(entry["ok"] for entry in applied["results"]):
+                        raise ValueError(applied["results"][0].get("error", "Failed to apply attribute values"))
+                    result["ok"] = True
+                elif op in (4, 5):
+                    (id_count,) = struct.unpack_from("<I", payload, offset)
+                    offset += 4
+                    ids = list(struct.unpack_from(f"<{id_count}I", payload, offset)) if id_count else []
+                    offset += id_count * 4
+                    self.remove_nodes(ids) if op == 4 else self.remove_edges(ids)
+                    result["ok"] = True
+                elif op == 6:
+                    scope_id, attr_type, _reserved = struct.unpack_from("<BBH", payload, offset)
+                    offset += 4
+                    dimension, name_len = struct.unpack_from("<II", payload, offset)
+                    offset += 8
+                    name = payload[offset:offset + name_len].decode("utf-8")
+                    offset += name_len
+                    self.define_attribute(scope_id, name, attr_type, dimension)
+                    result["ok"] = True
+                elif op == 7:
+                    scope_id, _reserved8, _reserved16 = struct.unpack_from("<BBH", payload, offset)
+                    offset += 4
+                    entry_count, name_len = struct.unpack_from("<II", payload, offset)
+                    offset += 8
+                    name = payload[offset:offset + name_len].decode("utf-8")
+                    offset += name_len
+                    labels = []
+                    for _ in range(entry_count):
+                        (length,) = struct.unpack_from("<I", payload, offset)
+                        offset += 4
+                        labels.append(payload[offset:offset + length].decode("utf-8"))
+                        offset += length
+                    self.set_category_dictionary(scope_id, name, labels)
+                    result["ok"] = True
+                else:
+                    raise ValueError(f"Unsupported op {op}")
+                offset = payload_start + payload_len
+            except Exception as exc:
+                result["error"] = str(exc)
+                results.append(result)
+                if stop_on_error:
+                    return {"results": results, "slots": slots}
+                offset = payload_start + payload_len
+                continue
+            results.append(result)
+        return {"results": results, "slots": slots}
 
 
 class NodeView:
@@ -507,6 +1003,7 @@ class NodeView:
         """
         _ensure_attribute(self._network, _core.SCOPE_NODE, name, value)
         self._network._core.set_attribute_value(_core.SCOPE_NODE, name, self.id, value)
+        self._network._emit_attribute_changed(_core.SCOPE_NODE, name, [self.id], [value])
 
     def __repr__(self) -> str:
         attrs = _format_preview_attributes(self._network, _core.SCOPE_NODE, self.id)
@@ -570,6 +1067,7 @@ class EdgeView:
         """
         _ensure_attribute(self._network, _core.SCOPE_EDGE, name, value)
         self._network._core.set_attribute_value(_core.SCOPE_EDGE, name, self.id, value)
+        self._network._emit_attribute_changed(_core.SCOPE_EDGE, name, [self.id], [value])
 
     def __repr__(self) -> str:
         source, target = self.endpoints
@@ -619,6 +1117,7 @@ class NetworkView:
         """
         _ensure_attribute(self._network, _core.SCOPE_NETWORK, name, value)
         self._network._core.set_attribute_value(_core.SCOPE_NETWORK, name, 0, value)
+        self._network._emit_attribute_changed(_core.SCOPE_NETWORK, name, [0], [value])
 
     def __repr__(self) -> str:
         return "<NetworkView>"
@@ -693,6 +1192,7 @@ class NodeSelector:
         values = _prepare_values(self._network, _core.SCOPE_NODE, name, value, len(self._ids), "node selector")
         for node_id, item in zip(self._ids, values):
             self._network._core.set_attribute_value(_core.SCOPE_NODE, name, node_id, item)
+        self._network._emit_attribute_changed(_core.SCOPE_NODE, name, self._ids, values)
 
     def neighbors(self, direction="both", include_source_nodes: bool = True):
         """
@@ -803,6 +1303,7 @@ class EdgeSelector:
         values = _prepare_values(self._network, _core.SCOPE_EDGE, name, value, len(self._ids), "edge selector")
         for edge_id, item in zip(self._ids, values):
             self._network._core.set_attribute_value(_core.SCOPE_EDGE, name, edge_id, item)
+        self._network._emit_attribute_changed(_core.SCOPE_EDGE, name, self._ids, values)
 
     @property
     def ids(self) -> List[int]:
@@ -882,6 +1383,7 @@ class NodeCollection:
         values = _prepare_values(self._network, _core.SCOPE_NODE, key, value, len(ids), "node collection")
         for node_id, item in zip(ids, values):
             self._network._core.set_attribute_value(_core.SCOPE_NODE, key, node_id, item)
+        self._network._emit_attribute_changed(_core.SCOPE_NODE, key, ids, values)
 
     def define_attribute(self, name, attr_type, dimension=1):
         """
@@ -972,6 +1474,7 @@ class EdgeCollection:
         values = _prepare_values(self._network, _core.SCOPE_EDGE, key, value, len(ids), "edge collection")
         for edge_id, item in zip(ids, values):
             self._network._core.set_attribute_value(_core.SCOPE_EDGE, key, edge_id, item)
+        self._network._emit_attribute_changed(_core.SCOPE_EDGE, key, ids, values)
 
     def pairs(self):
         """
@@ -1081,6 +1584,7 @@ class NetworkAttributeCollection:
         _ensure_attribute(self._network, _core.SCOPE_NETWORK, key, value)
         values = _prepare_values(self._network, _core.SCOPE_NETWORK, key, value, 1, "network collection")
         self._network._core.set_attribute_value(_core.SCOPE_NETWORK, key, 0, values[0])
+        self._network._emit_attribute_changed(_core.SCOPE_NETWORK, key, [0], values)
 
     def define_attribute(self, name, attr_type, dimension=1):
         """
@@ -1238,12 +1742,22 @@ def _define_attribute_helper(network: Network, scope, attr_name: str, attr_type,
     attr_type_id = _coerce_attribute_type(attr_type)
     if dimension is None or dimension <= 0:
         dimension = 1
-    return network._core.define_attribute(scope, attr_name, attr_type_id, dimension)
+    result = network._core.define_attribute(scope, attr_name, attr_type_id, dimension)
+    if hasattr(network, "_emit_attribute_defined"):
+        network._emit_attribute_defined(scope, attr_name, attr_type_id, dimension)
+    return result
 
 
 def _coerce_attribute_type(value):
     if isinstance(value, int):
         return value
+    if isinstance(value, str):
+        text = value.strip()
+        if text.isdigit():
+            return int(text)
+        for type_id, type_name in _ATTRIBUTE_TYPE_NAMES.items():
+            if text.lower() == type_name.lower():
+                return type_id
     if value is bool:
         return _core.ATTR_BOOLEAN
     if value is int:
@@ -1422,6 +1936,199 @@ def _coerce_number(text: str):
 
 def _raise_value_mix():
     raise ValueError("Value list cannot mix strings and numbers")
+
+
+def _coerce_scope(scope):
+    if isinstance(scope, str):
+        normalized = scope.strip().lower()
+        if normalized == "graph":
+            normalized = "network"
+        if normalized not in _SCOPE_IDS:
+            raise ValueError(f"Unknown attribute scope: {scope}")
+        return _SCOPE_IDS[normalized]
+    return int(scope)
+
+
+def _scope_name(scope) -> str:
+    return _SCOPE_NAMES.get(_coerce_scope(scope), str(scope))
+
+
+def _jsonable_values(values):
+    result = []
+    for value in values:
+        if hasattr(value, "tolist"):
+            value = value.tolist()
+        if isinstance(value, tuple):
+            value = list(value)
+        result.append(value)
+    return result
+
+
+def _public_event_payload(event):
+    payload = {
+        "type": event["type"],
+        "detail": event.get("detail"),
+    }
+    if event.get("record") is not None:
+        payload["record"] = event["record"]
+    return payload
+
+
+def _quote_text_value(value):
+    text = str(value)
+    return '"' + text.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n").replace("\t", "\\t") + '"'
+
+
+def _format_list(values):
+    parts = []
+    for value in values:
+        if isinstance(value, (list, tuple)):
+            parts.extend(value)
+        else:
+            parts.append(value)
+    return "[" + ",".join(_quote_text_value(value) if isinstance(value, str) else str(value) for value in parts) + "]"
+
+
+def mutation_events_to_text_batch(events) -> str:
+    """Convert mutation events to the text batch format understood by JS."""
+    lines = []
+    for event in events:
+        record = event.get("record") or {}
+        op = record.get("op")
+        if op == "DEFINE_ATTRIBUTE":
+            lines.append(
+                "DEFINE_ATTRIBUTE "
+                f"scope={record['scope']} name={record['name']} "
+                f"type={record['type']} dimension={record.get('dimension', 1)}"
+            )
+        elif op == "ADD_NODES":
+            lines.append(f"ADD_NODES n={record.get('count', 0)}")
+        elif op == "REMOVE_NODES":
+            lines.append(f"REMOVE_NODES ids={_format_list(record.get('ids', []))}")
+        elif op == "ADD_EDGES":
+            pairs = ",".join(f"({int(source)},{int(target)})" for source, target in record.get("pairs", []))
+            lines.append(f"ADD_EDGES pairs=[{pairs}]")
+        elif op == "REMOVE_EDGES":
+            lines.append(f"REMOVE_EDGES ids={_format_list(record.get('ids', []))}")
+        elif op == "SET_ATTR_VALUES":
+            ids = record.get("ids", [0])
+            values = record.get("values", [])
+            lines.append(
+                "SET_ATTR_VALUES "
+                f"scope={record['scope']} name={record['name']} "
+                f"ids={_format_list(ids)} values={_format_list(values)}"
+            )
+        elif op == "CATEGORY_CHANGE" and record.get("category_op") == "set_dictionary":
+            entries = record.get("entries") or []
+            if isinstance(entries, dict):
+                labels = list(entries.keys())
+            else:
+                labels = [
+                    entry.get("label", entry.get("name", entry.get("value", ""))) if isinstance(entry, dict) else entry
+                    for entry in entries
+                ]
+            lines.append(
+                "SET_CATEGORY_DICTIONARY "
+                f"scope={record['scope']} name={record['name']} entries={_format_list(labels)}"
+            )
+    return "\n".join(lines)
+
+
+def encode_binary_batch(events) -> bytes:
+    """Encode mutation events into the Helios network binary batch protocol."""
+    records = []
+    for event in events:
+        record = event.get("record", event)
+        payload = _encode_binary_record_payload(record)
+        if payload is None:
+            continue
+        records.append(payload)
+    header = bytearray(b"HNPB")
+    header += struct.pack("<BBHI", 1, 0, 0, len(records))
+    body = bytearray()
+    for op, flags, slot, payload in records:
+        body += struct.pack("<BBHII", op, flags, 0, slot, len(payload))
+        body += payload
+    return bytes(header + body)
+
+
+def _encode_binary_record_payload(record):
+    op = record.get("op")
+    if op == "ADD_NODES":
+        return 1, 0, 0, struct.pack("<I", int(record.get("count", 0)))
+    if op == "ADD_EDGES":
+        pairs = record.get("pairs", [])
+        payload = bytearray(struct.pack("<II", len(pairs), 0))
+        for source, target in pairs:
+            payload += struct.pack("<II", int(source), int(target))
+        return 2, 0, 0, bytes(payload)
+    if op == "SET_ATTR_VALUES":
+        scope = 1 if record.get("scope") == "edge" else 2 if record.get("scope") == "network" else 0
+        values = record.get("values", [])
+        flat_values = []
+        for value in values:
+            if isinstance(value, (list, tuple)):
+                flat_values.extend(value)
+            else:
+                flat_values.append(value)
+        value_type = 1 if any(isinstance(value, str) for value in flat_values) else 0
+        name = str(record.get("name", "")).encode("utf-8")
+        ids = [int(item) for item in record.get("ids", [0])]
+        payload = bytearray(struct.pack("<BBHIIII", scope, value_type, 0, len(ids), len(flat_values), 0, len(name)))
+        payload += name
+        for index in ids:
+            payload += struct.pack("<I", index)
+        if value_type == 1:
+            for value in flat_values:
+                chunk = str(value).encode("utf-8")
+                payload += struct.pack("<I", len(chunk))
+                payload += chunk
+        else:
+            for value in flat_values:
+                payload += struct.pack("<d", float(value))
+        return 3, 0, 0, bytes(payload)
+    if op == "REMOVE_NODES":
+        ids = [int(item) for item in record.get("ids", [])]
+        payload = struct.pack("<I", len(ids)) + b"".join(struct.pack("<I", item) for item in ids)
+        return 4, 0, 0, payload
+    if op == "REMOVE_EDGES":
+        ids = [int(item) for item in record.get("ids", [])]
+        payload = struct.pack("<I", len(ids)) + b"".join(struct.pack("<I", item) for item in ids)
+        return 5, 0, 0, payload
+    if op == "DEFINE_ATTRIBUTE":
+        scope = 1 if record.get("scope") == "edge" else 2 if record.get("scope") == "network" else 0
+        name = str(record.get("name", "")).encode("utf-8")
+        payload = struct.pack(
+            "<BBHII",
+            scope,
+            int(record.get("type", _core.ATTR_DOUBLE)),
+            0,
+            int(record.get("dimension", 1)),
+            len(name),
+        ) + name
+        return 6, 0, 0, payload
+    if op == "CATEGORY_CHANGE" and record.get("category_op") == "set_dictionary":
+        scope = 1 if record.get("scope") == "edge" else 2 if record.get("scope") == "network" else 0
+        name = str(record.get("name", "")).encode("utf-8")
+        entries = record.get("entries") or []
+        labels = []
+        if isinstance(entries, dict):
+            labels = [str(label) for label in entries.keys()]
+        else:
+            for entry in entries:
+                if isinstance(entry, dict):
+                    labels.append(str(entry.get("label") or entry.get("name") or entry.get("value") or ""))
+                else:
+                    labels.append(str(entry))
+        payload = bytearray(struct.pack("<BBHII", scope, 0, 0, len(labels), len(name)))
+        payload += name
+        for label in labels:
+            chunk = label.encode("utf-8")
+            payload += struct.pack("<I", len(chunk))
+            payload += chunk
+        return 7, 0, 0, bytes(payload)
+    return None
+
 
 def _parse_pairs(text: str) -> List[tuple]:
     if not text:
