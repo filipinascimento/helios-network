@@ -545,6 +545,59 @@ function isNodeRuntime() {
 	return NODE_RUNTIME;
 }
 
+function normalizeCount(value, name) {
+	const count = Number(value);
+	if (!Number.isFinite(count) || count < 0) {
+		throw new Error(`${name} must be a non-negative finite number`);
+	}
+	return Math.floor(count);
+}
+
+function normalizeSeed(value) {
+	if (value === undefined || value === null) {
+		return 0;
+	}
+	const seed = Number(value);
+	if (!Number.isFinite(seed) || seed < 0) {
+		throw new Error('seed must be a non-negative finite number');
+	}
+	return Math.floor(seed) >>> 0;
+}
+
+function flattenProbabilityMatrix(matrix, blockCount) {
+	if (!matrix) {
+		throw new Error('probabilities must be provided');
+	}
+	if (ArrayBuffer.isView(matrix)) {
+		if (matrix.length !== blockCount * blockCount) {
+			throw new Error('probability matrix length must equal blockSizes.length ** 2');
+		}
+		return Array.from(matrix, Number);
+	}
+	if (!Array.isArray(matrix)) {
+		throw new Error('probabilities must be a flat or nested array');
+	}
+	if (matrix.length === blockCount * blockCount && !Array.isArray(matrix[0])) {
+		return matrix.map(Number);
+	}
+	if (matrix.length !== blockCount) {
+		throw new Error('probability matrix must have one row per block');
+	}
+	const flattened = [];
+	for (const row of matrix) {
+		if (!Array.isArray(row) && !ArrayBuffer.isView(row)) {
+			throw new Error('probability matrix rows must be arrays');
+		}
+		if (row.length !== blockCount) {
+			throw new Error('probability matrix must be square');
+		}
+		for (const value of row) {
+			flattened.push(Number(value));
+		}
+	}
+	return flattened;
+}
+
 async function getNodeFsModule() {
 	if (!isNodeRuntime()) {
 		throw new Error('Node filesystem is unavailable in this environment');
@@ -3203,6 +3256,129 @@ export class HeliosNetwork extends BaseEventTarget {
 		}
 		moduleInstance = module;
 		return HeliosNetwork._createWithModule(module, directed, initialNodes, initialEdges);
+	}
+
+	static async generateWattsStrogatz(options = {}) {
+		const module = options.module || await getModule();
+		moduleInstance = module;
+		return HeliosNetwork._generateWithModule(module, '_CXNetworkGenerateWattsStrogatz', [
+			normalizeCount(options.nodeCount ?? options.nodes ?? 0, 'nodeCount'),
+			normalizeCount(options.neighborLevel ?? options.k ?? 2, 'neighborLevel'),
+			Number(options.rewiringProbability ?? options.p ?? 0.01),
+			options.directed ? 1 : 0,
+			normalizeSeed(options.seed),
+		]);
+	}
+
+	static async generateSmallWorld(options = {}) {
+		return HeliosNetwork.generateWattsStrogatz(options);
+	}
+
+	static async generateBarabasiAlbert(options = {}) {
+		const module = options.module || await getModule();
+		moduleInstance = module;
+		const edgesPerNewNode = normalizeCount(options.edgesPerNewNode ?? options.m ?? 2, 'edgesPerNewNode');
+		return HeliosNetwork._generateWithModule(module, '_CXNetworkGenerateBarabasiAlbert', [
+			normalizeCount(options.nodeCount ?? options.nodes ?? 0, 'nodeCount'),
+			edgesPerNewNode,
+			normalizeCount(options.initialCliqueSize ?? options.m0 ?? (edgesPerNewNode + 1), 'initialCliqueSize'),
+			options.directed ? 1 : 0,
+			normalizeSeed(options.seed),
+		]);
+	}
+
+	static async generateRandomGeometric(options = {}) {
+		const module = options.module || await getModule();
+		moduleInstance = module;
+		return HeliosNetwork._generateWithModule(module, '_CXNetworkGenerateRandomGeometric', [
+			normalizeCount(options.nodeCount ?? options.nodes ?? 0, 'nodeCount'),
+			Number(options.radius ?? 0.05),
+			options.directed ? 1 : 0,
+			normalizeSeed(options.seed),
+		]);
+	}
+
+	static async generateWaxman(options = {}) {
+		const module = options.module || await getModule();
+		moduleInstance = module;
+		return HeliosNetwork._generateWithModule(module, '_CXNetworkGenerateWaxman', [
+			normalizeCount(options.nodeCount ?? options.nodes ?? 0, 'nodeCount'),
+			Number(options.alpha ?? 0.4),
+			Number(options.beta ?? 0.2),
+			options.directed ? 1 : 0,
+			normalizeSeed(options.seed),
+		]);
+	}
+
+	static async generateLattice2D(options = {}) {
+		const module = options.module || await getModule();
+		moduleInstance = module;
+		return HeliosNetwork._generateWithModule(module, '_CXNetworkGenerateLattice2D', [
+			normalizeCount(options.rows ?? options.height ?? 0, 'rows'),
+			normalizeCount(options.columns ?? options.cols ?? options.width ?? 0, 'columns'),
+			normalizeCount(options.neighborLevel ?? options.level ?? 1, 'neighborLevel'),
+			options.periodic ? 1 : 0,
+			options.directed ? 1 : 0,
+		]);
+	}
+
+	static async generateStochasticBlockModel(options = {}) {
+		const module = options.module || await getModule();
+		moduleInstance = module;
+		const blockSizes = Uint32Array.from(options.blockSizes ?? options.sizes ?? []);
+		const blockCount = blockSizes.length;
+		if (!blockCount) {
+			throw new Error('blockSizes must contain at least one block');
+		}
+		const probabilities = Float64Array.from(flattenProbabilityMatrix(options.probabilities ?? options.matrix, blockCount));
+		const sizesPtr = module._malloc(blockSizes.length * 4);
+		const probabilitiesPtr = module._malloc(probabilities.length * 8);
+		if (!sizesPtr || !probabilitiesPtr) {
+			if (sizesPtr) module._free(sizesPtr);
+			if (probabilitiesPtr) module._free(probabilitiesPtr);
+			throw new Error('Failed to allocate stochastic block model parameters');
+		}
+		try {
+			module.HEAPU32.set(blockSizes, sizesPtr / 4);
+			module.HEAPF64.set(probabilities, probabilitiesPtr / 8);
+			return HeliosNetwork._generateWithModule(module, '_CXNetworkGenerateStochasticBlockModel', [
+				blockCount,
+				sizesPtr,
+				probabilitiesPtr,
+				options.directed ? 1 : 0,
+				normalizeSeed(options.seed),
+			]);
+		} finally {
+			module._free(sizesPtr);
+			module._free(probabilitiesPtr);
+		}
+	}
+
+	static async generateConfigurationModel(options = {}) {
+		const module = options.module || await getModule();
+		moduleInstance = module;
+		const degrees = Uint32Array.from(options.degrees ?? options.degreeSequence ?? []);
+		const degreesPtr = module._malloc(degrees.length * 4);
+		if (!degreesPtr && degrees.length) {
+			throw new Error('Failed to allocate configuration model degree sequence');
+		}
+		try {
+			if (degrees.length) {
+				module.HEAPU32.set(degrees, degreesPtr / 4);
+			}
+			return HeliosNetwork._generateWithModule(module, '_CXNetworkGenerateConfigurationModel', [
+				degrees.length,
+				degreesPtr,
+				options.directed ? 1 : 0,
+				options.allowSelfLoops ? 1 : 0,
+				options.allowMultiEdges ? 1 : 0,
+				normalizeSeed(options.seed),
+			]);
+		} finally {
+			if (degreesPtr) {
+				module._free(degreesPtr);
+			}
+		}
 	}
 
 	/**
@@ -10604,6 +10780,18 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * Internal helper that creates a network backed by the provided module.
 	 * @private
 	 */
+	static _generateWithModule(module, functionName, args) {
+		const generator = module?.[functionName];
+		if (typeof generator !== 'function') {
+			throw new Error(`${functionName.slice(1)} is not available in this WASM build. Rebuild the module to enable network generators.`);
+		}
+		const ptr = generator.call(module, ...args);
+		if (!ptr) {
+			throw new Error(`${functionName.slice(1)} failed to generate a network`);
+		}
+		return HeliosNetwork._wrapNative(module, ptr);
+	}
+
 	static _createWithModule(module, directed, initialNodes, initialEdges) {
 		const networkPtr = module._CXNewNetworkWithCapacity(directed ? 1 : 0, initialNodes, initialEdges);
 		if (!networkPtr) {

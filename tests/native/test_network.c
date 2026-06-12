@@ -1649,6 +1649,48 @@ static void test_serialization_fuzz(void) {
 	printf("Serialization fuzz tests passed.\n");
 }
 
+static void test_network_generators(void) {
+	CXNetworkRef ws = CXNetworkGenerateWattsStrogatz(10, 2, 0.0, CXFalse, 7);
+	assert(ws);
+	assert(CXNetworkNodeCount(ws) == 10);
+	assert(CXNetworkEdgeCount(ws) == 20);
+	CXFreeNetwork(ws);
+
+	CXNetworkRef lattice = CXNetworkGenerateLattice2D(3, 4, 1, CXFalse, CXFalse);
+	assert(lattice);
+	assert(CXNetworkNodeCount(lattice) == 12);
+	assert(CXNetworkEdgeCount(lattice) == 17);
+	CXFreeNetwork(lattice);
+
+	CXNetworkRef ba = CXNetworkGenerateBarabasiAlbert(10, 2, 3, CXFalse, 11);
+	assert(ba);
+	assert(CXNetworkNodeCount(ba) == 10);
+	assert(CXNetworkEdgeCount(ba) == 17);
+	CXFreeNetwork(ba);
+
+	CXSize blocks[] = {2, 3};
+	double probabilities[] = {1.0, 1.0, 1.0, 1.0};
+	CXNetworkRef sbm = CXNetworkGenerateStochasticBlockModel(2, blocks, probabilities, CXFalse, 13);
+	assert(sbm);
+	assert(CXNetworkNodeCount(sbm) == 5);
+	assert(CXNetworkEdgeCount(sbm) == 10);
+	CXFreeNetwork(sbm);
+
+	CXSize degrees[] = {2, 2, 2, 2};
+	CXNetworkRef config = CXNetworkGenerateConfigurationModel(4, degrees, CXFalse, CXTrue, CXTrue, 17);
+	assert(config);
+	assert(CXNetworkNodeCount(config) == 4);
+	assert(CXNetworkEdgeCount(config) == 4);
+	CXFreeNetwork(config);
+
+	CXNetworkRef geometric = CXNetworkGenerateRandomGeometric(5, 2.0, CXFalse, 19);
+	assert(geometric);
+	assert(CXNetworkNodeCount(geometric) == 5);
+	assert(CXNetworkEdgeCount(geometric) == 10);
+	assert(CXNetworkGetNodeAttribute(geometric, "_helios_generator_position"));
+	CXFreeNetwork(geometric);
+}
+
 int main(void) {
 	test_basic_network();
 	test_neighbor_collection();
@@ -1667,6 +1709,7 @@ int main(void) {
 	test_gml_loose_loader();
 	test_node_link_json_export();
 	test_serialization_fuzz();
+	test_network_generators();
 	printf("All native network tests passed.\n");
 	return 0;
 }

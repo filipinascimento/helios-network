@@ -2,6 +2,7 @@ import os
 import tempfile
 import warnings
 import json
+from array import array
 
 from helios_network import (
     AttributeScope,
@@ -19,6 +20,12 @@ from helios_network import (
     read_xnet,
     read_zxnet,
     encode_binary_batch,
+    generate_barabasi_albert,
+    generate_configuration_model,
+    generate_lattice_2d,
+    generate_random_geometric,
+    generate_stochastic_block_model,
+    generate_watts_strogatz,
 )
 
 
@@ -33,6 +40,32 @@ def test_network_add_remove_counts():
 
     network.remove_nodes([nodes[2]])
     assert network.node_count() == 2
+
+
+def test_network_generators_public_python_api():
+    ws = generate_watts_strogatz(10, neighbor_level=2, rewiring_probability=0, seed=7)
+    assert ws.node_count() == 10
+    assert ws.edge_count() == 20
+
+    lattice = generate_lattice_2d(3, 4)
+    assert lattice.node_count() == 12
+    assert lattice.edge_count() == 17
+
+    ba = generate_barabasi_albert(10, edges_per_new_node=2, initial_clique_size=3, seed=11)
+    assert ba.node_count() == 10
+    assert ba.edge_count() == 17
+
+    sbm = generate_stochastic_block_model([2, 3], [[1, 1], [1, 1]], seed=13)
+    assert sbm.node_count() == 5
+    assert sbm.edge_count() == 10
+
+    config = generate_configuration_model([2, 2, 2, 2], allow_self_loops=True, allow_multi_edges=True, seed=17)
+    assert config.node_count() == 4
+    assert config.edge_count() == 4
+
+    geometric = generate_random_geometric(5, radius=2, seed=19)
+    assert geometric.edge_count() == 10
+    assert "_helios_generator_position" in geometric.list_attributes(AttributeScope.Node)
 
 
 def test_network_mutation_events_and_journal():
@@ -137,6 +170,23 @@ def test_edge_selectors_and_pairs():
     ]
 
 
+def test_add_edges_from_arrays():
+    network = Network(directed=False)
+    nodes = network.add_nodes(4)
+    count = network.add_edges_from_arrays(
+        array("I", [nodes[0], nodes[1], nodes[2]]),
+        array("I", [nodes[1], nodes[2], nodes[3]]),
+    )
+
+    assert count == 3
+    assert network.edge_count() == 3
+    assert list(network.edges.pairs()) == [
+        (nodes[0], nodes[1]),
+        (nodes[1], nodes[2]),
+        (nodes[2], nodes[3]),
+    ]
+
+
 def test_neighbors_and_concentric_levels():
     network = Network(directed=True)
     nodes = network.add_nodes(6)
@@ -227,6 +277,59 @@ def test_measure_connected_components():
     assert largest["size"] == 2
     assert largest["network"].node_count() == 2
     assert largest["network"].edge_count() == 2
+
+
+def test_label_major_components_ranks_largest_components():
+    network = Network(directed=False)
+    nodes = network.add_nodes(8)
+    network.add_edges([
+        (nodes[0], nodes[1]),
+        (nodes[1], nodes[2]),
+        (nodes[3], nodes[4]),
+        (nodes[4], nodes[5]),
+        (nodes[6], nodes[7]),
+    ])
+
+    result = network.label_major_components(
+        max_components=2,
+        min_size=2,
+        out_node_component_attribute="major",
+    )
+    values = result["values_by_node"]
+
+    assert [component["size"] for component in result["selected_components"]] == [3, 3]
+    assert values[nodes[0]] == values[nodes[1]] == values[nodes[2]] == 1
+    assert values[nodes[3]] == values[nodes[4]] == values[nodes[5]] == 2
+    assert values[nodes[6]] == values[nodes[7]] == 0
+    assert network.get_attribute_value(AttributeScope.Node, "major", nodes[0]) == 1
+
+
+def test_measure_leiden_modularity_recovers_two_cliques():
+    network = Network(directed=False)
+    nodes = network.add_nodes(10)
+    edges = []
+    for start in (0, 5):
+        for i in range(start, start + 5):
+            for j in range(i + 1, start + 5):
+                edges.append((nodes[i], nodes[j]))
+    edges.append((nodes[4], nodes[5]))
+    network.add_edges(edges)
+
+    result = network.measure_leiden_modularity(
+        seed=11,
+        max_levels=16,
+        max_passes=8,
+        out_node_community_attribute="leiden",
+    )
+    values = result["values_by_node"]
+
+    assert result["community_count"] == 2
+    assert result["modularity"] > 0
+    assert len({values[nodes[i]] for i in range(5)}) == 1
+    assert len({values[nodes[i]] for i in range(5, 10)}) == 1
+    assert values[nodes[0]] != values[nodes[5]]
+    assert network.get_attribute_value(AttributeScope.Node, "leiden", nodes[0]) == values[nodes[0]]
+
 
 def test_measure_coreness():
     network = Network(directed=False)

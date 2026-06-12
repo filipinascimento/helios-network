@@ -315,6 +315,44 @@ class Network:
         })
         return indices
 
+    def add_edges_from_arrays(self, sources, targets, return_indices: bool = False):
+        """
+        Add edges from contiguous integer source and target buffers.
+
+        This avoids materializing a Python list of `(source, target)` tuples and
+        is intended for large generated graphs. `sources` and `targets` must be
+        one-dimensional buffer objects with 32-bit or 64-bit integer storage.
+        """
+        old_node_count = self._core.node_count()
+        old_edge_count = self._core.edge_count()
+        result = self._core.add_edges_from_arrays(
+            sources,
+            targets,
+            return_indices=bool(return_indices),
+        )
+        count = len(result) if return_indices else int(result)
+        detail = {
+            "indices": list(result) if return_indices else None,
+            "pairs": None,
+            "count": count,
+            "old_node_count": old_node_count,
+            "node_count": self._core.node_count(),
+            "old_edge_count": old_edge_count,
+            "edge_count": self._core.edge_count(),
+        }
+        self._emit_mutation(NETWORK_EVENTS["edges_added"], detail, {
+            "op": "ADD_EDGES_FROM_ARRAYS",
+            "count": count,
+            "indices": list(result) if return_indices else None,
+        })
+        self._emit_mutation(NETWORK_EVENTS["topology_changed"], {
+            "kind": "edges",
+            "op": "added",
+            "node_count": detail["node_count"],
+            "edge_count": detail["edge_count"],
+        })
+        return result
+
     def remove_edges(self, indices):
         ids = [int(index) for index in indices]
         old_node_count = self._core.node_count()
@@ -585,6 +623,169 @@ class Network:
         if not components:
             return None
         return components[0]
+
+    def measure_leiden_modularity(
+        self,
+        edge_weight_attribute: str | None = None,
+        resolution: float = 1.0,
+        seed: int = 0,
+        max_levels: int = 32,
+        max_passes: int = 8,
+        out_node_community_attribute: str = "community",
+    ):
+        """
+        Run Leiden community detection optimizing modularity.
+
+        Parameters:
+        -----------
+        edge_weight_attribute: str | None
+            Optional edge attribute name with scalar weights.
+        resolution: float
+            Modularity resolution parameter (gamma).
+        seed: int
+            Random seed. Zero uses the native default seed.
+        max_levels: int
+            Maximum aggregation levels.
+        max_passes: int
+            Maximum local-moving passes per phase.
+        out_node_community_attribute: str
+            Node attribute name to store detected community ids.
+
+        Returns:
+        --------
+        dict
+            Contains community_count, modularity, values_by_node, and options.
+        """
+        existed = out_node_community_attribute in self._core.list_attributes(_core.SCOPE_NODE)
+        result = self._core.measure_leiden_modularity(
+            edge_weight_attribute=edge_weight_attribute,
+            resolution=float(resolution),
+            seed=int(seed),
+            max_levels=int(max_levels),
+            max_passes=int(max_passes),
+            out_node_community_attribute=out_node_community_attribute,
+        )
+        if not existed:
+            self._emit_attribute_defined(
+                _core.SCOPE_NODE,
+                out_node_community_attribute,
+                _core.ATTR_UNSIGNED_INTEGER,
+                1,
+            )
+        active_nodes = self._core.node_indices()
+        self._emit_attribute_changed(
+            _core.SCOPE_NODE,
+            out_node_community_attribute,
+            active_nodes,
+            [result["values_by_node"][int(node_id)] for node_id in active_nodes],
+        )
+        return result
+
+    def leiden_modularity(self, **kwargs):
+        """Alias for :meth:`measure_leiden_modularity`."""
+        return self.measure_leiden_modularity(**kwargs)
+
+    def label_major_components(
+        self,
+        mode="weak",
+        max_components: int | None = None,
+        min_size: int = 1,
+        out_node_component_attribute: str = "major_component",
+        other_label: int = 0,
+    ):
+        """
+        Label the largest connected components with compact rank ids.
+
+        The largest selected component receives label 1, the second largest
+        receives label 2, and so on. Nodes outside the selected components get
+        `other_label`.
+
+        Parameters:
+        -----------
+        mode: str | int
+            Connected-components mode ("weak" or "strong").
+        max_components: int | None
+            Maximum number of largest components to label. None labels all
+            components that satisfy `min_size`.
+        min_size: int
+            Minimum component size to receive a positive rank label.
+        out_node_component_attribute: str
+            Node attribute name to store rank labels.
+        other_label: int
+            Label assigned to nodes outside selected major components.
+
+        Returns:
+        --------
+        dict
+            Summary with selected component records and values_by_node.
+        """
+        if max_components is not None and int(max_components) < 1:
+            raise ValueError("max_components must be at least 1 or None")
+        if int(min_size) < 1:
+            raise ValueError("min_size must be at least 1")
+        if not out_node_component_attribute:
+            raise ValueError("out_node_component_attribute is required")
+
+        measured = self._core.measure_connected_components(mode=mode)
+        component_values = measured["values_by_node"]
+        active_nodes = [int(node_id) for node_id in self._core.node_indices()]
+
+        component_sizes = {}
+        for node_id in active_nodes:
+            component_id = int(component_values[node_id])
+            if component_id <= 0:
+                continue
+            component_sizes[component_id] = component_sizes.get(component_id, 0) + 1
+
+        selected = [
+            {"component_id": component_id, "size": size}
+            for component_id, size in component_sizes.items()
+            if size >= int(min_size)
+        ]
+        selected.sort(key=lambda item: (-int(item["size"]), int(item["component_id"])))
+        if max_components is not None:
+            selected = selected[:int(max_components)]
+
+        rank_by_component = {
+            int(component["component_id"]): rank
+            for rank, component in enumerate(selected, start=1)
+        }
+        values = [int(other_label)] * len(component_values)
+        for node_id in active_nodes:
+            component_id = int(component_values[node_id])
+            values[node_id] = int(rank_by_component.get(component_id, other_label))
+
+        node_attributes = self._core.list_attributes(_core.SCOPE_NODE)
+        if out_node_component_attribute not in node_attributes:
+            self.nodes.define_attribute(out_node_component_attribute, _core.ATTR_UNSIGNED_INTEGER, 1)
+        else:
+            info = self._core.attribute_info(_core.SCOPE_NODE, out_node_component_attribute)
+            if int(info["type"]) != int(_core.ATTR_UNSIGNED_INTEGER):
+                raise TypeError(f'Node attribute "{out_node_component_attribute}" must be UnsignedInteger')
+
+        for node_id in active_nodes:
+            self._core.set_attribute_value(
+                _core.SCOPE_NODE,
+                out_node_component_attribute,
+                node_id,
+                int(values[node_id]),
+            )
+        self._emit_attribute_changed(
+            _core.SCOPE_NODE,
+            out_node_component_attribute,
+            active_nodes,
+            [values[node_id] for node_id in active_nodes],
+        )
+
+        return {
+            "values_by_node": values,
+            "selected_components": selected,
+            "component_count": measured["component_count"],
+            "largest_component_size": measured["largest_component_size"],
+            "mode": measured["mode"],
+            "out_node_component_attribute": out_node_component_attribute,
+            "other_label": int(other_label),
+        }
 
     def out_neighbors(self, node: int):
         """

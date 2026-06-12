@@ -370,6 +370,28 @@ CX_EXTERN const CXBool* CXNetworkEdgeActivityBuffer(CXNetworkRef network);
 /** Returns a pointer to the flattened edge buffer `[from, to, ...]`. */
 CX_EXTERN CXEdge* CXNetworkEdgesBuffer(CXNetworkRef network);
 
+// Network generators
+CX_EXTERN CXNetworkRef CXNetworkGenerateStochasticBlockModel(
+	CXSize blockCount,
+	const CXSize *blockSizes,
+	const double *probabilities,
+	CXBool directed,
+	uint32_t seed
+);
+CX_EXTERN CXNetworkRef CXNetworkGenerateBarabasiAlbert(CXSize nodeCount, CXSize edgesPerNewNode, CXSize initialCliqueSize, CXBool directed, uint32_t seed);
+CX_EXTERN CXNetworkRef CXNetworkGenerateWattsStrogatz(CXSize nodeCount, CXSize neighborLevel, double rewiringProbability, CXBool directed, uint32_t seed);
+CX_EXTERN CXNetworkRef CXNetworkGenerateRandomGeometric(CXSize nodeCount, double radius, CXBool directed, uint32_t seed);
+CX_EXTERN CXNetworkRef CXNetworkGenerateWaxman(CXSize nodeCount, double alpha, double beta, CXBool directed, uint32_t seed);
+CX_EXTERN CXNetworkRef CXNetworkGenerateConfigurationModel(
+	CXSize nodeCount,
+	const CXSize *degrees,
+	CXBool directed,
+	CXBool allowSelfLoops,
+	CXBool allowMultiEdges,
+	uint32_t seed
+);
+CX_EXTERN CXNetworkRef CXNetworkGenerateLattice2D(CXSize rows, CXSize columns, CXSize neighborLevel, CXBool periodic, CXBool directed);
+
 // Adjacency access
 /** Returns the outbound neighbor container for the given node. */
 CX_EXTERN CXNeighborContainer* CXNetworkOutNeighbors(CXNetworkRef network, CXIndex node);

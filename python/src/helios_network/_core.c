@@ -667,6 +667,133 @@ static PyObject *Network_add_edges(PyHeliosNetwork *self, PyObject *args) {
     return list;
 }
 
+static int read_buffer_index(const Py_buffer *view, Py_ssize_t index, CXUInteger *out) {
+    if (!view || !out || index < 0 || index >= (Py_ssize_t)(view->len / view->itemsize)) {
+        PyErr_SetString(PyExc_IndexError, "Buffer index is out of range");
+        return -1;
+    }
+    if (view->ndim > 1) {
+        PyErr_SetString(PyExc_ValueError, "Edge endpoint buffers must be one-dimensional");
+        return -1;
+    }
+    if (view->itemsize != 4 && view->itemsize != 8) {
+        PyErr_SetString(PyExc_ValueError, "Edge endpoint buffers must contain 32-bit or 64-bit integers");
+        return -1;
+    }
+    char *ptr = (char *)view->buf;
+    Py_ssize_t stride = view->strides ? view->strides[0] : (Py_ssize_t)view->itemsize;
+    ptr += index * stride;
+    if (view->itemsize == 4) {
+        uint32_t value = 0;
+        memcpy(&value, ptr, sizeof(uint32_t));
+        *out = (CXUInteger)value;
+    } else {
+        uint64_t value = 0;
+        memcpy(&value, ptr, sizeof(uint64_t));
+        *out = (CXUInteger)value;
+    }
+    return 0;
+}
+
+static PyObject *Network_add_edges_from_arrays(PyHeliosNetwork *self, PyObject *args, PyObject *kwargs) {
+    static const char *kwlist[] = {"sources", "targets", "return_indices", NULL};
+    PyObject *sources_obj = NULL;
+    PyObject *targets_obj = NULL;
+    int return_indices = 0;
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "OO|p", (char **)kwlist, &sources_obj, &targets_obj, &return_indices)) {
+        return NULL;
+    }
+    if (!self->network) {
+        PyErr_SetString(PyExc_RuntimeError, "Network is not initialized");
+        return NULL;
+    }
+
+    Py_buffer sources_view;
+    Py_buffer targets_view;
+    memset(&sources_view, 0, sizeof(Py_buffer));
+    memset(&targets_view, 0, sizeof(Py_buffer));
+    if (PyObject_GetBuffer(sources_obj, &sources_view, PyBUF_STRIDES) != 0) {
+        return NULL;
+    }
+    if (PyObject_GetBuffer(targets_obj, &targets_view, PyBUF_STRIDES) != 0) {
+        PyBuffer_Release(&sources_view);
+        return NULL;
+    }
+
+    if (sources_view.itemsize <= 0 || targets_view.itemsize <= 0) {
+        PyBuffer_Release(&sources_view);
+        PyBuffer_Release(&targets_view);
+        PyErr_SetString(PyExc_ValueError, "Invalid edge endpoint buffer item size");
+        return NULL;
+    }
+    Py_ssize_t source_count = sources_view.len / sources_view.itemsize;
+    Py_ssize_t target_count = targets_view.len / targets_view.itemsize;
+    if (source_count != target_count) {
+        PyBuffer_Release(&sources_view);
+        PyBuffer_Release(&targets_view);
+        PyErr_SetString(PyExc_ValueError, "sources and targets must have the same length");
+        return NULL;
+    }
+    if (source_count < 0) {
+        PyBuffer_Release(&sources_view);
+        PyBuffer_Release(&targets_view);
+        PyErr_SetString(PyExc_ValueError, "Invalid edge endpoint buffer length");
+        return NULL;
+    }
+
+    CXSize count = (CXSize)source_count;
+    CXEdge *edges = (CXEdge *)calloc((size_t)count, sizeof(CXEdge));
+    CXIndex *indices = (CXIndex *)calloc((size_t)count, sizeof(CXIndex));
+    if ((count > 0 && !edges) || (count > 0 && !indices)) {
+        free(edges);
+        free(indices);
+        PyBuffer_Release(&sources_view);
+        PyBuffer_Release(&targets_view);
+        PyErr_NoMemory();
+        return NULL;
+    }
+
+    for (Py_ssize_t i = 0; i < source_count; i++) {
+        CXUInteger source = 0;
+        CXUInteger target = 0;
+        if (read_buffer_index(&sources_view, i, &source) != 0 || read_buffer_index(&targets_view, i, &target) != 0) {
+            free(edges);
+            free(indices);
+            PyBuffer_Release(&sources_view);
+            PyBuffer_Release(&targets_view);
+            return NULL;
+        }
+        edges[i].from = source;
+        edges[i].to = target;
+    }
+
+    PyBuffer_Release(&sources_view);
+    PyBuffer_Release(&targets_view);
+
+    CXBool ok = CXNetworkAddEdges(self->network, edges, count, indices);
+    free(edges);
+    if (!ok) {
+        free(indices);
+        PyErr_SetString(PyExc_RuntimeError, "Failed to add edges");
+        return NULL;
+    }
+
+    if (!return_indices) {
+        free(indices);
+        return PyLong_FromSize_t((size_t)count);
+    }
+    PyObject *list = PyList_New((Py_ssize_t)count);
+    if (!list) {
+        free(indices);
+        return NULL;
+    }
+    for (CXSize i = 0; i < count; i++) {
+        PyList_SET_ITEM(list, (Py_ssize_t)i, PyLong_FromUnsignedLong((unsigned long)indices[i]));
+    }
+    free(indices);
+    return list;
+}
+
 static PyObject *Network_remove_edges(PyHeliosNetwork *self, PyObject *args) {
     PyObject *seq = NULL;
     if (!PyArg_ParseTuple(args, "O", &seq)) {
@@ -2840,6 +2967,149 @@ static PyObject *Network_measure_connected_components(PyHeliosNetwork *self, PyO
     return result;
 }
 
+static PyObject *Network_measure_leiden_modularity(PyHeliosNetwork *self, PyObject *args, PyObject *kwargs) {
+    static const char *kwlist[] = {
+        "edge_weight_attribute",
+        "resolution",
+        "seed",
+        "max_levels",
+        "max_passes",
+        "out_node_community_attribute",
+        NULL
+    };
+    const char *edge_weight_attribute = NULL;
+    double resolution = 1.0;
+    unsigned long seed = 0;
+    unsigned long max_levels = 32;
+    unsigned long max_passes = 8;
+    const char *out_node_community_attribute = "community";
+    if (!PyArg_ParseTupleAndKeywords(
+        args,
+        kwargs,
+        "|zdkkks",
+        (char **)kwlist,
+        &edge_weight_attribute,
+        &resolution,
+        &seed,
+        &max_levels,
+        &max_passes,
+        &out_node_community_attribute
+    )) {
+        return NULL;
+    }
+    if (!self->network) {
+        PyErr_SetString(PyExc_RuntimeError, "Network is not initialized");
+        return NULL;
+    }
+    if (!out_node_community_attribute || out_node_community_attribute[0] == '\0') {
+        PyErr_SetString(PyExc_ValueError, "out_node_community_attribute is required");
+        return NULL;
+    }
+    if (!(resolution > 0.0)) {
+        PyErr_SetString(PyExc_ValueError, "resolution must be positive");
+        return NULL;
+    }
+
+    double modularity = 0.0;
+    CXSize community_count = CXNetworkLeidenModularity(
+        self->network,
+        edge_weight_attribute,
+        resolution,
+        (uint32_t)seed,
+        (CXSize)max_levels,
+        (CXSize)max_passes,
+        out_node_community_attribute,
+        &modularity
+    );
+    if (community_count == 0) {
+        PyErr_SetString(PyExc_RuntimeError, "Failed to run Leiden modularity");
+        return NULL;
+    }
+
+    CXAttributeRef attr = get_attribute_for_scope(
+        self->network,
+        CXAttributeScopeNode,
+        out_node_community_attribute
+    );
+    if (!attr || !attr->data || attr->type != CXUnsignedIntegerAttributeType) {
+        PyErr_SetString(PyExc_RuntimeError, "Leiden community output attribute is unavailable");
+        return NULL;
+    }
+
+    PyObject *values_list = u32_buffer_to_list(
+        (const uint32_t *)attr->data,
+        self->network->nodeCapacity
+    );
+    if (!values_list) {
+        return NULL;
+    }
+
+    PyObject *result = PyDict_New();
+    if (!result) {
+        Py_DECREF(values_list);
+        return NULL;
+    }
+
+    PyObject *community_count_out = PyLong_FromSize_t((size_t)community_count);
+    PyObject *modularity_out = PyFloat_FromDouble(modularity);
+    PyObject *resolution_out = PyFloat_FromDouble(resolution);
+    PyObject *seed_out = PyLong_FromUnsignedLong((unsigned long)seed);
+    PyObject *max_levels_out = PyLong_FromUnsignedLong(max_levels);
+    PyObject *max_passes_out = PyLong_FromUnsignedLong(max_passes);
+    PyObject *out_name_out = PyUnicode_FromString(out_node_community_attribute);
+    PyObject *weight_name_out = NULL;
+    if (edge_weight_attribute) {
+        weight_name_out = PyUnicode_FromString(edge_weight_attribute);
+    } else {
+        Py_INCREF(Py_None);
+        weight_name_out = Py_None;
+    }
+
+    if (
+        !community_count_out ||
+        !modularity_out ||
+        !resolution_out ||
+        !seed_out ||
+        !max_levels_out ||
+        !max_passes_out ||
+        !out_name_out ||
+        !weight_name_out
+    ) {
+        Py_XDECREF(community_count_out);
+        Py_XDECREF(modularity_out);
+        Py_XDECREF(resolution_out);
+        Py_XDECREF(seed_out);
+        Py_XDECREF(max_levels_out);
+        Py_XDECREF(max_passes_out);
+        Py_XDECREF(out_name_out);
+        Py_XDECREF(weight_name_out);
+        Py_DECREF(values_list);
+        Py_DECREF(result);
+        return NULL;
+    }
+
+    PyDict_SetItemString(result, "values_by_node", values_list);
+    PyDict_SetItemString(result, "community_count", community_count_out);
+    PyDict_SetItemString(result, "modularity", modularity_out);
+    PyDict_SetItemString(result, "resolution", resolution_out);
+    PyDict_SetItemString(result, "seed", seed_out);
+    PyDict_SetItemString(result, "max_levels", max_levels_out);
+    PyDict_SetItemString(result, "max_passes", max_passes_out);
+    PyDict_SetItemString(result, "out_node_community_attribute", out_name_out);
+    PyDict_SetItemString(result, "edge_weight_attribute", weight_name_out);
+
+    Py_DECREF(values_list);
+    Py_DECREF(community_count_out);
+    Py_DECREF(modularity_out);
+    Py_DECREF(resolution_out);
+    Py_DECREF(seed_out);
+    Py_DECREF(max_levels_out);
+    Py_DECREF(max_passes_out);
+    Py_DECREF(out_name_out);
+    Py_DECREF(weight_name_out);
+    return result;
+}
+
 static PyObject *Network_measure_coreness(PyHeliosNetwork *self, PyObject *args, PyObject *kwargs) {
     static const char *kwlist[] = {"direction", "execution_mode", NULL};
     PyObject *direction_obj = NULL;
@@ -2922,6 +3192,7 @@ static PyMethodDef Network_methods[] = {
     {"add_nodes", (PyCFunction)Network_add_nodes, METH_VARARGS, "Add nodes and return indices."},
     {"remove_nodes", (PyCFunction)Network_remove_nodes, METH_VARARGS, "Remove nodes by indices."},
     {"add_edges", (PyCFunction)Network_add_edges, METH_VARARGS, "Add edges and return indices."},
+    {"add_edges_from_arrays", (PyCFunction)Network_add_edges_from_arrays, METH_VARARGS | METH_KEYWORDS, "Add edges from contiguous integer source and target buffers."},
     {"remove_edges", (PyCFunction)Network_remove_edges, METH_VARARGS, "Remove edges by indices."},
     {"is_node_active", (PyCFunction)Network_is_node_active, METH_VARARGS, "Check node activity."},
     {"is_edge_active", (PyCFunction)Network_is_edge_active, METH_VARARGS, "Check edge activity."},
@@ -2958,6 +3229,7 @@ static PyMethodDef Network_methods[] = {
     {"measure_eigenvector_centrality", (PyCFunction)Network_measure_eigenvector_centrality, METH_VARARGS | METH_KEYWORDS, "Measure eigenvector centrality values."},
     {"measure_betweenness_centrality", (PyCFunction)Network_measure_betweenness_centrality, METH_VARARGS | METH_KEYWORDS, "Measure betweenness centrality values."},
     {"measure_connected_components", (PyCFunction)Network_measure_connected_components, METH_VARARGS | METH_KEYWORDS, "Measure weak or strong connected components."},
+    {"measure_leiden_modularity", (PyCFunction)Network_measure_leiden_modularity, METH_VARARGS | METH_KEYWORDS, "Run Leiden community detection optimizing modularity."},
     {"measure_node_dimension", (PyCFunction)Network_measure_node_dimension, METH_VARARGS | METH_KEYWORDS, "Measure local multiscale dimension for one node."},
     {"measure_dimension", (PyCFunction)Network_measure_dimension, METH_VARARGS | METH_KEYWORDS, "Measure global multiscale dimension statistics."},
     {NULL, NULL, 0, NULL}
@@ -2989,6 +3261,228 @@ static PyObject *Network_FromCXNetwork(CXNetworkRef network) {
     obj->network = network;
     obj->owns = 1;
     return (PyObject *)obj;
+}
+
+static int parse_size_sequence(PyObject *obj, CXSize **outValues, CXSize *outCount, const char *label) {
+    PyObject *fast = PySequence_Fast(obj, label);
+    if (!fast) {
+        return -1;
+    }
+    Py_ssize_t count = PySequence_Fast_GET_SIZE(fast);
+    CXSize *values = NULL;
+    if (count > 0) {
+        values = (CXSize *)calloc((size_t)count, sizeof(CXSize));
+        if (!values) {
+            Py_DECREF(fast);
+            PyErr_NoMemory();
+            return -1;
+        }
+    }
+    for (Py_ssize_t i = 0; i < count; i++) {
+        unsigned long value = PyLong_AsUnsignedLong(PySequence_Fast_GET_ITEM(fast, i));
+        if (PyErr_Occurred()) {
+            free(values);
+            Py_DECREF(fast);
+            return -1;
+        }
+        values[i] = (CXSize)value;
+    }
+    Py_DECREF(fast);
+    *outValues = values;
+    *outCount = (CXSize)count;
+    return 0;
+}
+
+static int parse_double_sequence(PyObject *obj, double **outValues, CXSize *outCount, const char *label) {
+    PyObject *fast = PySequence_Fast(obj, label);
+    if (!fast) {
+        return -1;
+    }
+    Py_ssize_t count = PySequence_Fast_GET_SIZE(fast);
+    double *values = NULL;
+    if (count > 0) {
+        values = (double *)calloc((size_t)count, sizeof(double));
+        if (!values) {
+            Py_DECREF(fast);
+            PyErr_NoMemory();
+            return -1;
+        }
+    }
+    for (Py_ssize_t i = 0; i < count; i++) {
+        values[i] = PyFloat_AsDouble(PySequence_Fast_GET_ITEM(fast, i));
+        if (PyErr_Occurred()) {
+            free(values);
+            Py_DECREF(fast);
+            return -1;
+        }
+    }
+    Py_DECREF(fast);
+    *outValues = values;
+    *outCount = (CXSize)count;
+    return 0;
+}
+
+static PyObject *module_generate_watts_strogatz(PyObject *self, PyObject *args, PyObject *kwargs) {
+    (void)self;
+    static const char *kwlist[] = {"node_count", "neighbor_level", "rewiring_probability", "directed", "seed", NULL};
+    Py_ssize_t node_count = 0;
+    Py_ssize_t neighbor_level = 2;
+    double rewiring_probability = 0.01;
+    int directed = 0;
+    unsigned int seed = 0;
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "n|ndpI", (char **)kwlist, &node_count, &neighbor_level, &rewiring_probability, &directed, &seed)) {
+        return NULL;
+    }
+    CXNetworkRef network = CXNetworkGenerateWattsStrogatz((CXSize)node_count, (CXSize)neighbor_level, rewiring_probability, directed ? CXTrue : CXFalse, (uint32_t)seed);
+    if (!network) {
+        PyErr_SetString(PyExc_RuntimeError, "Failed to generate Watts-Strogatz network");
+        return NULL;
+    }
+    return Network_FromCXNetwork(network);
+}
+
+static PyObject *module_generate_barabasi_albert(PyObject *self, PyObject *args, PyObject *kwargs) {
+    (void)self;
+    static const char *kwlist[] = {"node_count", "edges_per_new_node", "initial_clique_size", "directed", "seed", NULL};
+    Py_ssize_t node_count = 0;
+    Py_ssize_t edges_per_new_node = 2;
+    Py_ssize_t initial_clique_size = 0;
+    int directed = 0;
+    unsigned int seed = 0;
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "n|nnpI", (char **)kwlist, &node_count, &edges_per_new_node, &initial_clique_size, &directed, &seed)) {
+        return NULL;
+    }
+    CXNetworkRef network = CXNetworkGenerateBarabasiAlbert((CXSize)node_count, (CXSize)edges_per_new_node, (CXSize)initial_clique_size, directed ? CXTrue : CXFalse, (uint32_t)seed);
+    if (!network) {
+        PyErr_SetString(PyExc_RuntimeError, "Failed to generate Barabasi-Albert network");
+        return NULL;
+    }
+    return Network_FromCXNetwork(network);
+}
+
+static PyObject *module_generate_random_geometric(PyObject *self, PyObject *args, PyObject *kwargs) {
+    (void)self;
+    static const char *kwlist[] = {"node_count", "radius", "directed", "seed", NULL};
+    Py_ssize_t node_count = 0;
+    double radius = 0.05;
+    int directed = 0;
+    unsigned int seed = 0;
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "n|dpI", (char **)kwlist, &node_count, &radius, &directed, &seed)) {
+        return NULL;
+    }
+    CXNetworkRef network = CXNetworkGenerateRandomGeometric((CXSize)node_count, radius, directed ? CXTrue : CXFalse, (uint32_t)seed);
+    if (!network) {
+        PyErr_SetString(PyExc_RuntimeError, "Failed to generate random geometric network");
+        return NULL;
+    }
+    return Network_FromCXNetwork(network);
+}
+
+static PyObject *module_generate_waxman(PyObject *self, PyObject *args, PyObject *kwargs) {
+    (void)self;
+    static const char *kwlist[] = {"node_count", "alpha", "beta", "directed", "seed", NULL};
+    Py_ssize_t node_count = 0;
+    double alpha = 0.4;
+    double beta = 0.2;
+    int directed = 0;
+    unsigned int seed = 0;
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "n|ddpI", (char **)kwlist, &node_count, &alpha, &beta, &directed, &seed)) {
+        return NULL;
+    }
+    CXNetworkRef network = CXNetworkGenerateWaxman((CXSize)node_count, alpha, beta, directed ? CXTrue : CXFalse, (uint32_t)seed);
+    if (!network) {
+        PyErr_SetString(PyExc_RuntimeError, "Failed to generate Waxman network");
+        return NULL;
+    }
+    return Network_FromCXNetwork(network);
+}
+
+static PyObject *module_generate_lattice_2d(PyObject *self, PyObject *args, PyObject *kwargs) {
+    (void)self;
+    static const char *kwlist[] = {"rows", "columns", "neighbor_level", "periodic", "directed", NULL};
+    Py_ssize_t rows = 0;
+    Py_ssize_t columns = 0;
+    Py_ssize_t neighbor_level = 1;
+    int periodic = 0;
+    int directed = 0;
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "nn|npp", (char **)kwlist, &rows, &columns, &neighbor_level, &periodic, &directed)) {
+        return NULL;
+    }
+    CXNetworkRef network = CXNetworkGenerateLattice2D((CXSize)rows, (CXSize)columns, (CXSize)neighbor_level, periodic ? CXTrue : CXFalse, directed ? CXTrue : CXFalse);
+    if (!network) {
+        PyErr_SetString(PyExc_RuntimeError, "Failed to generate lattice network");
+        return NULL;
+    }
+    return Network_FromCXNetwork(network);
+}
+
+static PyObject *module_generate_stochastic_block_model(PyObject *self, PyObject *args, PyObject *kwargs) {
+    (void)self;
+    static const char *kwlist[] = {"block_sizes", "probabilities", "directed", "seed", NULL};
+    PyObject *block_sizes_obj = NULL;
+    PyObject *probabilities_obj = NULL;
+    int directed = 0;
+    unsigned int seed = 0;
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "OO|pI", (char **)kwlist, &block_sizes_obj, &probabilities_obj, &directed, &seed)) {
+        return NULL;
+    }
+    CXSize *block_sizes = NULL;
+    CXSize block_count = 0;
+    double *probabilities = NULL;
+    CXSize probability_count = 0;
+    if (parse_size_sequence(block_sizes_obj, &block_sizes, &block_count, "block_sizes must be a sequence") != 0) {
+        return NULL;
+    }
+    if (parse_double_sequence(probabilities_obj, &probabilities, &probability_count, "probabilities must be a flat sequence") != 0) {
+        free(block_sizes);
+        return NULL;
+    }
+    if (probability_count != block_count * block_count) {
+        free(block_sizes);
+        free(probabilities);
+        PyErr_SetString(PyExc_ValueError, "probabilities length must equal len(block_sizes) ** 2");
+        return NULL;
+    }
+    CXNetworkRef network = CXNetworkGenerateStochasticBlockModel(block_count, block_sizes, probabilities, directed ? CXTrue : CXFalse, (uint32_t)seed);
+    free(block_sizes);
+    free(probabilities);
+    if (!network) {
+        PyErr_SetString(PyExc_RuntimeError, "Failed to generate stochastic block model network");
+        return NULL;
+    }
+    return Network_FromCXNetwork(network);
+}
+
+static PyObject *module_generate_configuration_model(PyObject *self, PyObject *args, PyObject *kwargs) {
+    (void)self;
+    static const char *kwlist[] = {"degrees", "directed", "allow_self_loops", "allow_multi_edges", "seed", NULL};
+    PyObject *degrees_obj = NULL;
+    int directed = 0;
+    int allow_self_loops = 0;
+    int allow_multi_edges = 0;
+    unsigned int seed = 0;
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|pppI", (char **)kwlist, &degrees_obj, &directed, &allow_self_loops, &allow_multi_edges, &seed)) {
+        return NULL;
+    }
+    CXSize *degrees = NULL;
+    CXSize node_count = 0;
+    if (parse_size_sequence(degrees_obj, &degrees, &node_count, "degrees must be a sequence") != 0) {
+        return NULL;
+    }
+    CXNetworkRef network = CXNetworkGenerateConfigurationModel(
+        node_count,
+        degrees,
+        directed ? CXTrue : CXFalse,
+        allow_self_loops ? CXTrue : CXFalse,
+        allow_multi_edges ? CXTrue : CXFalse,
+        (uint32_t)seed
+    );
+    free(degrees);
+    if (!network) {
+        PyErr_SetString(PyExc_RuntimeError, "Failed to generate configuration model network");
+        return NULL;
+    }
+    return Network_FromCXNetwork(network);
 }
 
 static PyObject *module_read_xnet(PyObject *self, PyObject *args) {
@@ -3053,6 +3547,13 @@ static PyObject *module_read_gml(PyObject *self, PyObject *args) {
 }
 
 static PyMethodDef module_methods[] = {
+    {"generate_stochastic_block_model", (PyCFunction)module_generate_stochastic_block_model, METH_VARARGS | METH_KEYWORDS, "Generate a stochastic block model network."},
+    {"generate_barabasi_albert", (PyCFunction)module_generate_barabasi_albert, METH_VARARGS | METH_KEYWORDS, "Generate a Barabasi-Albert preferential attachment network."},
+    {"generate_watts_strogatz", (PyCFunction)module_generate_watts_strogatz, METH_VARARGS | METH_KEYWORDS, "Generate a Watts-Strogatz small-world network."},
+    {"generate_random_geometric", (PyCFunction)module_generate_random_geometric, METH_VARARGS | METH_KEYWORDS, "Generate a random geometric unit-disk network."},
+    {"generate_waxman", (PyCFunction)module_generate_waxman, METH_VARARGS | METH_KEYWORDS, "Generate a Waxman geometric network."},
+    {"generate_configuration_model", (PyCFunction)module_generate_configuration_model, METH_VARARGS | METH_KEYWORDS, "Generate a configuration model network."},
+    {"generate_lattice_2d", (PyCFunction)module_generate_lattice_2d, METH_VARARGS | METH_KEYWORDS, "Generate a 2D lattice network."},
     {"read_xnet", (PyCFunction)module_read_xnet, METH_VARARGS, "Read .xnet file into a Network."},
     {"read_bxnet", (PyCFunction)module_read_bxnet, METH_VARARGS, "Read .bxnet file into a Network."},
     {"read_zxnet", (PyCFunction)module_read_zxnet, METH_VARARGS, "Read .zxnet file into a Network."},

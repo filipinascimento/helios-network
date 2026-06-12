@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Added native, JavaScript, and Python network generators for stochastic block models, Barabasi-Albert, Watts-Strogatz small-world graphs, random geometric graphs, Waxman graphs, configuration models, and 2D lattices.
+- Added Python bindings for Leiden modularity community detection (`measure_leiden_modularity(...)` / `leiden_modularity(...)`) and major-component rank labeling (`label_major_components(...)`).
+- Added Python bulk edge insertion from integer buffers (`add_edges_from_arrays(...)`) for large generated graphs and benchmarks.
+- Added a Leiden comparison harness under `research/benchmarks/leiden_compare/` for sparse SBM/LFR-style synthetic networks, resolution sweeps, and `leidenalg` compatibility checks.
 - Added native active-index render-order promotion APIs for nodes, edges, and incident edges, plus JS wrappers that report dirty ranges for partial GPU uploads.
 - Added chainable high-level JS attribute writers (`nodeAttribute`, `edgeAttribute`, `networkAttribute`, `nodeAttributes`, `edgeAttributes`, `networkAttributes`) with schema inference, active-index aware array writes, managed string/JS-value updates, and one version bump per modified attribute.
 - Added an internal `_helios_layout_strength` sparse node buffer for GPU-force layout strength normalization. It is derived from incident edge weights, updates incrementally for topology edits, and rebuilds when the source edge-weight attribute version changes.

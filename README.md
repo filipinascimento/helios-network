@@ -480,6 +480,7 @@ Follow the instructions in each subdirectory README to build artefacts and run t
 The public headers under `src/native/include/helios/` define the C API, intended for native use or alternate language bindings. Highlights:
 
 - **`CXNetwork.h`** – Core network struct and lifecycle functions (`CXNewNetwork`, `CXNetworkAddNodes`, attribute management).
+- **Network generators** – Native constructors in `CXNetwork.h` build SBM, Barabasi-Albert, Watts-Strogatz, random geometric, Waxman, configuration-model, and 2D lattice networks as fresh `CXNetworkRef` instances.
 - **Version helpers** – `CXNetworkVersionString()` (native) and the `CXNETWORK_VERSION_*` macros expose the semantic version baked into the library so native consumers can assert compatibility.
 - **`CXNeighborStorage.h`** – Abstractions for node adjacency storage (list vs. map) with iterators.
 - **`CXIndexManager.h`** – Index recycling pool used internally for node/edge allocation.
@@ -498,6 +499,17 @@ The public headers under `src/native/include/helios/` define the C API, intended
 ## JavaScript API Documentation
 
 The JavaScript bindings (`src/js/HeliosNetwork.js` and the package entry point) now include exhaustive JSDoc comments detailing every public class, method, parameter, and return value alongside error conditions. HTML documentation is generated with the [`better-docs`](https://github.com/SoftwareBrothers/better-docs) template and the `jsdoc-typeof-plugin` for improved type inference.
+
+Generator constructors are exposed as static methods:
+
+```js
+const network = await HeliosNetwork.generateWattsStrogatz({
+  nodeCount: 5_000,
+  neighborLevel: 2,
+  rewiringProbability: 0.03,
+  seed: 1,
+});
+```
 
 ```bash
 npm run docs:js

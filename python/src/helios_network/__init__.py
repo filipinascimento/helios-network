@@ -119,6 +119,122 @@ def read_node_link_json(path: str) -> Network:
 
     return _read_node_link_json(path)
 
+def _flatten_probability_matrix(probabilities, block_count: int) -> list[float]:
+    if len(probabilities) == block_count and probabilities and hasattr(probabilities[0], "__iter__"):
+        flattened = []
+        for row in probabilities:
+            if len(row) != block_count:
+                raise ValueError("probability matrix must be square")
+            flattened.extend(float(value) for value in row)
+        return flattened
+    flattened = [float(value) for value in probabilities]
+    if len(flattened) != block_count * block_count:
+        raise ValueError("probabilities length must equal len(block_sizes) ** 2")
+    return flattened
+
+
+def generate_stochastic_block_model(block_sizes, probabilities, directed: bool = False, seed: int = 0) -> Network:
+    """Generate a stochastic block model network."""
+
+    sizes = [int(value) for value in block_sizes]
+    matrix = _flatten_probability_matrix(probabilities, len(sizes))
+    return Network(_core_network=_core.generate_stochastic_block_model(sizes, matrix, directed=directed, seed=int(seed)))
+
+
+def generate_barabasi_albert(
+    node_count: int,
+    edges_per_new_node: int = 2,
+    initial_clique_size: int = 0,
+    directed: bool = False,
+    seed: int = 0,
+) -> Network:
+    """Generate a Barabasi-Albert preferential attachment network."""
+
+    return Network(_core_network=_core.generate_barabasi_albert(
+        int(node_count),
+        edges_per_new_node=int(edges_per_new_node),
+        initial_clique_size=int(initial_clique_size),
+        directed=directed,
+        seed=int(seed),
+    ))
+
+
+def generate_watts_strogatz(
+    node_count: int,
+    neighbor_level: int = 2,
+    rewiring_probability: float = 0.01,
+    directed: bool = False,
+    seed: int = 0,
+) -> Network:
+    """Generate a Watts-Strogatz small-world network."""
+
+    return Network(_core_network=_core.generate_watts_strogatz(
+        int(node_count),
+        neighbor_level=int(neighbor_level),
+        rewiring_probability=float(rewiring_probability),
+        directed=directed,
+        seed=int(seed),
+    ))
+
+
+def generate_small_world(*args, **kwargs) -> Network:
+    """Alias for `generate_watts_strogatz`."""
+
+    return generate_watts_strogatz(*args, **kwargs)
+
+
+def generate_random_geometric(node_count: int, radius: float = 0.05, directed: bool = False, seed: int = 0) -> Network:
+    """Generate a random geometric unit-disk network."""
+
+    return Network(_core_network=_core.generate_random_geometric(
+        int(node_count),
+        radius=float(radius),
+        directed=directed,
+        seed=int(seed),
+    ))
+
+
+def generate_waxman(node_count: int, alpha: float = 0.4, beta: float = 0.2, directed: bool = False, seed: int = 0) -> Network:
+    """Generate a Waxman geometric network."""
+
+    return Network(_core_network=_core.generate_waxman(
+        int(node_count),
+        alpha=float(alpha),
+        beta=float(beta),
+        directed=directed,
+        seed=int(seed),
+    ))
+
+
+def generate_configuration_model(
+    degrees,
+    directed: bool = False,
+    allow_self_loops: bool = False,
+    allow_multi_edges: bool = False,
+    seed: int = 0,
+) -> Network:
+    """Generate a configuration model network from a degree sequence."""
+
+    return Network(_core_network=_core.generate_configuration_model(
+        [int(value) for value in degrees],
+        directed=directed,
+        allow_self_loops=allow_self_loops,
+        allow_multi_edges=allow_multi_edges,
+        seed=int(seed),
+    ))
+
+
+def generate_lattice_2d(rows: int, columns: int, neighbor_level: int = 1, periodic: bool = False, directed: bool = False) -> Network:
+    """Generate a 2D lattice network."""
+
+    return Network(_core_network=_core.generate_lattice_2d(
+        int(rows),
+        int(columns),
+        neighbor_level=int(neighbor_level),
+        periodic=periodic,
+        directed=directed,
+    ))
+
 
 def __getattr__(name: str):
     if name in {"HeliosUMAP", "NetworkExportResult"}:
@@ -149,6 +265,14 @@ __all__ = [
     "read_xnet",
     "read_gml",
     "read_node_link_json",
+    "generate_stochastic_block_model",
+    "generate_barabasi_albert",
+    "generate_watts_strogatz",
+    "generate_small_world",
+    "generate_random_geometric",
+    "generate_waxman",
+    "generate_configuration_model",
+    "generate_lattice_2d",
     "HeliosUMAP",
     "NetworkExportResult",
     "to_networkx",

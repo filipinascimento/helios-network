@@ -26,6 +26,97 @@ test('can create network and add nodes/edges', async () => {
 	network.dispose();
 });
 
+test('native network generators are exposed in JavaScript', async () => {
+	const ws = await HeliosNetwork.generateWattsStrogatz({
+		nodeCount: 10,
+		neighborLevel: 2,
+		rewiringProbability: 0,
+		seed: 7,
+	});
+	expect(ws.nodeCount).toBe(10);
+	expect(ws.edgeCount).toBe(20);
+	const wsPairs = ws.withBufferAccess(() => {
+		const edges = ws.edgesView;
+		const pairs = [];
+		for (let edge = 0; edge < ws.edgeCount; edge += 1) {
+			const from = edges[edge * 2];
+			const to = edges[edge * 2 + 1];
+			pairs.push(`${from}-${to}`);
+		}
+		return pairs;
+	}, { edgesView: true });
+	expect(wsPairs).toContain('0-1');
+	expect(wsPairs).toContain('0-2');
+	expect(wsPairs).toContain('8-0');
+	expect(wsPairs).toContain('9-1');
+	ws.dispose();
+
+	const rewiredWs = await HeliosNetwork.generateWattsStrogatz({
+		nodeCount: 30,
+		neighborLevel: 2,
+		rewiringProbability: 1,
+		seed: 7,
+	});
+	expect(rewiredWs.edgeCount).toBe(60);
+	const shortcutCount = rewiredWs.withBufferAccess(() => {
+		const edges = rewiredWs.edgesView;
+		let count = 0;
+		for (let edge = 0; edge < rewiredWs.edgeCount; edge += 1) {
+			const from = edges[edge * 2];
+			const to = edges[edge * 2 + 1];
+			const ringDistance = Math.min((to - from + 30) % 30, (from - to + 30) % 30);
+			if (ringDistance > 2) count += 1;
+		}
+		return count;
+	}, { edgesView: true });
+	expect(shortcutCount).toBe(60);
+	rewiredWs.dispose();
+
+	const onePercentWs = await HeliosNetwork.generateWattsStrogatz({
+		nodeCount: 5000,
+		neighborLevel: 2,
+		rewiringProbability: 0.01,
+		seed: 1,
+	});
+	expect(onePercentWs.edgeCount).toBe(10000);
+	const onePercentShortcutCount = onePercentWs.withBufferAccess(() => {
+		const edges = onePercentWs.edgesView;
+		let count = 0;
+		for (let edge = 0; edge < onePercentWs.edgeCount; edge += 1) {
+			const from = edges[edge * 2];
+			const to = edges[edge * 2 + 1];
+			const ringDistance = Math.min((to - from + 5000) % 5000, (from - to + 5000) % 5000);
+			if (ringDistance > 2) count += 1;
+		}
+		return count;
+	}, { edgesView: true });
+	expect(onePercentShortcutCount).toBe(100);
+	onePercentWs.dispose();
+
+	const lattice = await HeliosNetwork.generateLattice2D({ rows: 3, columns: 4 });
+	expect(lattice.nodeCount).toBe(12);
+	expect(lattice.edgeCount).toBe(17);
+	lattice.dispose();
+
+	const sbm = await HeliosNetwork.generateStochasticBlockModel({
+		blockSizes: [2, 3],
+		probabilities: [
+			[1, 1],
+			[1, 1],
+		],
+		seed: 13,
+	});
+	expect(sbm.nodeCount).toBe(5);
+	expect(sbm.edgeCount).toBe(10);
+	sbm.dispose();
+
+	const geometric = await HeliosNetwork.generateRandomGeometric({ nodeCount: 5, radius: 2, seed: 19 });
+	expect(geometric.edgeCount).toBe(10);
+	expect(geometric.hasNodeAttribute('_helios_generator_position')).toBe(true);
+	expect(geometric.getNodeAttributeInfo('_helios_generator_position').dimension).toBe(2);
+	geometric.dispose();
+});
+
 test('freshly defined attributes are readable inside buffer access without priming metadata', async () => {
 	const network = await HeliosNetwork.create({ directed: false, initialNodes: 2 });
 	try {

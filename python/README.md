@@ -40,11 +40,84 @@ for node in network.nodes:
 
 Edge access mirrors node access via `network.edges`, with `network.edges.pairs()` yielding `(source, target)` tuples.
 
+For large generated graphs, avoid materializing Python `(source, target)` tuples:
+
+```python
+from array import array
+
+network.add_nodes(1_000_000)
+network.add_edges_from_arrays(
+    array("I", sources),
+    array("I", targets),
+)
+```
+
+## Network Generators
+
+The Python package exposes native generators as module-level constructors:
+
+```python
+from helios_network import generate_watts_strogatz
+
+network = generate_watts_strogatz(
+    5_000,
+    neighbor_level=2,
+    rewiring_probability=0.01,
+    seed=1,
+)
+```
+
+Available generators include `generate_stochastic_block_model`,
+`generate_barabasi_albert`, `generate_watts_strogatz`,
+`generate_random_geometric`, `generate_waxman`,
+`generate_configuration_model`, and `generate_lattice_2d`.
+
 ### Edge indices
 
 ```python
 for edge_id, (source, target) in network.edges.with_indices():
     print(edge_id, source, target)
+```
+
+## Measurements and Community Detection
+
+The Python wrapper exposes the native measurement APIs:
+
+```python
+degree = network.measure_degree(direction="both")
+components = network.measure_connected_components(mode="weak")
+leiden = network.leiden_modularity(
+    resolution=1.0,
+    seed=42,
+    out_node_community_attribute="community",
+)
+```
+
+`leiden_modularity(...)` is an alias for `measure_leiden_modularity(...)`. It
+writes an unsigned-integer node attribute and returns `community_count`,
+`modularity`, and `values_by_node`.
+
+To label only major components for filtering or visualization:
+
+```python
+major = network.label_major_components(
+    mode="weak",
+    max_components=3,
+    min_size=100,
+    out_node_component_attribute="major_component",
+)
+```
+
+Selected components receive rank labels `1..N` by decreasing size. Other nodes
+receive `0` by default.
+
+The Leiden comparison harness in `research/benchmarks/leiden_compare/` uses a
+conda environment file:
+
+```bash
+conda env create -f research/benchmarks/leiden_compare/environment.yml
+conda run -n helios-leiden-compare python -m pip install -e python --no-build-isolation
+conda run -n helios-leiden-compare python research/benchmarks/leiden_compare/compare_leiden.py
 ```
 
 ## Installation
