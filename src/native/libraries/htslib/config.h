@@ -15,10 +15,8 @@
 /* Zlib is required and linked elsewhere in the build. */
 #define HAVE_LIBZ 1
 
-/* POSIX helpers used by htslib; disable on targets that do not provide them. */
-#ifdef __EMSCRIPTEN__
-#define HAVE_POSIX_MEMALIGN 0
-#else
+/* POSIX helpers used by htslib; only define when the target provides them. */
+#if !defined(__EMSCRIPTEN__) && !defined(_WIN32) && !defined(__WIN32__)
 #define HAVE_POSIX_MEMALIGN 1
 #endif
 
