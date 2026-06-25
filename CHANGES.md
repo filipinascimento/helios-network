@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 2026-06-25
+
 - Added graph-tool `.gt` read/write support across the native C core, WASM/JS API, and Python bindings for topology and supported graph, vertex, and edge property maps.
 - Added portable zstd frame decompression for graph-tool `.gt.zst` input across native C, WASM/JS, Python, and downstream Helios loaders. GT export remains plain `.gt`.
 - Added native, JavaScript, and Python network generators for stochastic block models, Barabasi-Albert, Watts-Strogatz small-world graphs, random geometric graphs, Waxman graphs, configuration models, and 2D lattices.
