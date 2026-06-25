@@ -62,10 +62,12 @@ else
 endif
 
 NATIVE_CFLAGS := -std=c17 -O3 -Wall -Wextra -pedantic -DNDEBUG -fPIC \
+	-D_GNU_SOURCE \
 	-DZSTD_DISABLE_ASM \
 	-Isrc/native/include -Isrc/native/include/helios -Isrc/native/libraries/htslib \
 	-Isrc/native/libraries/zstd -Isrc/native/libraries/zstd/common -Isrc/native/libraries/zstd/decompress
 TEST_CFLAGS := -std=c17 -Wall -Wextra -pedantic \
+	-D_GNU_SOURCE \
 	-DZSTD_DISABLE_ASM \
 	-Isrc/native/include -Isrc/native/include/helios -Isrc/native/libraries/htslib \
 	-Isrc/native/libraries/zstd -Isrc/native/libraries/zstd/common -Isrc/native/libraries/zstd/decompress
