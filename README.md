@@ -1,4 +1,8 @@
-# Helios Network v2
+<p align="center">
+  <img src="./media/helios-web-logo.svg" alt="Helios" width="320">
+</p>
+
+# Helios Network
 
 Helios Network is a high–performance graph store written in C17/C23 and compiled to WebAssembly. It provides:
 
