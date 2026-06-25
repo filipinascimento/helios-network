@@ -540,6 +540,12 @@ const VIRTUAL_TEMP_DIR = '/tmp/helios';
 let nodeFsModulePromise = null;
 let nodePathModulePromise = null;
 let nodeOsModulePromise = null;
+const NODE_FS_PROMISES_SPECIFIER = 'node:fs/promises';
+const FS_PROMISES_SPECIFIER = 'fs/promises';
+const NODE_OS_SPECIFIER = 'node:os';
+const OS_SPECIFIER = 'os';
+const NODE_PATH_SPECIFIER = 'node:path';
+const PATH_SPECIFIER = 'path';
 
 function isNodeRuntime() {
 	return NODE_RUNTIME;
@@ -603,7 +609,7 @@ async function getNodeFsModule() {
 		throw new Error('Node filesystem is unavailable in this environment');
 	}
 	if (!nodeFsModulePromise) {
-		nodeFsModulePromise = import('node:fs/promises').catch(() => import('fs/promises'));
+		nodeFsModulePromise = import(NODE_FS_PROMISES_SPECIFIER).catch(() => import(FS_PROMISES_SPECIFIER));
 	}
 	const mod = await nodeFsModulePromise;
 	return mod.default ?? mod;
@@ -614,7 +620,7 @@ async function getNodeOsModule() {
 		throw new Error('OS helpers are only available in Node runtimes');
 	}
 	if (!nodeOsModulePromise) {
-		nodeOsModulePromise = import('node:os').catch(() => import('os'));
+		nodeOsModulePromise = import(NODE_OS_SPECIFIER).catch(() => import(OS_SPECIFIER));
 	}
 	const mod = await nodeOsModulePromise;
 	return mod.default ?? mod;
@@ -625,7 +631,7 @@ async function getNodePathModule() {
 		throw new Error('Path resolution is only supported in Node runtimes');
 	}
 	if (!nodePathModulePromise) {
-		nodePathModulePromise = import('node:path').catch(() => import('path'));
+		nodePathModulePromise = import(NODE_PATH_SPECIFIER).catch(() => import(PATH_SPECIFIER));
 	}
 	const mod = await nodePathModulePromise;
 	return mod.default ?? mod;
@@ -3448,6 +3454,19 @@ export class HeliosNetwork extends BaseEventTarget {
 	}
 
 	/**
+	 * Hydrates a network instance from a graph-tool `.gt` binary container.
+	 * Zstandard-compressed `.gt.zst` payloads are detected automatically.
+	 *
+	 * @param {Uint8Array|ArrayBuffer|string|Blob|Response} source - Serialized payload or Node file path.
+	 * @param {object} [options]
+	 * @param {object} [options.module] - Optional WASM module to reuse.
+	 * @returns {Promise<HeliosNetwork>} Newly constructed network.
+	 */
+	static async fromGT(source, options = {}) {
+		return HeliosNetwork._fromSerialized(source, 'gt', options);
+	}
+
+	/**
 	 * Hydrates a network instance from a node-link JSON document.
 	 *
 	 * Accepts a JSON string, Node.js filesystem path, `Blob`/`Response`, bytes,
@@ -4446,8 +4465,9 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * @param {string} edgeName - Edge attribute identifier that will expose the derived values.
 	 * @param {EndpointSelection} [endpoints='both'] - Which endpoint to propagate (0/1/-1).
 	 * @param {boolean} [doubleWidth=true] - When copying a single endpoint, duplicate it to fill a double-width layout.
+	 * @returns {void}
 	 */
-		defineNodeToEdgeAttribute(sourceName, edgeName, endpoints = 'both', doubleWidth = true) {
+	defineNodeToEdgeAttribute(sourceName, edgeName, endpoints = 'both', doubleWidth = true) {
 		if (!this.hasNodeAttribute(sourceName)) {
 			throw new Error(`Unknown node attribute "${sourceName}"`);
 		}
@@ -4464,18 +4484,18 @@ export class HeliosNetwork extends BaseEventTarget {
 		const targetComponents = endpointMode === -1
 			? sourceComponents * 2
 			: (doubleWidth ? sourceComponents * 2 : sourceComponents);
-			if (this._edgeAttributes.has(edgeName)) {
-				throw new Error(`Edge attribute "${edgeName}" already exists; remove it before registering a node-to-edge passthrough`);
-			}
-			this.defineEdgeAttribute(edgeName, sourceMeta.type, targetComponents);
-			this._nodeToEdgePassthrough.set(edgeName, {
-				sourceName,
-				endpointMode,
-				doubleWidth,
-			});
-			this._registerNodeToEdgeDependency(sourceName, edgeName);
-			this._copyNodeToEdgeAttribute(sourceName, edgeName, endpointMode, doubleWidth);
+		if (this._edgeAttributes.has(edgeName)) {
+			throw new Error(`Edge attribute "${edgeName}" already exists; remove it before registering a node-to-edge passthrough`);
 		}
+		this.defineEdgeAttribute(edgeName, sourceMeta.type, targetComponents);
+		this._nodeToEdgePassthrough.set(edgeName, {
+			sourceName,
+			endpointMode,
+			doubleWidth,
+		});
+		this._registerNodeToEdgeDependency(sourceName, edgeName);
+		this._copyNodeToEdgeAttribute(sourceName, edgeName, endpointMode, doubleWidth);
+	}
 
 	/**
 	 * Returns a snapshot of node-to-edge passthrough registrations.
@@ -4897,6 +4917,20 @@ export class HeliosNetwork extends BaseEventTarget {
 	 */
 	async saveGML(options = {}) {
 		return this._saveSerialized('gml', options);
+	}
+
+	/**
+	 * Serializes the network into a graph-tool `.gt` binary document.
+	 * This writes uncompressed `.gt`; `.gt.zst` is read-only support.
+	 *
+	 * `.gt` is an interoperability format and may skip Helios-specific
+	 * attributes that cannot be represented by graph-tool property maps.
+	 *
+	 * @param {SaveSerializedOptions} [options]
+	 * @returns {Promise<Uint8Array|ArrayBuffer|string|Blob|undefined>} Serialized payload or void when writing directly to disk.
+	 */
+	async saveGT(options = {}) {
+		return this._saveSerialized('gt', options);
 	}
 
 	/**
@@ -5628,6 +5662,7 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * @param {string} name - Attribute identifier.
 	 * @param {AttributeType} type - Attribute type constant.
 	 * @param {number} [dimension=1] - Number of elements per node.
+	 * @returns {void}
 	 * @throws {Error} When the attribute already exists or native allocation fails.
 	 * @example
 	 * import HeliosNetwork, { AttributeType } from 'helios-network';
@@ -5650,6 +5685,7 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * @param {string} name - Attribute identifier.
 	 * @param {AttributeType} type - Attribute type constant.
 	 * @param {number} [dimension=1] - Number of elements per edge.
+	 * @returns {void}
 	 * @throws {Error} When the attribute already exists or native allocation fails.
 	 * @example
 	 * const net = await HeliosNetwork.create();
@@ -5671,6 +5707,7 @@ export class HeliosNetwork extends BaseEventTarget {
 	 * @param {string} name - Attribute identifier.
 	 * @param {AttributeType} type - Attribute type constant.
 	 * @param {number} [dimension=1] - Number of elements per network (capacity is always 1).
+	 * @returns {void}
 	 * @throws {Error} When the attribute already exists or native allocation fails.
 	 * @example
 	 * const net = await HeliosNetwork.create();
@@ -10847,6 +10884,12 @@ export class HeliosNetwork extends BaseEventTarget {
 				funcLabel = 'ReadGML';
 				humanLabel = '.gml';
 				break;
+			case 'gt':
+				extension = 'gt';
+				readFn = module._CXNetworkReadGT;
+				funcLabel = 'ReadGT';
+				humanLabel = '.gt';
+				break;
 			default:
 				throw new Error(`Unsupported serialization kind: ${kind}`);
 		}
@@ -10905,7 +10948,7 @@ export class HeliosNetwork extends BaseEventTarget {
 		if (!networkPtr) {
 			throw new Error(`Failed to read ${humanLabel} data`);
 		}
-		if (kind === 'gml') {
+		if (kind === 'gml' || kind === 'gt') {
 			HeliosNetwork._emitSerializationWarning(module);
 		}
 		return HeliosNetwork._wrapNative(module, networkPtr);
@@ -10993,6 +11036,13 @@ export class HeliosNetwork extends BaseEventTarget {
 				funcLabel = 'WriteGML';
 				filteredLabel = null;
 				humanLabel = '.gml';
+				break;
+			case 'gt':
+				writeFn = module._CXNetworkWriteGT;
+				filteredWriteFn = null;
+				funcLabel = 'WriteGT';
+				filteredLabel = null;
+				humanLabel = '.gt';
 				break;
 			case 'node-link-json':
 				writeFn = module._CXNetworkWriteNodeLinkJSON;
@@ -11158,7 +11208,7 @@ export class HeliosNetwork extends BaseEventTarget {
 			}
 			throw new Error(`Failed to write ${humanLabel} data`);
 		}
-		if (kind === 'gml' || kind === 'node-link-json') {
+		if (kind === 'gml' || kind === 'gt' || kind === 'node-link-json') {
 			HeliosNetwork._emitSerializationWarning(module);
 		}
 

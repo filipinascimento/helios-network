@@ -124,11 +124,13 @@ _CXNetworkWriteZXNet
 _CXNetworkWriteZXNetFiltered
 _CXNetworkWriteXNet
 _CXNetworkWriteXNetFiltered
+_CXNetworkWriteGT
 _CXNetworkWriteGML
 _CXNetworkWriteNodeLinkJSON
 _CXNetworkReadBXNet
 _CXNetworkReadZXNet
 _CXNetworkReadXNet
+_CXNetworkReadGT
 _CXNetworkReadGML
 _CXNetworkCategorizeAttribute
 _CXNetworkDecategorizeAttribute

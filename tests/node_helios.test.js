@@ -1369,6 +1369,84 @@ describe('HeliosNetwork (Node runtime)', () => {
 			}
 		});
 
+		test('round-trips graph-tool .gt payloads with supported attributes', async () => {
+			const networkInstance = await HeliosNetwork.create({ directed: true, initialNodes: 0, initialEdges: 0 });
+			try {
+				const mod = networkInstance.module;
+				if (typeof mod._CXNetworkWriteGT !== 'function' || typeof mod._CXNetworkReadGT !== 'function') {
+					await expect(networkInstance.saveGT()).rejects.toThrow(/CXNetworkWriteGT is not available/);
+					return;
+				}
+
+				const nodes = networkInstance.addNodes(3);
+				const edges = networkInstance.addEdges([
+					{ from: nodes[0], to: nodes[1] },
+					{ from: nodes[1], to: nodes[2] },
+					{ from: nodes[0], to: nodes[0] },
+				]);
+				networkInstance.defineNodeAttribute('score', AttributeType.Double, 1);
+				networkInstance.defineNodeAttribute('coords', AttributeType.Double, 2);
+				networkInstance.defineNodeAttribute('label', AttributeType.String, 1);
+				networkInstance.defineEdgeAttribute('weight', AttributeType.Double, 1);
+				networkInstance.defineNetworkAttribute('title', AttributeType.String, 1);
+
+				withNodeBuffer(networkInstance, 'score', ({ view }) => {
+					view[nodes[0]] = 1.25;
+					view[nodes[1]] = 2.5;
+					view[nodes[2]] = 3.75;
+				});
+				withNodeBuffer(networkInstance, 'coords', ({ view }) => {
+					view[nodes[0] * 2] = 1.0;
+					view[nodes[0] * 2 + 1] = 2.0;
+					view[nodes[1] * 2] = 3.0;
+					view[nodes[1] * 2 + 1] = 4.0;
+					view[nodes[2] * 2] = 5.0;
+					view[nodes[2] * 2 + 1] = 6.0;
+				});
+				withEdgeBuffer(networkInstance, 'weight', ({ view }) => {
+					view[edges[0]] = 0.5;
+					view[edges[1]] = 1.5;
+					view[edges[2]] = 2.5;
+				});
+				networkInstance.setNodeStringAttribute('label', nodes[0], 'Alpha');
+				networkInstance.setNodeStringAttribute('label', nodes[1], 'Beta');
+				networkInstance.setNodeStringAttribute('label', nodes[2], 'Gamma');
+				networkInstance.setNetworkStringAttribute('title', 'GT Test');
+
+				const payload = await networkInstance.saveGT();
+				expect(payload).toBeInstanceOf(Uint8Array);
+				expect(payload.length).toBeGreaterThan(0);
+				await expect(networkInstance.saveGT({ allowAttributes: { node: ['score'] } })).rejects.toThrow(/does not support/);
+
+				const restored = await HeliosNetwork.fromGT(payload);
+				try {
+					expect(restored.directed).toBe(true);
+					expect(restored.nodeCount).toBe(3);
+					expect(restored.edgeCount).toBe(3);
+					expect(restored.hasNodeAttribute('score')).toBe(true);
+					expect(restored.hasNodeAttribute('coords')).toBe(true);
+					expect(restored.hasNodeAttribute('label')).toBe(true);
+					expect(restored.hasEdgeAttribute('weight')).toBe(true);
+					expect(restored.getNetworkStringAttribute('title')).toBe('GT Test');
+					expect(restored.getNodeStringAttribute('label', 1)).toBe('Beta');
+					withNodeBuffer(restored, 'score', ({ view }) => {
+						expect(view[2]).toBeCloseTo(3.75);
+					});
+					withNodeBuffer(restored, 'coords', ({ view }) => {
+						expect(view[4]).toBeCloseTo(5.0);
+						expect(view[5]).toBeCloseTo(6.0);
+					});
+					withEdgeBuffer(restored, 'weight', ({ view }) => {
+						expect(Array.from(view.slice(0, 3))).toEqual([0.5, 2.5, 1.5]);
+					});
+				} finally {
+					restored.dispose();
+				}
+			} finally {
+				networkInstance.dispose();
+			}
+		});
+
 		test('exports node-link JSON with reserved attributes nested under "attributes"', async () => {
 			const networkInstance = await HeliosNetwork.create({ directed: false, initialNodes: 0, initialEdges: 0 });
 			const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -1472,6 +1550,31 @@ describe('HeliosNetwork (Node runtime)', () => {
 				expect(restored.hasNodeAttribute('Main Category')).toBe(true);
 				expect(restored.getNodeStringAttribute('Label', 0)).toBe('Node A');
 				expect(restored.getNodeStringAttribute('Main Category', 2)).toBe('Gamma');
+			} finally {
+				restored.dispose();
+			}
+		});
+
+		test('loads legacy .xnet files with surplus rows after a vertex attribute block', async () => {
+			const legacyText = [
+				'#vertices 2 nonweighted',
+				'#edges nonweighted undirected',
+				'0 1',
+				'#v "Position" v3',
+				'1 2 3',
+				'4 5 6',
+				'7 8 9',
+				'10 11 12',
+			].join('\n');
+			const payload = new TextEncoder().encode(legacyText);
+			const restored = await HeliosNetwork.fromXNet(payload);
+			try {
+				expect(restored.nodeCount).toBe(2);
+				expect(restored.edgeCount).toBe(1);
+				expect(restored.getNodeAttributeNames()).toContain('Position');
+				withNodeBuffer(restored, 'Position', ({ view }) => {
+					expect(Array.from(view.slice(0, 6))).toEqual([1, 2, 3, 4, 5, 6]);
+				});
 			} finally {
 				restored.dispose();
 			}
@@ -1688,6 +1791,61 @@ describe('HeliosNetwork (Node runtime)', () => {
 			});
 		} finally {
 			net.dispose();
-		}
+			}
+		});
+
+		test('loads graph-tool .gt.zst payloads through fromGT', async () => {
+			const compressed = Uint8Array.from(Buffer.from(
+				'KLUv/QBofQgA8o0wKpA7B1i1qLvdL2f13wJtPJEw+fNDUqIkCXbKP8LgElq9YTmfa+fwBGokSdroQ/1Gq2OqCR4MBSiAWkiaBnnie2X1IAFSmsjxlflFjouS+B6h4tZZSGV9Eu27nM/r8+b6QeX26wek6QHeIuNW7i7uuhdtTX/puE46vRttZZf1G53lj5870VZ/5bgrEe14YIy23JqxX1oz6ekfsVucdsInNh3jlYwpFFnW/W+IdlsprcHRUidt7/1r6yKmUkd6T9vDAQUiKJBG7G4DEBjjKA0KhQ6LjBNmuZEQhxihLRcUFGMcSzSeYBXpsPASACW2lNDPtcZQMM2WsZzQcVhNbKbFsH2uEglJCwBi2OMXCQ==',
+				'base64'
+			));
+			const restored = await HeliosNetwork.fromGT(compressed);
+			try {
+				expect(restored.directed).toBe(true);
+				expect(restored.nodeCount).toBe(3);
+				expect(restored.edgeCount).toBe(3);
+				expect(Array.from(restored.getOutNeighbors(0).nodes)).toEqual([1]);
+				expect(restored.hasNetworkAttribute('title')).toBe(true);
+				expect(restored.hasNodeAttribute('label')).toBe(true);
+				expect(restored.hasNodeAttribute('score')).toBe(true);
+				expect(restored.hasNodeAttribute('coords')).toBe(true);
+				expect(restored.hasEdgeAttribute('weight')).toBe(true);
+				expect(restored.getNetworkStringAttribute('title')).toBe('gt-zst-demo');
+				expect(restored.getNodeStringAttribute('label', 1)).toBe('Beta');
+				withNodeBuffer(restored, 'score', ({ view }) => {
+					expect(view[2]).toBeCloseTo(3.75);
+				});
+				withNodeBuffer(restored, 'coords', ({ view }) => {
+					expect(view[4]).toBeCloseTo(5.0);
+					expect(view[5]).toBeCloseTo(6.0);
+				});
+				withEdgeBuffer(restored, 'weight', ({ view }) => {
+					expect(Array.from(view.slice(0, 3))).toEqual([0.5, 1.5, 2.5]);
+				});
+			} finally {
+				restored.dispose();
+			}
+		});
+
+		test('loads graph-tool .gt.zst paths through fromGT in Node', async () => {
+			const compressed = Uint8Array.from(Buffer.from(
+				'KLUv/QBofQgA8o0wKpA7B1i1qLvdL2f13wJtPJEw+fNDUqIkCXbKP8LgElq9YTmfa+fwBGokSdroQ/1Gq2OqCR4MBSiAWkiaBnnie2X1IAFSmsjxlflFjouS+B6h4tZZSGV9Eu27nM/r8+b6QeX26wek6QHeIuNW7i7uuhdtTX/puE46vRttZZf1G53lj5870VZ/5bgrEe14YIy23JqxX1oz6ekfsVucdsInNh3jlYwpFFnW/W+IdlsprcHRUidt7/1r6yKmUkd6T9vDAQUiKJBG7G4DEBjjKA0KhQ6LjBNmuZEQhxihLRcUFGMcSzSeYBXpsPASACW2lNDPtcZQMM2WsZzQcVhNbKbFsH2uEglJCwBi2OMXCQ==',
+				'base64'
+			));
+			const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'helios-gt-zst-'));
+			const filePath = path.join(tempDir, 'sample.gt.zst');
+			await fs.writeFile(filePath, compressed);
+
+			const restored = await HeliosNetwork.fromGT(filePath);
+			try {
+				expect(restored.directed).toBe(true);
+				expect(restored.nodeCount).toBe(3);
+				expect(restored.edgeCount).toBe(3);
+				expect(restored.getNetworkStringAttribute('title')).toBe('gt-zst-demo');
+				expect(restored.getNodeStringAttribute('label', 1)).toBe('Beta');
+			} finally {
+				restored.dispose();
+				await fs.rm(tempDir, { recursive: true, force: true });
+			}
+		});
 	});
-});

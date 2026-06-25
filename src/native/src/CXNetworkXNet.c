@@ -111,6 +111,7 @@ typedef struct {
 	XNetAttributeList graphAttributes;
 	XNetAttributeBlock legacyLabels;
 	CXBool hasLegacyLabels;
+	CXBool legacyTrailingVertexAttributeRowsAllowed;
 } XNetParser;
 
 static void XNetErrorSet(XNetError *error, size_t line, const char *fmt, ...) {
@@ -2101,6 +2102,9 @@ static CXBool XNetParseVertexAttribute(XNetParser *parser, const char *line, XNe
 	}
 
 	parser->vertexAttributes.count++;
+	if (parser->legacy) {
+		parser->legacyTrailingVertexAttributeRowsAllowed = CXTrue;
+	}
 	return CXTrue;
 }
 
@@ -2527,6 +2531,11 @@ static CXBool XNetParserRun(XNetParser *parser, XNetError *error) {
 			free(line);
 			continue;
 		}
+		if (parser->legacy && parser->legacyTrailingVertexAttributeRowsAllowed && trimLeading[0] != '#') {
+			free(line);
+			continue;
+		}
+		parser->legacyTrailingVertexAttributeRowsAllowed = CXFalse;
 		if (!parser->headerSeen) {
 			if (strncmp(trimLeading, "#XNET", 5) == 0) {
 				if (strcmp(trimLeading, XNET_HEADER_LINE) != 0) {

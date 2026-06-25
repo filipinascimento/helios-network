@@ -19,19 +19,16 @@ typedef struct {
 
 static InterchangeWarningState gInterchangeWarning = { NULL };
 
-static void InterchangeWarningClear(void) {
+void CXNetworkSerializationWarningClear(void) {
 	if (gInterchangeWarning.message) {
 		free(gInterchangeWarning.message);
 		gInterchangeWarning.message = NULL;
 	}
 }
 
-static void InterchangeWarningAppend(const char *fmt, ...) {
-	va_list args;
-	va_start(args, fmt);
+static void InterchangeWarningAppendArgs(const char *fmt, va_list args) {
 	char *segment = NULL;
 	vasprintf(&segment, fmt, args);
-	va_end(args);
 	if (!segment) {
 		return;
 	}
@@ -46,6 +43,24 @@ static void InterchangeWarningAppend(const char *fmt, ...) {
 	}
 	free(gInterchangeWarning.message);
 	gInterchangeWarning.message = combined;
+}
+
+void CXNetworkSerializationWarningAppend(const char *fmt, ...) {
+	va_list args;
+	va_start(args, fmt);
+	InterchangeWarningAppendArgs(fmt, args);
+	va_end(args);
+}
+
+static void InterchangeWarningClear(void) {
+	CXNetworkSerializationWarningClear();
+}
+
+static void InterchangeWarningAppend(const char *fmt, ...) {
+	va_list args;
+	va_start(args, fmt);
+	InterchangeWarningAppendArgs(fmt, args);
+	va_end(args);
 }
 
 const char* CXNetworkSerializationLastWarningMessage(void) {

@@ -19,7 +19,13 @@ add_project_arguments(extra_options, language: 'c')
 
 py = import('python').find_installation(required: true, pure: false)
 
-include_dirs = include_directories('../src/native/include/helios', '../src/native/libraries/htslib')
+include_dirs = include_directories(
+  '../src/native/include/helios',
+  '../src/native/libraries/htslib',
+  '../src/native/libraries/zstd',
+  '../src/native/libraries/zstd/common',
+  '../src/native/libraries/zstd/decompress',
+)
 
 zlib_dep = dependency('zlib')
 
@@ -34,11 +40,13 @@ cvnetwork_src = files(
   '../src/native/src/CXNetworkMeasurement.c',
   '../src/native/src/CXNetworkQuery.c',
   '../src/native/src/CXNetworkBXNet.c',
+  '../src/native/src/CXNetworkGT.c',
   '../src/native/src/CXNetworkInterchange.c',
   '../src/native/src/CXNetworkXNet.c',
   '../src/native/src/CXSortTest.c',
   '../src/native/src/CXSet.c',
   '../src/native/src/CXSimpleQueue.c',
+  '../src/native/src/CXZstd.c',
   '../src/native/src/fib/fib.c',
   '../src/native/libraries/htslib/bgzf.c',
   '../src/native/libraries/htslib/hfile.c',
@@ -48,6 +56,16 @@ cvnetwork_src = files(
   '../src/native/libraries/htslib/thread_pool.c',
   '../src/native/libraries/htslib/cram/pooled_alloc.c',
   '../src/native/libraries/htslib/hts_shim.c',
+  '../src/native/libraries/zstd/common/debug.c',
+  '../src/native/libraries/zstd/common/entropy_common.c',
+  '../src/native/libraries/zstd/common/error_private.c',
+  '../src/native/libraries/zstd/common/fse_decompress.c',
+  '../src/native/libraries/zstd/common/xxhash.c',
+  '../src/native/libraries/zstd/common/zstd_common.c',
+  '../src/native/libraries/zstd/decompress/huf_decompress.c',
+  '../src/native/libraries/zstd/decompress/zstd_ddict.c',
+  '../src/native/libraries/zstd/decompress/zstd_decompress.c',
+  '../src/native/libraries/zstd/decompress/zstd_decompress_block.c',
 )
 
 py.extension_module(

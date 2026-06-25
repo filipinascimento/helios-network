@@ -406,10 +406,19 @@ class Network:
         return result
 
     def to_bxnet_bytes(self):
+        """Serialize the network to an in-memory `.bxnet` byte payload."""
+
         return self._serialized_bytes("bxnet")
 
     def to_zxnet_bytes(self, compression: int = 6):
+        """Serialize the network to an in-memory `.zxnet` byte payload."""
+
         return self._serialized_bytes("zxnet", compression=compression)
+
+    def to_gt_bytes(self):
+        """Serialize the network to an in-memory graph-tool `.gt` byte payload."""
+
+        return self._serialized_bytes("gt")
 
     def _serialized_bytes(self, kind: str, compression: int = 6):
         suffix = f".{kind}"
@@ -422,6 +431,8 @@ class Network:
                 self._core.save_zxnet(path, int(compression))
             elif kind == "xnet":
                 self._core.save_xnet(path)
+            elif kind == "gt":
+                self._core.save_gt(path)
             else:
                 raise ValueError(f"Unsupported serialization kind: {kind}")
             with open(path, "rb") as handle:

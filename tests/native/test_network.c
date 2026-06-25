@@ -9,6 +9,7 @@
 #include "CXNetwork.h"
 #include "CXNeighborStorage.h"
 #include "CXNetworkGML.h"
+#include "CXNetworkGT.h"
 #include "CXNetworkNodeLinkJSON.h"
 #include "CXNetworkXNet.h"
 
@@ -1575,6 +1576,168 @@ static void test_gml_loose_loader(void) {
 	CXFreeNetwork(net);
 }
 
+static void test_gt_round_trip(void) {
+	CXNetworkRef net = CXNewNetwork(CXTrue);
+	assert(net);
+
+	CXIndex nodes[3];
+	assert(CXNetworkAddNodes(net, 3, nodes));
+	CXEdge edges[3] = {
+		{ .from = nodes[0], .to = nodes[1] },
+		{ .from = nodes[1], .to = nodes[2] },
+		{ .from = nodes[0], .to = nodes[0] },
+	};
+	CXIndex edgeIds[3];
+	assert(CXNetworkAddEdges(net, edges, 3, edgeIds));
+
+	assert(CXNetworkDefineNetworkAttribute(net, "title", CXStringAttributeType, 1));
+	CXString *titles = (CXString *)CXNetworkGetNetworkAttributeBuffer(net, "title");
+	assert(titles);
+	titles[0] = CXNewStringFromString("GT Round Trip");
+
+	assert(CXNetworkDefineNodeAttribute(net, "score", CXDoubleAttributeType, 1));
+	double *scores = (double *)CXNetworkGetNodeAttributeBuffer(net, "score");
+	assert(scores);
+	scores[nodes[0]] = 1.25;
+	scores[nodes[1]] = 2.5;
+	scores[nodes[2]] = 3.75;
+
+	assert(CXNetworkDefineNodeAttribute(net, "coords", CXDoubleAttributeType, 2));
+	double *coords = (double *)CXNetworkGetNodeAttributeBuffer(net, "coords");
+	assert(coords);
+	coords[nodes[0] * 2] = 1.0;
+	coords[nodes[0] * 2 + 1] = 2.0;
+	coords[nodes[1] * 2] = 3.0;
+	coords[nodes[1] * 2 + 1] = 4.0;
+	coords[nodes[2] * 2] = 5.0;
+	coords[nodes[2] * 2 + 1] = 6.0;
+
+	assert(CXNetworkDefineNodeAttribute(net, "label", CXStringAttributeType, 1));
+	CXString *labels = (CXString *)CXNetworkGetNodeAttributeBuffer(net, "label");
+	assert(labels);
+	labels[nodes[0]] = CXNewStringFromString("Alpha");
+	labels[nodes[1]] = CXNewStringFromString("Beta");
+	labels[nodes[2]] = CXNewStringFromString("Gamma");
+
+	assert(CXNetworkDefineEdgeAttribute(net, "weight", CXDoubleAttributeType, 1));
+	double *weights = (double *)CXNetworkGetEdgeAttributeBuffer(net, "weight");
+	assert(weights);
+	weights[edgeIds[0]] = 0.5;
+	weights[edgeIds[1]] = 1.5;
+	weights[edgeIds[2]] = 2.5;
+
+	char path[] = "/tmp/cxnet-gt-XXXXXX";
+	int fd = mkstemp(path);
+	assert(fd >= 0);
+	close(fd);
+	assert(CXNetworkWriteGT(net, path));
+	release_all_string_attributes(net);
+	CXFreeNetwork(net);
+
+	CXNetworkRef loaded = CXNetworkReadGT(path);
+	assert(loaded);
+	unlink(path);
+
+	assert(CXNetworkIsDirected(loaded));
+	assert(loaded->nodeCount == 3);
+	assert(loaded->edgeCount == 3);
+
+	double *loadedScores = (double *)CXNetworkGetNodeAttributeBuffer(loaded, "score");
+	assert(loadedScores && fabs(loadedScores[2] - 3.75) < 1e-9);
+	double *loadedCoords = (double *)CXNetworkGetNodeAttributeBuffer(loaded, "coords");
+	assert(loadedCoords && fabs(loadedCoords[4] - 5.0) < 1e-9 && fabs(loadedCoords[5] - 6.0) < 1e-9);
+	CXString *loadedLabels = (CXString *)CXNetworkGetNodeAttributeBuffer(loaded, "label");
+	assert(loadedLabels && strcmp(loadedLabels[1], "Beta") == 0);
+	CXString *loadedTitles = (CXString *)CXNetworkGetNetworkAttributeBuffer(loaded, "title");
+	assert(loadedTitles && strcmp(loadedTitles[0], "GT Round Trip") == 0);
+
+	double *loadedWeights = (double *)CXNetworkGetEdgeAttributeBuffer(loaded, "weight");
+	assert(loadedWeights);
+	assert(fabs(loadedWeights[0] - 0.5) < 1e-9);
+	assert(fabs(loadedWeights[1] - 2.5) < 1e-9);
+	assert(fabs(loadedWeights[2] - 1.5) < 1e-9);
+
+	release_all_string_attributes(loaded);
+	CXFreeNetwork(loaded);
+}
+
+static void test_gt_zst_read(void) {
+	static const unsigned char compressedGT[] = {
+		0x28, 0xb5, 0x2f, 0xfd, 0x00, 0x68, 0x7d, 0x08,
+		0x00, 0xf2, 0x8d, 0x30, 0x2a, 0x90, 0x3b, 0x07,
+		0x58, 0xb5, 0xa8, 0xbb, 0xdd, 0x2f, 0x67, 0xf5,
+		0xdf, 0x02, 0x6d, 0x3c, 0x91, 0x30, 0xf9, 0xf3,
+		0x43, 0x52, 0xa2, 0x24, 0x09, 0x76, 0xca, 0x3f,
+		0xc2, 0xe0, 0x12, 0x5a, 0xbd, 0x61, 0x39, 0x9f,
+		0x6b, 0xe7, 0xf0, 0x04, 0x6a, 0x24, 0x49, 0xda,
+		0xe8, 0x43, 0xfd, 0x46, 0xab, 0x63, 0xaa, 0x09,
+		0x1e, 0x0c, 0x05, 0x28, 0x80, 0x5a, 0x48, 0x9a,
+		0x06, 0x79, 0xe2, 0x7b, 0x65, 0xf5, 0x20, 0x01,
+		0x52, 0x9a, 0xc8, 0xf1, 0x95, 0xf9, 0x45, 0x8e,
+		0x8b, 0x92, 0xf8, 0x1e, 0xa1, 0xe2, 0xd6, 0x59,
+		0x48, 0x65, 0x7d, 0x12, 0xed, 0xbb, 0x9c, 0xcf,
+		0xeb, 0xf3, 0xe6, 0xfa, 0x41, 0xe5, 0xf6, 0xeb,
+		0x07, 0xa4, 0xe9, 0x01, 0xde, 0x22, 0xe3, 0x56,
+		0xee, 0x2e, 0xee, 0xba, 0x17, 0x6d, 0x4d, 0x7f,
+		0xe9, 0xb8, 0x4e, 0x3a, 0xbd, 0x1b, 0x6d, 0x65,
+		0x97, 0xf5, 0x1b, 0x9d, 0xe5, 0x8f, 0x9f, 0x3b,
+		0xd1, 0x56, 0x7f, 0xe5, 0xb8, 0x2b, 0x11, 0xed,
+		0x78, 0x60, 0x8c, 0xb6, 0xdc, 0x9a, 0xb1, 0x5f,
+		0x5a, 0x33, 0xe9, 0xe9, 0x1f, 0xb1, 0x5b, 0x9c,
+		0x76, 0xc2, 0x27, 0x36, 0x1d, 0xe3, 0x95, 0x8c,
+		0x29, 0x14, 0x59, 0xd6, 0xfd, 0x6f, 0x88, 0x76,
+		0x5b, 0x29, 0xad, 0xc1, 0xd1, 0x52, 0x27, 0x6d,
+		0xef, 0xfd, 0x6b, 0xeb, 0x22, 0xa6, 0x52, 0x47,
+		0x7a, 0x4f, 0xdb, 0xc3, 0x01, 0x05, 0x22, 0x28,
+		0x90, 0x46, 0xec, 0x6e, 0x03, 0x10, 0x18, 0xe3,
+		0x28, 0x0d, 0x0a, 0x85, 0x0e, 0x8b, 0x8c, 0x13,
+		0x66, 0xb9, 0x91, 0x10, 0x87, 0x18, 0xa1, 0x2d,
+		0x17, 0x14, 0x14, 0x63, 0x1c, 0x4b, 0x34, 0x9e,
+		0x60, 0x15, 0xe9, 0xb0, 0xf0, 0x12, 0x00, 0x25,
+		0xb6, 0x94, 0xd0, 0xcf, 0xb5, 0xc6, 0x50, 0x30,
+		0xcd, 0x96, 0xb1, 0x9c, 0xd0, 0x71, 0x58, 0x4d,
+		0x6c, 0xa6, 0xc5, 0xb0, 0x7d, 0xae, 0x12, 0x09,
+		0x49, 0x0b, 0x00, 0x62, 0xd8, 0xe3, 0x17, 0x09
+	};
+	char path[] = "/tmp/cxnet-gt-zst-XXXXXX";
+	int fd = mkstemp(path);
+	assert(fd >= 0);
+	FILE *file = fdopen(fd, "wb");
+	assert(file);
+	assert(fwrite(compressedGT, 1, sizeof(compressedGT), file) == sizeof(compressedGT));
+	fclose(file);
+
+	CXNetworkRef loaded = CXNetworkReadGT(path);
+	unlink(path);
+	assert(loaded);
+	assert(CXNetworkIsDirected(loaded));
+	assert(loaded->nodeCount == 3);
+	assert(loaded->edgeCount == 3);
+	CXEdge edge = loaded->edges[0];
+	assert(edge.from == 0);
+	assert(edge.to == 1);
+
+	CXString *title = (CXString *)CXNetworkGetNetworkAttributeBuffer(loaded, "title");
+	assert(title && strcmp(title[0], "gt-zst-demo") == 0);
+
+	CXString *labels = (CXString *)CXNetworkGetNodeAttributeBuffer(loaded, "label");
+	assert(labels && strcmp(labels[1], "Beta") == 0);
+
+	double *scores = (double *)CXNetworkGetNodeAttributeBuffer(loaded, "score");
+	assert(scores && fabs(scores[2] - 3.75) < 1e-9);
+
+	double *coords = (double *)CXNetworkGetNodeAttributeBuffer(loaded, "coords");
+	assert(coords && fabs(coords[4] - 5.0) < 1e-9 && fabs(coords[5] - 6.0) < 1e-9);
+
+	double *weights = (double *)CXNetworkGetEdgeAttributeBuffer(loaded, "weight");
+	assert(weights && fabs(weights[0] - 0.5) < 1e-9);
+	assert(fabs(weights[1] - 1.5) < 1e-9);
+	assert(fabs(weights[2] - 2.5) < 1e-9);
+
+	release_all_string_attributes(loaded);
+	CXFreeNetwork(loaded);
+}
+
 static void test_node_link_json_export(void) {
 	CXNetworkRef net = CXNewNetwork(CXFalse);
 	assert(net);
@@ -1707,6 +1870,8 @@ int main(void) {
 	test_xnet_compaction_mapping();
 	test_gml_round_trip_and_warnings();
 	test_gml_loose_loader();
+	test_gt_round_trip();
+	test_gt_zst_read();
 	test_node_link_json_export();
 	test_serialization_fuzz();
 	test_network_generators();

@@ -21,12 +21,15 @@ set(HELIOS_SOURCES
   src/native/src/CXNetwork.c
   src/native/src/CXNetworkGenerators.c
   src/native/src/CXNetworkMeasurement.c
+  src/native/src/CXNetworkQuery.c
+  src/native/src/CXNetworkGT.c
   src/native/src/CXNetworkBXNet.c
   src/native/src/CXNetworkInterchange.c
   src/native/src/CXNetworkXNet.c
   src/native/src/CXSortTest.c
   src/native/src/CXSet.c
   src/native/src/CXSimpleQueue.c
+  src/native/src/CXZstd.c
   src/native/src/fib/fib.c
   src/native/libraries/htslib/bgzf.c
   src/native/libraries/htslib/hfile.c
@@ -36,6 +39,16 @@ set(HELIOS_SOURCES
   src/native/libraries/htslib/thread_pool.c
   src/native/libraries/htslib/cram/pooled_alloc.c
   src/native/libraries/htslib/hts_shim.c
+  src/native/libraries/zstd/common/debug.c
+  src/native/libraries/zstd/common/entropy_common.c
+  src/native/libraries/zstd/common/error_private.c
+  src/native/libraries/zstd/common/fse_decompress.c
+  src/native/libraries/zstd/common/xxhash.c
+  src/native/libraries/zstd/common/zstd_common.c
+  src/native/libraries/zstd/decompress/huf_decompress.c
+  src/native/libraries/zstd/decompress/zstd_ddict.c
+  src/native/libraries/zstd/decompress/zstd_decompress.c
+  src/native/libraries/zstd/decompress/zstd_decompress_block.c
 )
 
 set(HELIOS_PUBLIC_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src/native/include")
@@ -52,6 +65,9 @@ function(helios_configure_target target_name)
       $<INSTALL_INTERFACE:${HELIOS_INSTALL_INCLUDE_DIR}>
     PRIVATE
       ${CMAKE_CURRENT_SOURCE_DIR}/src/native/libraries/htslib
+      ${CMAKE_CURRENT_SOURCE_DIR}/src/native/libraries/zstd
+      ${CMAKE_CURRENT_SOURCE_DIR}/src/native/libraries/zstd/common
+      ${CMAKE_CURRENT_SOURCE_DIR}/src/native/libraries/zstd/decompress
   )
   target_compile_features(${target_name} PUBLIC c_std_17)
   target_link_libraries(${target_name} PRIVATE ZLIB::ZLIB)

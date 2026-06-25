@@ -114,6 +114,12 @@ def read_gml(path: str) -> Network:
     return Network(_core_network=_core.read_gml(path))
 
 
+def read_gt(path: str) -> Network:
+    """Read a graph-tool `.gt` file into a `Network`."""
+
+    return Network(_core_network=_core.read_gt(path))
+
+
 def read_node_link_json(path: str) -> Network:
     """Read a D3/NetworkX-style node-link JSON file into a `Network`."""
 
@@ -264,6 +270,7 @@ __all__ = [
     "read_zxnet",
     "read_xnet",
     "read_gml",
+    "read_gt",
     "read_node_link_json",
     "generate_stochastic_block_model",
     "generate_barabasi_albert",

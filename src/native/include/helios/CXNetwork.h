@@ -223,6 +223,10 @@ CX_EXTERN CXSize CXNetworkQueryLastErrorOffset(void);
 CX_EXTERN const char* CXNetworkVersionString(void);
 /** Returns the last non-fatal serialization warning emitted by a save/load helper. */
 CX_EXTERN const char* CXNetworkSerializationLastWarningMessage(void);
+/** Clears the shared serialization warning buffer. */
+CX_EXTERN void CXNetworkSerializationWarningClear(void);
+/** Appends a formatted message to the shared serialization warning buffer. */
+CX_EXTERN void CXNetworkSerializationWarningAppend(const char *fmt, ...);
 
 // Network lifecycle
 /** Allocates a new network with default capacities. */
@@ -371,6 +375,10 @@ CX_EXTERN const CXBool* CXNetworkEdgeActivityBuffer(CXNetworkRef network);
 CX_EXTERN CXEdge* CXNetworkEdgesBuffer(CXNetworkRef network);
 
 // Network generators
+/**
+ * Creates a stochastic block model graph from block sizes and a flattened
+ * block-to-block probability matrix.
+ */
 CX_EXTERN CXNetworkRef CXNetworkGenerateStochasticBlockModel(
 	CXSize blockCount,
 	const CXSize *blockSizes,
@@ -378,10 +386,18 @@ CX_EXTERN CXNetworkRef CXNetworkGenerateStochasticBlockModel(
 	CXBool directed,
 	uint32_t seed
 );
+/** Creates a Barabasi-Albert preferential-attachment graph. */
 CX_EXTERN CXNetworkRef CXNetworkGenerateBarabasiAlbert(CXSize nodeCount, CXSize edgesPerNewNode, CXSize initialCliqueSize, CXBool directed, uint32_t seed);
+/** Creates a Watts-Strogatz small-world graph. */
 CX_EXTERN CXNetworkRef CXNetworkGenerateWattsStrogatz(CXSize nodeCount, CXSize neighborLevel, double rewiringProbability, CXBool directed, uint32_t seed);
+/** Creates a random geometric graph using random 2D positions and a radius cutoff. */
 CX_EXTERN CXNetworkRef CXNetworkGenerateRandomGeometric(CXSize nodeCount, double radius, CXBool directed, uint32_t seed);
+/** Creates a Waxman random graph using distance-weighted edge probabilities. */
 CX_EXTERN CXNetworkRef CXNetworkGenerateWaxman(CXSize nodeCount, double alpha, double beta, CXBool directed, uint32_t seed);
+/**
+ * Creates a graph with the requested degree sequence using the configuration
+ * model.
+ */
 CX_EXTERN CXNetworkRef CXNetworkGenerateConfigurationModel(
 	CXSize nodeCount,
 	const CXSize *degrees,
@@ -390,6 +406,7 @@ CX_EXTERN CXNetworkRef CXNetworkGenerateConfigurationModel(
 	CXBool allowMultiEdges,
 	uint32_t seed
 );
+/** Creates a two-dimensional lattice graph. */
 CX_EXTERN CXNetworkRef CXNetworkGenerateLattice2D(CXSize rows, CXSize columns, CXSize neighborLevel, CXBool periodic, CXBool directed);
 
 // Adjacency access
@@ -1054,6 +1071,7 @@ CX_EXTERN CXIndex* CXEdgeSelectorData(CXEdgeSelectorRef selector);
 CX_EXTERN CXSize CXEdgeSelectorCount(CXEdgeSelectorRef selector);
 
 #include "CXNetworkBXNet.h"
+#include "CXNetworkGT.h"
 
 #ifdef __cplusplus
 } // extern "C"

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Added graph-tool `.gt` read/write support across the native C core, WASM/JS API, and Python bindings for topology and supported graph, vertex, and edge property maps.
+- Added portable zstd frame decompression for graph-tool `.gt.zst` input across native C, WASM/JS, Python, and downstream Helios loaders. GT export remains plain `.gt`.
 - Added native, JavaScript, and Python network generators for stochastic block models, Barabasi-Albert, Watts-Strogatz small-world graphs, random geometric graphs, Waxman graphs, configuration models, and 2D lattices.
 - Added Python bindings for Leiden modularity community detection (`measure_leiden_modularity(...)` / `leiden_modularity(...)`) and major-component rank labeling (`label_major_components(...)`).
 - Added Python bulk edge insertion from integer buffers (`add_edges_from_arrays(...)`) for large generated graphs and benchmarks.

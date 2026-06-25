@@ -1874,6 +1874,27 @@ static PyObject *Network_save_gml(PyHeliosNetwork *self, PyObject *args) {
     Py_RETURN_TRUE;
 }
 
+static PyObject *Network_save_gt(PyHeliosNetwork *self, PyObject *args) {
+    const char *path = NULL;
+    if (!PyArg_ParseTuple(args, "s", &path)) {
+        return NULL;
+    }
+    if (!self->network) {
+        PyErr_SetString(PyExc_RuntimeError, "Network is not initialized");
+        return NULL;
+    }
+    CXBool ok = CXNetworkWriteGT(self->network, path);
+    if (!ok) {
+        PyErr_SetString(PyExc_IOError, "Failed to write GT file");
+        return NULL;
+    }
+    emit_serialization_warning();
+    if (PyErr_Occurred()) {
+        return NULL;
+    }
+    Py_RETURN_TRUE;
+}
+
 static PyObject *Network_save_node_link_json(PyHeliosNetwork *self, PyObject *args) {
     const char *path = NULL;
     if (!PyArg_ParseTuple(args, "s", &path)) {
@@ -3217,6 +3238,7 @@ static PyMethodDef Network_methods[] = {
     {"save_bxnet", (PyCFunction)Network_save_bxnet, METH_VARARGS, "Save network as .bxnet."},
     {"save_zxnet", (PyCFunction)Network_save_zxnet, METH_VARARGS, "Save network as .zxnet."},
     {"save_gml", (PyCFunction)Network_save_gml, METH_VARARGS, "Save network as .gml."},
+    {"save_gt", (PyCFunction)Network_save_gt, METH_VARARGS, "Save network as graph-tool .gt."},
     {"save_node_link_json", (PyCFunction)Network_save_node_link_json, METH_VARARGS, "Save network as node-link JSON."},
     {"categorize_attribute", (PyCFunction)Network_categorize_attribute, METH_VARARGS | METH_KEYWORDS, "Categorize a string attribute."},
     {"decategorize_attribute", (PyCFunction)Network_decategorize_attribute, METH_VARARGS | METH_KEYWORDS, "Convert categorical attribute to strings."},
@@ -3546,6 +3568,25 @@ static PyObject *module_read_gml(PyObject *self, PyObject *args) {
     return Network_FromCXNetwork(network);
 }
 
+static PyObject *module_read_gt(PyObject *self, PyObject *args) {
+    (void)self;
+    const char *path = NULL;
+    if (!PyArg_ParseTuple(args, "s", &path)) {
+        return NULL;
+    }
+    CXNetworkRef network = CXNetworkReadGT(path);
+    if (!network) {
+        PyErr_SetString(PyExc_IOError, "Failed to read GT file");
+        return NULL;
+    }
+    emit_serialization_warning();
+    if (PyErr_Occurred()) {
+        CXFreeNetwork(network);
+        return NULL;
+    }
+    return Network_FromCXNetwork(network);
+}
+
 static PyMethodDef module_methods[] = {
     {"generate_stochastic_block_model", (PyCFunction)module_generate_stochastic_block_model, METH_VARARGS | METH_KEYWORDS, "Generate a stochastic block model network."},
     {"generate_barabasi_albert", (PyCFunction)module_generate_barabasi_albert, METH_VARARGS | METH_KEYWORDS, "Generate a Barabasi-Albert preferential attachment network."},
@@ -3558,6 +3599,7 @@ static PyMethodDef module_methods[] = {
     {"read_bxnet", (PyCFunction)module_read_bxnet, METH_VARARGS, "Read .bxnet file into a Network."},
     {"read_zxnet", (PyCFunction)module_read_zxnet, METH_VARARGS, "Read .zxnet file into a Network."},
     {"read_gml", (PyCFunction)module_read_gml, METH_VARARGS, "Read .gml file into a Network."},
+    {"read_gt", (PyCFunction)module_read_gt, METH_VARARGS, "Read graph-tool .gt file into a Network."},
     {NULL, NULL, 0, NULL}
 };
 

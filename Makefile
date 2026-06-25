@@ -20,7 +20,18 @@ HTSLIB_SRC := \
 	src/native/libraries/htslib/thread_pool.c \
 	src/native/libraries/htslib/cram/pooled_alloc.c \
 	src/native/libraries/htslib/hts_shim.c
-NATIVE_SRC += $(HTSLIB_SRC)
+ZSTD_SRC := \
+	src/native/libraries/zstd/common/debug.c \
+	src/native/libraries/zstd/common/entropy_common.c \
+	src/native/libraries/zstd/common/error_private.c \
+	src/native/libraries/zstd/common/fse_decompress.c \
+	src/native/libraries/zstd/common/xxhash.c \
+	src/native/libraries/zstd/common/zstd_common.c \
+	src/native/libraries/zstd/decompress/huf_decompress.c \
+	src/native/libraries/zstd/decompress/zstd_ddict.c \
+	src/native/libraries/zstd/decompress/zstd_decompress.c \
+	src/native/libraries/zstd/decompress/zstd_decompress_block.c
+NATIVE_SRC += $(HTSLIB_SRC) $(ZSTD_SRC)
 INCLUDE_DIR := src/native/include/helios
 NATIVE_BUILD_DIR := build/native
 NATIVE_OBJ := $(patsubst src/native/%.c,$(NATIVE_BUILD_DIR)/%.o,$(NATIVE_SRC))
@@ -51,9 +62,11 @@ else
 endif
 
 NATIVE_CFLAGS := -std=c17 -O3 -Wall -Wextra -pedantic -DNDEBUG -fPIC \
-	-Isrc/native/include -Isrc/native/include/helios -Isrc/native/libraries/htslib
+	-Isrc/native/include -Isrc/native/include/helios -Isrc/native/libraries/htslib \
+	-Isrc/native/libraries/zstd -Isrc/native/libraries/zstd/common -Isrc/native/libraries/zstd/decompress
 TEST_CFLAGS := -std=c17 -Wall -Wextra -pedantic \
-	-Isrc/native/include -Isrc/native/include/helios -Isrc/native/libraries/htslib
+	-Isrc/native/include -Isrc/native/include/helios -Isrc/native/libraries/htslib \
+	-Isrc/native/libraries/zstd -Isrc/native/libraries/zstd/common -Isrc/native/libraries/zstd/decompress
 LIBS := -lz
 
 PYTHON ?= python3
@@ -64,6 +77,9 @@ EMCC_FLAGS := \
 	-Wall \
 	-Isrc/native/include/helios \
 	-Isrc/native/libraries/htslib \
+	-Isrc/native/libraries/zstd \
+	-Isrc/native/libraries/zstd/common \
+	-Isrc/native/libraries/zstd/decompress \
 	-DHTS_DISABLE_BGZF_THREADS \
 	-D_POSIX_C_SOURCE=200809 \
 	-s EXPORT_ES6=1 \

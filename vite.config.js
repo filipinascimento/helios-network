@@ -25,6 +25,7 @@ function compileEmscripten() {
 
 function stableWorkerBundlePlugin() {
 	const workerFileRe = /^HeliosSessionWorker\.browser-[A-Za-z0-9_-]+\.js$/;
+	const browserExternalRe = /__vite-browser-external-[A-Za-z0-9_-]+\.js/g;
 	const stableWorkerRel = 'workers/HeliosSessionWorker.browser.js';
 	const stableWorkerMapRel = 'workers/HeliosSessionWorker.browser.js.map';
 	let outDir = 'dist';
@@ -95,11 +96,15 @@ function stableWorkerBundlePlugin() {
 				} catch {
 					return;
 				}
+				const browserExternalFiles = new Set(code.match(browserExternalRe) ?? []);
 				const escapedWorker = workerAsset.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 				code = code
 					.replace(new RegExp(`"/assets/${escapedWorker}"`, 'g'), `"./${stableWorkerRel}"`)
 					.replace(new RegExp(`'/assets/${escapedWorker}'`, 'g'), `'./${stableWorkerRel}'`);
 				await fs.writeFile(filePath, code, 'utf8');
+				for (const fileName of browserExternalFiles) {
+					await ensureBrowserExternalStub(absOutDir, fileName);
+				}
 			};
 
 			await patchBundleFile(absMainEsm);
@@ -113,6 +118,37 @@ function stableWorkerBundlePlugin() {
 			// cause noisy ENOENT warnings even though runtime is fine.
 		},
 	};
+}
+
+async function ensureBrowserExternalStub(absOutDir, fileName) {
+	const absStub = path.join(absOutDir, fileName);
+	try {
+		await fs.access(absStub);
+		return;
+	} catch {
+		// Vite can leave browser-external imports in the bundle without emitting
+		// the tiny helper chunk when the import came from generated Emscripten
+		// code. The helper is intentionally empty in browser builds.
+	}
+	const mapName = `${fileName}.map`;
+	const sourceName = '../__vite-browser-external';
+	await fs.writeFile(
+		absStub,
+		`const __viteBrowserExternal = {};\nexport { __viteBrowserExternal as default };\n//# sourceMappingURL=${mapName}\n`,
+		'utf8',
+	);
+	await fs.writeFile(
+		path.join(absOutDir, mapName),
+		JSON.stringify({
+			version: 3,
+			file: fileName,
+			sources: [sourceName],
+			sourcesContent: ['export default {}'],
+			names: ['__viteBrowserExternal'],
+			mappings: 'AAAA,MAAAA,IAAe,CAAA;',
+		}),
+		'utf8',
+	);
 }
 
 export default {

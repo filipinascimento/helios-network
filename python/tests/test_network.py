@@ -2,6 +2,7 @@ import os
 import tempfile
 import warnings
 import json
+import base64
 from array import array
 
 from helios_network import (
@@ -16,6 +17,7 @@ from helios_network import (
     StrengthMeasure,
     read_bxnet,
     read_gml,
+    read_gt,
     read_node_link_json,
     read_xnet,
     read_zxnet,
@@ -514,6 +516,64 @@ def test_save_load_gml_roundtrip_with_warning():
         assert loaded.get_attribute_value(AttributeScope.Node, "safe_label", 1) == "Beta"
         assert loaded.get_attribute_value(AttributeScope.Node, "label_with_spaces", 2) == "C"
         assert loaded.get_attribute_value(AttributeScope.Node, "_original_ids_", 1) == "1"
+
+
+def test_save_load_gt_roundtrip_with_attributes():
+    network = Network(directed=True)
+    nodes = network.add_nodes(3)
+    edges = network.add_edges([(nodes[0], nodes[1]), (nodes[1], nodes[2]), (nodes[0], nodes[0])])
+    network.define_attribute(AttributeScope.Network, "title", AttributeType.String, 1)
+    network.define_attribute(AttributeScope.Node, "score", AttributeType.Double, 1)
+    network.define_attribute(AttributeScope.Node, "coords", AttributeType.Double, 2)
+    network.define_attribute(AttributeScope.Node, "label", AttributeType.String, 1)
+    network.define_attribute(AttributeScope.Edge, "weight", AttributeType.Double, 1)
+
+    network.set_attribute_value(AttributeScope.Network, "title", 0, "gt-demo")
+    network.set_attribute_value(AttributeScope.Node, "score", nodes[0], 1.25)
+    network.set_attribute_value(AttributeScope.Node, "score", nodes[1], 2.5)
+    network.set_attribute_value(AttributeScope.Node, "score", nodes[2], 3.75)
+    network.set_attribute_value(AttributeScope.Node, "coords", nodes[0], (1.0, 2.0))
+    network.set_attribute_value(AttributeScope.Node, "coords", nodes[1], (3.0, 4.0))
+    network.set_attribute_value(AttributeScope.Node, "coords", nodes[2], (5.0, 6.0))
+    network.set_attribute_value(AttributeScope.Node, "label", nodes[0], "Alpha")
+    network.set_attribute_value(AttributeScope.Node, "label", nodes[1], "Beta")
+    network.set_attribute_value(AttributeScope.Node, "label", nodes[2], "Gamma")
+    network.set_attribute_value(AttributeScope.Edge, "weight", edges[0], 0.5)
+    network.set_attribute_value(AttributeScope.Edge, "weight", edges[1], 1.5)
+    network.set_attribute_value(AttributeScope.Edge, "weight", edges[2], 2.5)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        path = os.path.join(tmpdir, "sample.gt")
+        network.save_gt(path)
+        loaded = read_gt(path)
+        assert loaded.is_directed
+        assert loaded.node_count() == network.node_count()
+        assert loaded.edge_count() == network.edge_count()
+        assert loaded.get_attribute_value(AttributeScope.Network, "title", 0) == "gt-demo"
+        assert loaded.get_attribute_value(AttributeScope.Node, "label", 1) == "Beta"
+        assert loaded.get_attribute_value(AttributeScope.Node, "coords", 2) == (5.0, 6.0)
+        assert loaded.get_attribute_value(AttributeScope.Edge, "weight", 1) == 2.5
+        assert loaded.get_attribute_value(AttributeScope.Edge, "weight", 2) == 1.5
+        assert len(network.to_gt_bytes()) > 0
+
+
+def test_read_gt_accepts_zstd_compressed_payload():
+    payload = base64.b64decode(
+        "KLUv/QBofQgA8o0wKpA7B1i1qLvdL2f13wJtPJEw+fNDUqIkCXbKP8LgElq9YTmfa+fwBGokSdroQ/1Gq2OqCR4MBSiAWkiaBnnie2X1IAFSmsjxlflFjouS+B6h4tZZSGV9Eu27nM/r8+b6QeX26wek6QHeIuNW7i7uuhdtTX/puE46vRttZZf1G53lj5870VZ/5bgrEe14YIy23JqxX1oz6ekfsVucdsInNh3jlYwpFFnW/W+IdlsprcHRUidt7/1r6yKmUkd6T9vDAQUiKJBG7G4DEBjjKA0KhQ6LjBNmuZEQhxihLRcUFGMcSzSeYBXpsPASACW2lNDPtcZQMM2WsZzQcVhNbKbFsH2uEglJCwBi2OMXCQ=="
+    )
+    with tempfile.TemporaryDirectory() as tmpdir:
+        path = os.path.join(tmpdir, "sample.gt.zst")
+        with open(path, "wb") as handle:
+            handle.write(payload)
+        loaded = read_gt(path)
+        assert loaded.is_directed
+        assert loaded.node_count() == 3
+        assert loaded.edge_count() == 3
+        assert loaded.get_attribute_value(AttributeScope.Network, "title", 0) == "gt-zst-demo"
+        assert loaded.get_attribute_value(AttributeScope.Node, "label", 1) == "Beta"
+        assert loaded.get_attribute_value(AttributeScope.Node, "score", 2) == 3.75
+        assert loaded.get_attribute_value(AttributeScope.Node, "coords", 2) == (5.0, 6.0)
+        assert [loaded.get_attribute_value(AttributeScope.Edge, "weight", i) for i in range(3)] == [0.5, 1.5, 2.5]
 
 
 def test_save_node_link_json_with_reserved_attribute_warning():
