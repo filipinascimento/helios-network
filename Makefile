@@ -62,9 +62,11 @@ else
 endif
 
 NATIVE_CFLAGS := -std=c17 -O3 -Wall -Wextra -pedantic -DNDEBUG -fPIC \
+	-DZSTD_DISABLE_ASM \
 	-Isrc/native/include -Isrc/native/include/helios -Isrc/native/libraries/htslib \
 	-Isrc/native/libraries/zstd -Isrc/native/libraries/zstd/common -Isrc/native/libraries/zstd/decompress
 TEST_CFLAGS := -std=c17 -Wall -Wextra -pedantic \
+	-DZSTD_DISABLE_ASM \
 	-Isrc/native/include -Isrc/native/include/helios -Isrc/native/libraries/htslib \
 	-Isrc/native/libraries/zstd -Isrc/native/libraries/zstd/common -Isrc/native/libraries/zstd/decompress
 LIBS := -lz
@@ -82,6 +84,7 @@ EMCC_FLAGS := \
 	-Isrc/native/libraries/zstd/decompress \
 	-DHTS_DISABLE_BGZF_THREADS \
 	-D_POSIX_C_SOURCE=200809 \
+	-DZSTD_DISABLE_ASM \
 	-s EXPORT_ES6=1 \
 	-s MODULARIZE=1 \
 	-s ALLOW_MEMORY_GROWTH=1 \

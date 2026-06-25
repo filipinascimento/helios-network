@@ -6,6 +6,7 @@ project('helios-network', 'c',
 add_project_arguments(
   '-D_POSIX_C_SOURCE=200809',
   '-D_GNU_SOURCE',
+  '-DZSTD_DISABLE_ASM',
   language : 'c'
 )
 
@@ -83,6 +84,7 @@ emcc_args = [
   '-Isrc/native/libraries/zstd/decompress',
   '-D_POSIX_C_SOURCE=200809',
   '-DHTS_DISABLE_BGZF_THREADS',
+  '-DZSTD_DISABLE_ASM',
   '-s', 'EXPORT_ES6=1',
   '-s', 'MODULARIZE=1',
   '-s', 'ALLOW_MEMORY_GROWTH=1',

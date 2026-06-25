@@ -25,8 +25,19 @@ jobs:
           registry-url: https://registry.npmjs.org
           cache: npm
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 4.0.18
+
       - name: Install dependencies
         run: npm ci
+
+      - name: Install native build tooling
+        run: python -m pip install --upgrade meson ninja
 
       - name: Install browser dependencies
         run: npx playwright install --with-deps chromium

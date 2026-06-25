@@ -4,6 +4,7 @@ extra_options = [
   '-D_POSIX_C_SOURCE=200809',
   '-D_GNU_SOURCE',
   '-DHTS_DISABLE_BGZF_THREADS',
+  '-DZSTD_DISABLE_ASM',
 ]
 
 host_system = host_machine.system()

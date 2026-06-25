@@ -70,6 +70,7 @@ function(helios_configure_target target_name)
       ${CMAKE_CURRENT_SOURCE_DIR}/src/native/libraries/zstd/decompress
   )
   target_compile_features(${target_name} PUBLIC c_std_17)
+  target_compile_definitions(${target_name} PRIVATE ZSTD_DISABLE_ASM)
   target_link_libraries(${target_name} PRIVATE ZLIB::ZLIB)
   set_target_properties(${target_name} PROPERTIES
     POSITION_INDEPENDENT_CODE ON
