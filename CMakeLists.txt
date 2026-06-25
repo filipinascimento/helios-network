@@ -74,6 +74,9 @@ function(helios_configure_target target_name)
   target_compile_features(${target_name} PUBLIC c_std_17)
   target_compile_definitions(${target_name} PRIVATE ZSTD_DISABLE_ASM)
   target_link_libraries(${target_name} PRIVATE ZLIB::ZLIB)
+  if(WIN32)
+    target_link_libraries(${target_name} PRIVATE ws2_32)
+  endif()
   set_target_properties(${target_name} PROPERTIES
     POSITION_INDEPENDENT_CODE ON
     PUBLIC_HEADER ""

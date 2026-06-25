@@ -36,6 +36,10 @@ include_dirs = include_directories(
 )
 
 zlib_dep = dependency('zlib')
+native_deps = [zlib_dep]
+if host_system == 'windows'
+  native_deps += cc.find_library('ws2_32', required: true)
+endif
 
 cvnetwork_src = files(
   '../src/native/src/CXDictionary.c',
@@ -80,7 +84,7 @@ py.extension_module(
   '_core',
   sources: cvnetwork_src + files('src/helios_network/_core.c'),
   include_directories: include_dirs,
-  dependencies: [zlib_dep],
+  dependencies: native_deps,
   install: true,
   subdir: 'helios_network'
 )
