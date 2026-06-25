@@ -22,7 +22,8 @@ umap = [
 [tool.cibuildwheel]
 build = "cp39-* cp310-* cp311-* cp312-* cp313-*"
 skip = "*-win32 *-musllinux_*"
-test-command = "python -c \"import helios_network; n = helios_network.Network(); n.add_nodes(2); assert n.node_count() == 2\""
+test-requires = ["pytest"]
+test-command = "python -m pytest {project}/tests"
 
 [tool.cibuildwheel.windows]
 archs = ["AMD64"]

@@ -21,7 +21,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: "24.15.0"
           registry-url: https://registry.npmjs.org
           cache: npm
 
@@ -111,6 +111,7 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: dist
+          skip-existing: true
 
   assets:
     name: Attach release assets
