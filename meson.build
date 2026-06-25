@@ -59,7 +59,7 @@ include_dirs = include_directories(
 )
 
 if host_machine.system() == 'emscripten'
-  zlib_dep = declare_dependency()
+  zlib_dep = declare_dependency(compile_args: ['-sUSE_ZLIB=1'])
 else
   zlib_dep = dependency('zlib')
 endif
