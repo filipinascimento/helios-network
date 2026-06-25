@@ -28,6 +28,7 @@ py = import('python').find_installation(required: true, pure: false)
 
 include_dirs = include_directories(
   '../src/native/include/helios',
+  '../src/native/third_party',
   '../src/native/libraries/htslib',
   '../src/native/libraries/zstd',
   '../src/native/libraries/zstd/common',

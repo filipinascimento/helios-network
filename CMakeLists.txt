@@ -64,6 +64,8 @@ function(helios_configure_target target_name)
       $<BUILD_INTERFACE:${HELIOS_PUBLIC_INCLUDE_DIR}>
       $<INSTALL_INTERFACE:${HELIOS_INSTALL_INCLUDE_DIR}>
     PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}/src/native/include/helios
+      ${CMAKE_CURRENT_SOURCE_DIR}/src/native/third_party
       ${CMAKE_CURRENT_SOURCE_DIR}/src/native/libraries/htslib
       ${CMAKE_CURRENT_SOURCE_DIR}/src/native/libraries/zstd
       ${CMAKE_CURRENT_SOURCE_DIR}/src/native/libraries/zstd/common
