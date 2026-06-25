@@ -1,5 +1,7 @@
 project('helios-network-python', 'c', version : '0.10.1', default_options: ['c_std=c17'])
 
+cc = meson.get_compiler('c')
+
 extra_options = [
   '-D_POSIX_C_SOURCE=200809',
   '-D_GNU_SOURCE',
@@ -11,7 +13,11 @@ host_system = host_machine.system()
 if host_system == 'darwin'
   extra_options += ['-D_DARWIN_C_SOURCE']
 elif host_system == 'windows'
-  extra_options += ['/DWIN32', '/D__WIN32__']
+  if cc.get_argument_syntax() == 'msvc'
+    extra_options += ['/DWIN32', '/D__WIN32__']
+  else
+    extra_options += ['-DWIN32', '-D__WIN32__']
+  endif
 else
   extra_options += ['-DLinux']
 endif
