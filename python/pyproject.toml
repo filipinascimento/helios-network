@@ -4,7 +4,7 @@ build-backend = "mesonpy"
 
 [project]
 name = "helios-network"
-version = "0.10.1"
+version = "0.10.2"
 description = "Helios Network Python bindings"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -22,7 +22,15 @@ umap = [
 [tool.cibuildwheel]
 build = "cp39-* cp310-* cp311-* cp312-* cp313-*"
 skip = "*-win32 *-musllinux_*"
-test-requires = ["pytest"]
+test-requires = [
+  "pytest",
+  "networkx",
+  "igraph",
+  "numpy>=1.23",
+  "scipy>=1.10",
+  "umap-learn>=0.5.7",
+  "pynndescent>=0.5.12",
+]
 test-command = "python -m pytest {project}/python/tests"
 
 [tool.cibuildwheel.windows]
