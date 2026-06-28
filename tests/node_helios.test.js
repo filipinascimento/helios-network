@@ -502,15 +502,36 @@ describe('HeliosNetwork (Node runtime)', () => {
 			expect(edgeResult.changed).toBe(true);
 			expect(edgeResult.start).toBe(0);
 			expect(edgeResult.count).toBe(3);
-			expect(net.withBufferAccess(() => Array.from(net.edgeIndices), { edgeIndices: true })).toEqual([
-				edges[2],
-				edges[0],
-				edges[1],
-			]);
-		} finally {
-			net.dispose();
-		}
-	});
+				expect(net.withBufferAccess(() => Array.from(net.edgeIndices), { edgeIndices: true })).toEqual([
+					edges[2],
+					edges[0],
+					edges[1],
+				]);
+
+				const duplicateResult = net.promoteActiveNodesToRenderEnd([nodes[1], nodes[1], 999999, nodes[3]]);
+				expect(duplicateResult.changed).toBe(false);
+				expect(net.withBufferAccess(() => Array.from(net.nodeIndices), { nodeIndices: true })).toEqual([
+					nodes[0],
+					nodes[2],
+					nodes[4],
+					nodes[1],
+					nodes[3],
+				]);
+
+				net.removeNodes([nodes[2]]);
+				const inactiveResult = net.promoteActiveNodesToRenderEnd([nodes[2], nodes[0]]);
+				expect(inactiveResult.changed).toBe(true);
+				expect(inactiveResult.start).toBe(0);
+				expect(net.withBufferAccess(() => Array.from(net.nodeIndices), { nodeIndices: true })).toEqual([
+					nodes[1],
+					nodes[3],
+					nodes[4],
+					nodes[0],
+				]);
+			} finally {
+				net.dispose();
+			}
+		});
 
 	test('selector proxies expose attributes and topology helpers', () => {
 		const nodes = network.addNodes(3);

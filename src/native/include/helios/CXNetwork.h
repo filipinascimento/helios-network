@@ -154,6 +154,11 @@ typedef struct {
 	CXNeighborContainer outNeighbors;
 } CXNodeRecord;
 
+typedef struct {
+	CXIndex index;
+	CXSize position;
+} CXIndexPromotionEntry;
+
 typedef struct CXNetwork {
 	CXBool isDirected;
 	CXSize nodeCount;
@@ -176,10 +181,18 @@ typedef struct CXNetwork {
 	CXSize nodeIndexBufferCount;
 	CXSize nodeIndexBufferCapacity;
 	CXBool nodeIndexBufferDirty;
+	CXSize *nodeIndexPositions;
+	CXSize nodeIndexPositionsCapacity;
+	CXBool nodeIndexPositionsDirty;
 	CXIndex *edgeIndexBuffer;
 	CXSize edgeIndexBufferCount;
 	CXSize edgeIndexBufferCapacity;
 	CXBool edgeIndexBufferDirty;
+	CXSize *edgeIndexPositions;
+	CXSize edgeIndexPositionsCapacity;
+	CXBool edgeIndexPositionsDirty;
+	CXIndexPromotionEntry *promotionScratch;
+	CXSize promotionScratchCapacity;
 	CXSize nodeValidStart;
 	CXSize nodeValidEnd;
 	CXBool nodeValidRangeDirty;
