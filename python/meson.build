@@ -1,4 +1,4 @@
-project('helios-network-python', 'c', version : '0.10.2', default_options: ['c_std=c17'])
+project('helios-network-python', 'c', version : '0.10.3', default_options: ['c_std=c17'])
 
 cc = meson.get_compiler('c')
 

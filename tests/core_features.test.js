@@ -304,6 +304,47 @@ test('can build filtered subgraphs with induced-edge semantics and optional orde
 	}
 });
 
+test('filterSubgraph can keep only components above a minimum size', async () => {
+	const network = await HeliosNetwork.create({ directed: false });
+	try {
+		const nodes = network.addNodes(7);
+		const edges = network.addEdges([
+			{ from: nodes[0], to: nodes[1] },
+			{ from: nodes[1], to: nodes[2] },
+			{ from: nodes[3], to: nodes[4] },
+		]);
+
+		const minTwo = network.filterSubgraph({
+			nodeSelection: nodes,
+			edgeSelection: edges,
+			minComponentSize: 2,
+		});
+		expect(Array.from(minTwo.nodeIndices)).toEqual([nodes[0], nodes[1], nodes[2], nodes[3], nodes[4]]);
+		expect(Array.from(minTwo.edgeIndices)).toEqual(Array.from(edges));
+
+		const minThree = network.filterSubgraph({
+			nodeSelection: nodes,
+			edgeSelection: edges,
+			minComponentSize: 3,
+			asSelector: true,
+		});
+		expect(Array.from(minThree.nodes)).toEqual([nodes[0], nodes[1], nodes[2]]);
+		expect(Array.from(minThree.edges)).toEqual([edges[0], edges[1]]);
+		minThree.nodes.dispose();
+		minThree.edges.dispose();
+
+		const bridgeFiltered = network.filterSubgraph({
+			nodeSelection: nodes,
+			edgeSelection: [edges[0], edges[2]],
+			minComponentSize: 2,
+		});
+		expect(Array.from(bridgeFiltered.nodeIndices)).toEqual([nodes[0], nodes[1], nodes[3], nodes[4]]);
+		expect(Array.from(bridgeFiltered.edgeIndices)).toEqual([edges[0], edges[2]]);
+	} finally {
+		network.dispose();
+	}
+});
+
 test('can apply text batch with relative ids', async () => {
 	const network = await HeliosNetwork.create({ directed: false });
 	network.defineNodeAttribute('weight', AttributeType.Float, 1);

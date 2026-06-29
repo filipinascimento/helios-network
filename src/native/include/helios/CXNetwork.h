@@ -41,11 +41,11 @@ extern "C" {
 #endif
 
 #ifndef CXNETWORK_VERSION_PATCH
-#define CXNETWORK_VERSION_PATCH 2
+#define CXNETWORK_VERSION_PATCH 3
 #endif
 
 #ifndef CXNETWORK_VERSION_STRING
-#define CXNETWORK_VERSION_STRING "0.10.2"
+#define CXNETWORK_VERSION_STRING "0.10.3"
 #endif
 
 /**
@@ -1038,6 +1038,7 @@ CX_EXTERN CXBool CXNetworkBuildFilteredSubgraph(
 	CXNetworkRef network,
 	CXNodeSelectorRef nodeFilter,
 	CXEdgeSelectorRef edgeFilter,
+	CXSize minComponentSize,
 	CXNodeSelectorRef outNodeSelector,
 	CXEdgeSelectorRef outEdgeSelector
 );

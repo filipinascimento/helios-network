@@ -230,6 +230,7 @@ edgeSelector.dispose();
 const filtered = net.filterSubgraph({
   nodeQuery: 'year >= 2020',
   edgeQuery: 'weight > 0.1',
+  minComponentSize: 3, // optional: prune filtered connected components below this size
   orderNodesBy: '-id', // optional
 });
 console.log(filtered.nodeIndices, filtered.edgeIndices);

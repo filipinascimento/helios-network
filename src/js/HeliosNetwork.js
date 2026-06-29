@@ -268,6 +268,7 @@ const DIMENSION_FORWARD_COEFFICIENTS = Object.freeze([
  * @property {EdgeSelector|Iterable<number>|Uint32Array=} edgeSelection
  * @property {FilterOrderSpec|string=} orderNodesBy
  * @property {FilterOrderSpec|string=} orderEdgesBy
+ * @property {number=} minComponentSize
  * @property {boolean=} asSelector
  */
 
@@ -9367,6 +9368,10 @@ export class HeliosNetwork extends BaseEventTarget {
 		const edgeInput = options.edgeSelection ?? options.edgeSelector ?? null;
 		const nodeOrder = this._normalizeFilterOrder('node', options.orderNodesBy);
 		const edgeOrder = this._normalizeFilterOrder('edge', options.orderEdgesBy);
+		const rawMinComponentSize = Math.floor(Number(options.minComponentSize));
+		const minComponentSize = Number.isFinite(rawMinComponentSize) && rawMinComponentSize > 1
+			? rawMinComponentSize
+			: 0;
 
 		const temporarySelectors = [];
 		const ownSelector = (selector) => {
@@ -9458,6 +9463,7 @@ export class HeliosNetwork extends BaseEventTarget {
 				this.ptr,
 				nodeFilter?.ptr ?? 0,
 				edgeFilter?.ptr ?? 0,
+				minComponentSize,
 				nodeOutput.ptr,
 				edgeOutput.ptr,
 			);

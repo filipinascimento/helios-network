@@ -4122,10 +4122,99 @@ CXSize CXEdgeSelectorCount(CXEdgeSelectorRef selector) {
 	return selector ? selector->count : 0;
 }
 
+static CXIndex CXFilteredComponentFind(CXIndex *parent, CXIndex node) {
+	CXIndex root = node;
+	while (parent[root] != root) {
+		root = parent[root];
+	}
+	CXIndex current = node;
+	while (parent[current] != current) {
+		CXIndex next = parent[current];
+		parent[current] = root;
+		current = next;
+	}
+	return root;
+}
+
+static void CXFilteredComponentUnion(CXIndex *parent, CXSize *size, CXIndex a, CXIndex b) {
+	CXIndex rootA = CXFilteredComponentFind(parent, a);
+	CXIndex rootB = CXFilteredComponentFind(parent, b);
+	if (rootA == rootB) {
+		return;
+	}
+	if (size[rootA] < size[rootB]) {
+		CXIndex swap = rootA;
+		rootA = rootB;
+		rootB = swap;
+	}
+	parent[rootB] = rootA;
+	size[rootA] += size[rootB];
+}
+
+static CXBool CXNetworkPruneFilteredSubgraphByComponentSize(
+	CXNetworkRef network,
+	uint8_t *nodeMask,
+	uint8_t *edgeMask,
+	CXSize minComponentSize
+) {
+	if (!network || !nodeMask || minComponentSize <= 1 || network->nodeCapacity == 0) {
+		return CXTrue;
+	}
+
+	CXIndex *parent = (CXIndex *)malloc(sizeof(CXIndex) * (size_t)network->nodeCapacity);
+	CXSize *componentSize = (CXSize *)calloc((size_t)network->nodeCapacity, sizeof(CXSize));
+	if (!parent || !componentSize) {
+		free(parent);
+		free(componentSize);
+		return CXFalse;
+	}
+
+	for (CXSize node = 0; node < network->nodeCapacity; node++) {
+		if (nodeMask[node] && network->nodeActive[node]) {
+			parent[node] = node;
+			componentSize[node] = 1;
+		} else {
+			parent[node] = CXInvalidIndexValue;
+		}
+	}
+
+	for (CXSize edge = 0; edge < network->edgeCapacity; edge++) {
+		if (!network->edgeActive[edge]) {
+			continue;
+		}
+		if (edgeMask && !edgeMask[edge]) {
+			continue;
+		}
+		CXEdge endpoints = network->edges[edge];
+		if (endpoints.from >= network->nodeCapacity || endpoints.to >= network->nodeCapacity) {
+			continue;
+		}
+		if (!nodeMask[endpoints.from] || !nodeMask[endpoints.to]) {
+			continue;
+		}
+		CXFilteredComponentUnion(parent, componentSize, endpoints.from, endpoints.to);
+	}
+
+	for (CXSize node = 0; node < network->nodeCapacity; node++) {
+		if (!nodeMask[node] || parent[node] == CXInvalidIndexValue) {
+			continue;
+		}
+		CXIndex root = CXFilteredComponentFind(parent, node);
+		if (componentSize[root] < minComponentSize) {
+			nodeMask[node] = 0;
+		}
+	}
+
+	free(parent);
+	free(componentSize);
+	return CXTrue;
+}
+
 CXBool CXNetworkBuildFilteredSubgraph(
 	CXNetworkRef network,
 	CXNodeSelectorRef nodeFilter,
 	CXEdgeSelectorRef edgeFilter,
+	CXSize minComponentSize,
 	CXNodeSelectorRef outNodeSelector,
 	CXEdgeSelectorRef outEdgeSelector
 ) {
@@ -4168,21 +4257,6 @@ CXBool CXNetworkBuildFilteredSubgraph(
 		}
 	}
 
-	CXSize nodeWriteCount = 0;
-	for (CXSize node = 0; node < network->nodeCapacity; node++) {
-		if (!nodeMask[node]) {
-			continue;
-		}
-		outNodeSelector->indices[nodeWriteCount++] = node;
-	}
-	outNodeSelector->count = nodeWriteCount;
-
-	if (nodeWriteCount == 0 || network->edgeCount == 0) {
-		outEdgeSelector->count = 0;
-		free(nodeMask);
-		return CXTrue;
-	}
-
 	uint8_t *edgeMask = NULL;
 	if (edgeFilter) {
 		edgeMask = (uint8_t *)calloc((size_t)network->edgeCapacity, sizeof(uint8_t));
@@ -4197,6 +4271,33 @@ CXBool CXNetworkBuildFilteredSubgraph(
 			}
 			edgeMask[edge] = 1;
 		}
+	}
+
+	if (minComponentSize > 1 && !CXNetworkPruneFilteredSubgraphByComponentSize(
+		network,
+		nodeMask,
+		edgeMask,
+		minComponentSize
+	)) {
+		free(nodeMask);
+		free(edgeMask);
+		return CXFalse;
+	}
+
+	CXSize nodeWriteCount = 0;
+	for (CXSize node = 0; node < network->nodeCapacity; node++) {
+		if (!nodeMask[node]) {
+			continue;
+		}
+		outNodeSelector->indices[nodeWriteCount++] = node;
+	}
+	outNodeSelector->count = nodeWriteCount;
+
+	if (nodeWriteCount == 0 || network->edgeCount == 0) {
+		outEdgeSelector->count = 0;
+		free(nodeMask);
+		free(edgeMask);
+		return CXTrue;
 	}
 
 	CXSize edgeWriteCount = 0;

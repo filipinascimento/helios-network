@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Added native `filterSubgraph({ minComponentSize })` pruning so JS/WASM callers can keep only filtered connected components above a size threshold without materializing component arrays in JavaScript.
+
 ## 2026-06-25
 
 - Fixed Python wheel release testing so cibuildwheel installs the optional test dependencies and runs the full Python suite, including NetworkX, igraph, NumPy/SciPy, and UMAP coverage.
